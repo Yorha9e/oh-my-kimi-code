@@ -1,154 +1,144 @@
-# Kimi Code CLI
+# kimi-code 个人 fork · 使用教程
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/) <br>
-[Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [中文](README.zh-CN.md)
+这是 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 的个人 fork。
 
----
+- `main` 与官方版本完全一致（当前为 **0.28.0**），仅额外包含本说明文档
+- 实验功能「子代理模型绑定」在 [`feat/subagent-model-binding`](https://github.com/Yorha9e/kimi-code/tree/feat/subagent-model-binding) 分支，对应上游 [PR #1928](https://github.com/MoonshotAI/kimi-code/pull/1928) / [Issue #1927](https://github.com/MoonshotAI/kimi-code/issues/1927)，功能说明见 [SUBAGENT-MODEL-BINDING.md](./SUBAGENT-MODEL-BINDING.md)
 
-> ### ⚠️ Community Experimental Fork / 社区实验版
->
-> **This is not the official Kimi Code repository.** It is a personal, community-maintained
-> fork for exploring frontier features before (and while) they are proposed upstream.
-> For the official version, please use [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code).
->
-> **本仓库不是官方仓库**，而是个人维护的社区实验分支，用于在功能回馈上游之前（及期间）进行前沿探索。
-> 官方版本请使用 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)。
->
-> **Current experiments / 当前实验：**
-> - **Subagent model & thinking-effort bindings**（子 Agent 模型与思考强度绑定）—
->   usage guide: [SUBAGENT-MODEL-BINDING.md](SUBAGENT-MODEL-BINDING.md) ·
->   upstream PR: [MoonshotAI/kimi-code#1928](https://github.com/MoonshotAI/kimi-code/pull/1928)
-> - **Multi-agent orchestration (MoA)**（多智能体编排）— under design, not landed yet / 设计阶段，尚未合入
->
-> Experimental code here may be changed, rebased, or removed at any time. Feedback is welcome
-> via this fork's Issues. / 实验代码随时可能变更、变基或移除，欢迎通过本仓库 Issues 反馈。
+## 前置要求
 
----
+- Node.js **>= 24.15**（版本不够时 `pnpm install` 会被 `engine-strict` 拦截；临时绕过可把仓库根目录 `.npmrc` 里的 `engine-strict=true` 改为 `false`，用完改回）
+- pnpm（`corepack enable` 即可）
 
-![Demo of using Kimi Code](./docs/media/intro.gif)
+## 一、构建临时产物
 
-## What is Kimi Code CLI
-
-Kimi Code CLI is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI’s Kimi models and can also be configured to use other compatible providers.
-
-## Install
-
-Install with the official script. No Node.js required.
-
-- **macOS or Linux**:
-
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
-
-- **Homebrew (macOS/Linux)**:
-
-```sh
-brew install kimi-code
-```
-
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-Then, run it with a new shell session:
-
-```sh
-kimi --version
-```
-
-For npm install, upgrade, uninstall, see [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
-
-## Quick Start
-
-Open a project and start the interactive UI:
-
-```sh
-cd your-project
-kimi
-```
-
-On first launch, run `/login` inside Kimi Code CLI and choose either Kimi Code OAuth or a Moonshot AI Open Platform API key. After login, try your first task:
-
-```
-Take a look at this project and explain its main directories.
-```
-
-## Key Features
-
-- **Single-binary distribution.** Install with one command: no Node.js setup, PATH gymnastics, or global module conflicts.
-- **Blazing-fast startup.** The TUI is ready in milliseconds, so starting a session never feels heavy.
-- **Purpose-built TUI.** A carefully tuned interface, optimized end to end for long, focused agent sessions.
-- **Video input.** Drop a screen recording or demo clip into the chat and let the agent watch what is hard to describe in words — turn a reference clip into a LUT, a long video into a short, a screen recording into working code, and more.
-- **AI-native MCP configuration.** Add, edit, and authenticate Model Context Protocol servers conversationally with `/mcp-config`, without hand-editing JSON.
-- **Rich plugin ecosystem.** Install skills, MCP servers, and data sources from the marketplace or any GitHub repo, with each install's trust level surfaced up front.
-- **Subagents for focused, parallel work.** Dispatch built-in `coder`, `explore`, and `plan` subagents in isolated contexts while keeping the main conversation clean.
-- **Lifecycle hooks.** Run local commands at key points to gate risky tool calls, audit decisions, trigger desktop notifications, or connect to your own automation.
-- **Editor & IDE integration (ACP).** Drive a Kimi Code CLI session straight from Zed, JetBrains, or any [Agent Client Protocol](https://agentclientprotocol.com/) client with `kimi acp`.
-
-## Use it in your editor (ACP)
-
-Kimi Code CLI speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `kimi acp` subcommand — no extra login needed.
-
-For Zed, add this to `~/.config/zed/settings.json`:
-
-```json
-{
-  "agent_servers": {
-    "Kimi Code CLI": {
-      "type": "custom",
-      "command": "kimi",
-      "args": ["acp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://moonshotai.github.io/kimi-code/en/guides/ides) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp) for the full capability matrix.
-
-## Docs
-
-- [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started)
-- [Interaction and approvals](https://moonshotai.github.io/kimi-code/en/guides/interaction)
-- [Sessions](https://moonshotai.github.io/kimi-code/en/guides/sessions)
-- [Using in IDEs (ACP)](https://moonshotai.github.io/kimi-code/en/guides/ides)
-- [Configuration](https://moonshotai.github.io/kimi-code/en/configuration/config-files)
-- [Command reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-command)
-
-## Develop
-
-Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
-
-```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
+```bash
+git clone https://github.com/Yorha9e/kimi-code.git
 cd kimi-code
+
+# 二选一：
+#   官方原版：停在 main 即可
+#   实验版（子代理模型绑定）：
+git checkout feat/subagent-model-binding
+
 pnpm install
+pnpm -C apps/kimi-code run build
 ```
 
-```sh
-pnpm dev:cli    # run the CLI in dev mode
-pnpm test       # run tests
-pnpm typecheck  # TypeScript check
-pnpm lint       # oxlint
-pnpm build      # build all packages
+产物只有一样东西：`apps/kimi-code/dist/main.mjs`（入口文件，外加同目录的配套资源）。它是纯文件，不污染系统，删掉目录即完成"卸载"。
+
+## 二、在其他项目文件夹使用
+
+Kimi Code 的工作目录跟随**启动时所在的文件夹**，所以在哪个项目里启动，就操作哪个项目。
+
+### 方式 A：免安装直接跑（推荐，真正的"临时"产物）
+
+```bash
+cd /path/to/你的项目
+node /path/to/kimi-code/apps/kimi-code/dist/main.mjs
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
+每次官方更新后重新 `git pull && pnpm install && pnpm -C apps/kimi-code run build` 即可，所有项目立刻用上新构建。
 
-## Community
+可以给自己起个别名（Git Bash 写进 `~/.bashrc`）：
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
-- For security vulnerabilities, see [SECURITY.md](SECURITY.md).
+```bash
+alias kimi-dev='node /d/vscode/kimisubagentexplore/kimi-code/apps/kimi-code/dist/main.mjs'
+```
 
-## Acknowledgements
+### 方式 B：打包后全局安装
 
-Our TUI is built on top of [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui). We thank the authors of `pi-tui` for their valuable work.
+```bash
+cd /path/to/kimi-code/apps/kimi-code
+npm pack                          # 生成 moonshot-ai-kimi-code-0.28.0.tgz
+npm install -g ./moonshot-ai-kimi-code-0.28.0.tgz
+```
 
-## License
+之后在任意项目文件夹直接 `kimi` 启动。注意：
 
-Released under the [MIT License](LICENSE).
+- 它和官方包 `npm i -g @moonshot-ai/kimi-code` 共用 `kimi` 命令，**后装的覆盖先装的**；想切回官方版就 `npm i -g @moonshot-ai/kimi-code@latest`
+- 更新：重新 build + pack + `npm install -g` 新 tgz
+- 卸载：`npm rm -g @moonshot-ai/kimi-code`
+
+### 启用本 fork 的实验功能（子代理模型绑定）
+
+仅 `feat/subagent-model-binding` 分支的构建有效，且默认关闭，任选一种方式开启：
+
+```bash
+# 方式 1：环境变量
+KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION=1 node .../dist/main.mjs
+
+# 方式 2：启动后在 TUI 里输入 /experiments，打开 "Subagent model selection"
+```
+
+然后在项目根的 `.kimi-code/local.toml` 里按子代理类型绑定模型/思考强度：
+
+```toml
+[subagent.explore]
+model = "kimi-code/kimi-for-coding"
+thinking_effort = "high"
+```
+
+TUI 内可随时用 `/subagent-model list|set <type>|clear <type>` 管理绑定。
+
+> 两种运行方式都与正式版 CLI 共享 `~/.kimi-code`（登录、配置、会话互通）。想完全隔离：`KIMI_CODE_HOME=/tmp/kimi-exp node .../dist/main.mjs`（需重新登录）。
+
+## 三、Slash 命令
+
+在 TUI 输入框敲 `/` 即弹出命令补全，随输入实时过滤；`Enter` 执行。输入不匹配任何命令时会按普通消息发给 Agent。部分命令仅在空闲状态可用（流式输出中先按 `Esc` 中断）。
+
+### 常用速查
+
+| 分类 | 命令 | 作用 |
+| --- | --- | --- |
+| 账号与模型 | `/login` `/logout` | 登录 / 清除凭据 |
+| | `/model` | 切换当前会话模型 |
+| | `/provider` | 管理供应商 |
+| | `/settings`（`/config`） | 设置面板 |
+| | `/experiments` | 实验功能开关面板 |
+| | `/permission` | 切换权限模式 |
+| 会话管理 | `/new`（`/clear`） | 开新会话 |
+| | `/sessions`（`/resume`） | 浏览/恢复历史会话 |
+| | `/fork` | 复制当前会话开分支 |
+| | `/tasks` | 后台任务列表面板 |
+| | `/compact [指令]` | 压缩上下文 |
+| | `/undo [条数]` | 撤销最近的提示词 |
+| | `/export-md [路径]` | 导出会话为 Markdown |
+| | `/init` | 分析代码库生成 `AGENTS.md` |
+| | `/web` | 在 Web UI 打开当前会话 |
+| 运行模式 | `/plan on\|off` | Plan 模式 |
+| | `/yolo on\|off` | 跳过工具审批（慎用） |
+| | `/auto on\|off` | 自动权限模式 |
+| | `/swarm <任务>` | swarm 模式执行批量子代理任务 |
+| | `/goal <目标>` | 目标模式（自动续跑直至完成） |
+| 信息查询 | `/help` | 全部命令与快捷键 |
+| | `/usage` | token 用量与配额 |
+| | `/status` | 版本、模型、工作目录等 |
+| | `/mcp` | MCP server 连接状态 |
+| | `/exit`（`/q`） | 退出 |
+| 本 fork 新增 | `/subagent-model` | 管理子代理模型绑定（实验开关打开时） |
+
+### Skill 命令
+
+- 外部 Skill 自动注册为 `/skill:<name>`（或未占用时可直接 `/<name>`），如 `/skill:pdf`
+- 内置 Skill 命令开箱即用：`/update-config`、`/custom-theme`、`/mcp-config`、`/check-kimi-code-docs`、`/import-from-cc-codex` 等
+
+完整命令表（含 `/goal` 全部子命令、"流式输出中可用"标注）见 [docs/zh/reference/slash-commands.md](./docs/zh/reference/slash-commands.md)；命令行参数与子命令（`kimi web`、`kimi doctor`、`kimi export` 等）见 [docs/zh/reference/kimi-command.md](./docs/zh/reference/kimi-command.md)。
+
+## 四、与官方保持同步（维护流程）
+
+官方发新版后：
+
+```bash
+git fetch origin --tags          # origin = MoonshotAI/kimi-code
+git rebase origin/main main      # main 跟进官方
+git checkout feat/subagent-model-binding
+git rebase origin/main           # 功能分支跟进官方
+pnpm install && pnpm run typecheck && pnpm test
+git push fork main --force-with-lease
+git push fork feat/subagent-model-binding --force-with-lease
+```
+
+---
+
+**Upstream**: [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) · **License**: Apache-2.0（与上游一致）
