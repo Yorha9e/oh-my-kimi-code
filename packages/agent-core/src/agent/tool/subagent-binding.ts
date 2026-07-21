@@ -56,6 +56,29 @@ export type IsModelAliasKnownCallback = (alias: string) => boolean;
 const INHERIT_LABEL = 'Keep inheriting from the main agent';
 
 /**
+ * Read-only binding resolver for the shared spawn path
+ * (`SessionSubagentHost.spawn`): stored type bindings plus alias validation,
+ * without any interactive capability.
+ */
+export function createSubagentBindingResolver(
+  agent: Agent,
+  kaos: Kaos,
+  workDir: string,
+): {
+  readTypeBinding: (profileName: string) => Promise<SubagentBinding | undefined>;
+  isAliasKnown: IsModelAliasKnownCallback;
+} {
+  return {
+    readTypeBinding: (profileName) => readSubagentBinding(kaos, workDir, profileName),
+    isAliasKnown: (alias) => {
+      const models = agent.kimiConfig?.models;
+      if (models === undefined) return true;
+      return alias in models;
+    },
+  };
+}
+
+/**
  * Build the binding callbacks for the Agent tool. `askBinding` is returned
  * only when the agent can question the user interactively; in
  * non-interactive environments (e.g. print mode) spawns silently inherit.

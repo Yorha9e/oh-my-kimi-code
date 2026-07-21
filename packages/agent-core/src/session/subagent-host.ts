@@ -6,6 +6,7 @@ import {
 
 import type { Agent } from '../agent';
 import type { PromptOrigin } from '../agent/context';
+import type { SubagentBinding } from '../config/workspace-local';
 import { ErrorCodes, KimiError } from '../errors';
 import { DenyAllPermissionPolicy } from '../agent/permission/policies/deny-all';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
@@ -133,6 +134,17 @@ export interface SpawnSubagentOptions extends RunSubagentOptions {
   readonly swarmItem?: string;
 }
 
+/**
+ * Read-only access to workspace subagent bindings, injected into the host so
+ * the shared spawn path (Agent tool AND AgentSwarm batches) resolves stored
+ * type bindings uniformly. Interactive asks and warnings stay at the tool
+ * layer — the host only applies (or safely ignores) what is already stored.
+ */
+export interface SubagentBindingResolver {
+  readonly readTypeBinding: (profileName: string) => Promise<SubagentBinding | undefined>;
+  readonly isAliasKnown: (alias: string) => boolean;
+}
+
 type SubagentCompletion = {
   readonly result: string;
   readonly usage?: TokenUsage;
@@ -163,21 +175,37 @@ export class SessionSubagentHost {
     private readonly ownerAgentId: string,
   ) {}
 
+  private bindingResolver?: SubagentBindingResolver;
+
+  setBindingResolver(resolver: SubagentBindingResolver): void {
+    this.bindingResolver = resolver;
+  }
+
   async spawn(options: SpawnSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
 
     const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
     const profile = this.resolveProfile(parent, options.profileName);
-    // Model/effort precedence: per-run override (workspace binding) > profile
-    // binding > inherit the parent agent. Profile bindings are part of the
-    // subagent-model-selection experiment and are ignored when it is off.
+    // Model/effort precedence: per-run override (slot or explicit) > workspace
+    // type binding > profile binding > inherit the parent agent. Bindings are
+    // part of the subagent-model-selection experiment and are ignored when it
+    // is off. The workspace read lives here — the shared spawn path — so
+    // AgentSwarm batches resolve the same stored bindings the Agent tool does.
     const modelSelectionEnabled = parent.experimentalFlags.enabled('subagent-model-selection');
+    const workspaceBinding = await this.readWorkspaceTypeBinding(
+      parent,
+      options,
+      modelSelectionEnabled,
+    );
     const modelAlias = this.resolveChildModel(
       parent,
-      options.modelAlias ?? (modelSelectionEnabled ? profile.modelAlias : undefined),
+      options.modelAlias ??
+        workspaceBinding?.model ??
+        (modelSelectionEnabled ? profile.modelAlias : undefined),
     );
     const thinkingEffort =
       options.thinkingEffort ??
+      workspaceBinding?.thinkingEffort ??
       (modelSelectionEnabled ? profile.thinkingEffort : undefined) ??
       parent.config.thinkingEffort;
     const { id, agent } = await this.session.createAgent(
@@ -368,6 +396,33 @@ export class SessionSubagentHost {
       throw new Error(`Subagent profile "${profileName}" was not found`);
     }
     return profile;
+  }
+
+  /**
+   * Stored workspace type binding for the shared spawn path. Skipped when the
+   * caller passed an explicit per-run override (slot/type resolution at the
+   * tool layer wins), when the experiment is off, or when no resolver is
+   * wired. A stored alias that no longer resolves is ignored with a log
+   * warning — the host cannot ask; interactive repair stays at the tool
+   * layer.
+   */
+  private async readWorkspaceTypeBinding(
+    parent: Agent,
+    options: SpawnSubagentOptions,
+    modelSelectionEnabled: boolean,
+  ): Promise<SubagentBinding | undefined> {
+    if (options.modelAlias !== undefined || !modelSelectionEnabled) return undefined;
+    if (this.bindingResolver === undefined) return undefined;
+    const binding = await this.bindingResolver.readTypeBinding(options.profileName);
+    if (binding === undefined || binding.inherit === true) return undefined;
+    if (binding.model !== undefined && !this.bindingResolver.isAliasKnown(binding.model)) {
+      parent.log?.warn('ignoring workspace binding with unknown model alias', {
+        profileName: options.profileName,
+        modelAlias: binding.model,
+      });
+      return undefined;
+    }
+    return binding;
   }
 
   private runWithActiveChild(

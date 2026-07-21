@@ -1323,6 +1323,134 @@ describe('SessionSubagentHost', () => {
       }),
     );
   });
+
+  it('resolves a stored workspace type binding on the shared spawn path (experiment on)', async () => {
+    const twoModelConfig = {
+      providers: {},
+      models: {
+        'subagent-model': {
+          provider: 'test-provider',
+          model: 'subagent-model',
+          maxContextSize: 1_000_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'high'],
+        },
+      },
+    };
+    const parent = testAgent({
+      initialConfig: twoModelConfig,
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': true,
+      }),
+    });
+    parent.configure();
+    parent.newEvents();
+
+    const child = testAgent({ type: 'sub', initialConfig: twoModelConfig });
+    child.configure();
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated work on the workspace-bound model, returning a detailed implementation and verification summary so the parent can continue without repeating the work. '.repeat(3),
+    });
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    host.setBindingResolver({
+      readTypeBinding: async () => ({ model: 'subagent-model', thinkingEffort: 'high' }),
+      isAliasKnown: () => true,
+    });
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Implement the fix',
+      description: 'Fix bug',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe('subagent-model');
+    expect(child.agent.config.thinkingEffort).toBe('high');
+    expect(handle.modelAlias).toBe('subagent-model');
+    expect(handle.thinkingEffort).toBe('high');
+  });
+
+  it('does not read the workspace binding when the caller passes an explicit override', async () => {
+    const twoModelConfig = {
+      providers: {},
+      models: {
+        'subagent-model': {
+          provider: 'test-provider',
+          model: 'subagent-model',
+          maxContextSize: 1_000_000,
+        },
+      },
+    };
+    const parent = testAgent({
+      initialConfig: twoModelConfig,
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': true,
+      }),
+    });
+    parent.configure();
+
+    const child = testAgent({ type: 'sub', initialConfig: twoModelConfig });
+    child.configure();
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated work on the explicitly overridden model, returning a detailed implementation and verification summary so the parent can continue. '.repeat(3),
+    });
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    const readTypeBinding = vi.fn(async () => ({ model: 'subagent-model' }));
+    host.setBindingResolver({ readTypeBinding, isAliasKnown: () => true });
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Implement the fix',
+      description: 'Fix bug',
+      runInBackground: false,
+      signal,
+      modelAlias: 'subagent-model',
+    });
+    await handle.completion;
+
+    expect(readTypeBinding).not.toHaveBeenCalled();
+    expect(handle.modelAlias).toBe('subagent-model');
+  });
+
+  it('ignores a stored binding whose alias is unknown and inherits the parent', async () => {
+    const parent = testAgent({
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': true,
+      }),
+    });
+    parent.configure();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated work on the inherited parent model after the stale binding was ignored, returning a detailed summary so the parent can continue. '.repeat(3),
+    });
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    host.setBindingResolver({
+      readTypeBinding: async () => ({ model: 'gone-model' }),
+      isAliasKnown: () => false,
+    });
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Implement the fix',
+      description: 'Fix bug',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    expect(handle.modelAlias).toBe(parent.agent.config.modelAlias);
+  });
 });
 
 describe('Session resume permission parent chain', () => {

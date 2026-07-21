@@ -219,7 +219,19 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       ) {
         const missingModel = slotBinding.model;
         if (allowAsk && this.askBinding !== undefined) {
-          slotBinding = await this.askBinding(profileName, { slot: bindingSlot, missingModel });
+          const repaired = await this.askBinding(profileName, { slot: bindingSlot, missingModel });
+          if (repaired !== undefined) {
+            slotBinding = repaired;
+          } else {
+            // Dismissed re-ask (e.g. `kimi -p` where the question channel
+            // exists but is never answered): fall back with an explicit
+            // warning rather than silently ignoring the broken slot.
+            warning =
+              `warning: binding slot "${bindingSlot}" references unknown model alias ` +
+              `"${missingModel}"; falling back to the subagent type binding. Update it in ` +
+              `.kimi-code/local.toml.`;
+            slotBinding = undefined;
+          }
         } else {
           warning =
             `warning: binding slot "${bindingSlot}" references unknown model alias ` +
