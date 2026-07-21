@@ -10,6 +10,35 @@
 - Node.js **>= 24.15**（版本不够时 `pnpm install` 会被 `engine-strict` 拦截；临时绕过可把仓库根目录 `.npmrc` 里的 `engine-strict=true` 改为 `false`，用完改回）
 - pnpm（`corepack enable` 即可）
 
+### 升级 Node.js（Windows）
+
+先用 `node -v` 确认当前版本，低于 24.15 时按下面任一方式升级：
+
+**方式 1：winget（推荐，一条命令）**
+
+```powershell
+winget upgrade OpenJS.NodeJS          # Current 线
+# 或装 LTS 线：
+winget upgrade OpenJS.NodeJS.LTS
+```
+
+**方式 2：官方安装包**
+
+从 [nodejs.org](https://nodejs.org/) 下载 >= 24.15 的 Windows 安装包（.msi），直接运行即可**覆盖升级**，全局已装的 pnpm、npm 全局包都会保留。
+
+**方式 3：版本管理器（需要在多个 Node 版本间切换时）**
+
+用 [nvm-windows](https://github.com/coreybutler/nvm-windows) 或 [fnm](https://github.com/Schniz/fnm) 安装管理多个版本，例如 fnm：`fnm install 24 && fnm use 24`。
+
+升级后重开终端，确认：
+
+```bash
+node -v          # 应 >= 24.15.0
+corepack enable  # 如 pnpm 失效，重新启用
+```
+
+之后 `pnpm install` 就不再需要绕过 `engine-strict` 了。
+
 ## 一、构建临时产物
 
 ```bash
