@@ -265,6 +265,34 @@ describe('default agent profiles', () => {
     expect(DEFAULT_AGENT_PROFILES['plan']?.tools).not.toContain('Bash');
   });
 
+  it('links bundled MOA profiles with role-specific tool gates', () => {
+    const agentSubagents = DEFAULT_AGENT_PROFILES['agent']?.subagents;
+    for (const name of ['orchestrator', 'collector', 'debater', 'aggregator']) {
+      expect(agentSubagents?.[name]).toBe(DEFAULT_AGENT_PROFILES[name]);
+    }
+
+    // Debater is physically constrained: read-only code access plus only the
+    // moamcp mailbox tools — no shell, no file editing, no other MCP servers.
+    expect(DEFAULT_AGENT_PROFILES['debater']?.tools).toEqual([
+      'Read',
+      'Glob',
+      'Grep',
+      'mcp__moamcp__*',
+    ]);
+
+    // Collector is read-only search; aggregator can verify via Bash but not edit.
+    expect(DEFAULT_AGENT_PROFILES['collector']?.tools).not.toContain('Bash');
+    expect(DEFAULT_AGENT_PROFILES['collector']?.tools).not.toContain('Write');
+    expect(DEFAULT_AGENT_PROFILES['aggregator']?.tools).toContain('Bash');
+    expect(DEFAULT_AGENT_PROFILES['aggregator']?.tools).not.toContain('Write');
+    expect(DEFAULT_AGENT_PROFILES['aggregator']?.tools).not.toContain('Edit');
+
+    // Orchestrator keeps the full inherited toolset so it can spawn children.
+    expect(DEFAULT_AGENT_PROFILES['orchestrator']?.tools).toEqual(
+      expect.arrayContaining(['Agent', 'Bash', 'mcp__*']),
+    );
+  });
+
   it('renders the model-invocable skill listing for bundled prompts', () => {
     const skills = new SessionSkillRegistry();
     skills.register(skill('review', { whenToUse: 'When code review is requested.' }));

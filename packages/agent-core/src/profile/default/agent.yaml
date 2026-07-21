@@ -41,3 +41,11 @@ subagents:
     description: Fast codebase exploration with prompt-enforced read-only behavior.
   plan:
     description: Read-only implementation planning and architecture design.
+  orchestrator:
+    description: Multi-agent verification orchestrator — coordinates collectors, debaters, and aggregators, then returns a structured verdict.
+  collector:
+    description: Read-only collection agent for multi-agent file-consensus rounds; returns a justified file list.
+  debater:
+    description: Adversarial debate participant restricted to read-only code access and moamcp mailbox tools.
+  aggregator:
+    description: Verdict synthesizer with read-only code and shell access for verifying contested claims.
