@@ -38,7 +38,13 @@ cd /path/to/你的项目
 node /path/to/kimi-code/apps/kimi-code/dist/main.mjs
 ```
 
-每次官方更新后重新 `git pull && pnpm install && pnpm -C apps/kimi-code run build` 即可，所有项目立刻用上新构建。
+更新时重新构建即可，所有项目立刻用上新构建：
+
+```bash
+git pull --ff-only && pnpm install && pnpm -C apps/kimi-code run build
+```
+
+注意：`git pull` 拉取的是**你的 fork（社区版）的更新**。官方发布新版后不会自动出现在这里——需要先按[第四节](#四与官方保持同步维护流程)把官方更新同步进 fork 并推送，然后 `git pull` 才能拿到。（如果刚对当前分支做过 force-push，`git pull --ff-only` 失败时用 `git fetch && git reset --hard origin/$(git branch --show-current)` 对齐。）
 
 可以给自己起个别名（Git Bash 写进 `~/.bashrc`）：
 
