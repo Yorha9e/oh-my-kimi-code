@@ -267,27 +267,26 @@ describe('default agent profiles', () => {
 
   it('links bundled MOA profiles with role-specific tool gates', () => {
     const agentSubagents = DEFAULT_AGENT_PROFILES['agent']?.subagents;
-    for (const name of ['orchestrator', 'collector', 'debater', 'aggregator']) {
-      expect(agentSubagents?.[name]).toBe(DEFAULT_AGENT_PROFILES[name]);
+    for (const name of ['orchestrator', 'critic', 'synthesizer']) {
+      expect(agentSubagents?.[name]?.name).toBe(name);
     }
 
-    // Debater is physically constrained: read-only code access plus only the
+    // Critic is physically constrained: read-only code access plus only the
     // moamcp mailbox tools — no shell, no file editing, no other MCP servers.
-    expect(DEFAULT_AGENT_PROFILES['debater']?.tools).toEqual([
+    expect(DEFAULT_AGENT_PROFILES['critic']?.tools).toEqual([
       'Read',
       'Glob',
       'Grep',
+      'WebSearch',
+      'FetchURL',
       'mcp__moamcp__*',
     ]);
 
-    // Collector is read-only search; aggregator can verify via Bash but not edit.
-    expect(DEFAULT_AGENT_PROFILES['collector']?.tools).not.toContain('Bash');
-    expect(DEFAULT_AGENT_PROFILES['collector']?.tools).not.toContain('Write');
-    expect(DEFAULT_AGENT_PROFILES['aggregator']?.tools).toContain('Bash');
-    expect(DEFAULT_AGENT_PROFILES['aggregator']?.tools).not.toContain('Write');
-    expect(DEFAULT_AGENT_PROFILES['aggregator']?.tools).not.toContain('Edit');
-
-    // Orchestrator keeps the full inherited toolset so it can spawn children.
+    // Synthesizer can verify via Bash but not edit; orchestrator keeps the
+    // full inherited toolset so it can spawn children.
+    expect(DEFAULT_AGENT_PROFILES['synthesizer']?.tools).toContain('Bash');
+    expect(DEFAULT_AGENT_PROFILES['synthesizer']?.tools).not.toContain('Write');
+    expect(DEFAULT_AGENT_PROFILES['synthesizer']?.tools).not.toContain('Edit');
     expect(DEFAULT_AGENT_PROFILES['orchestrator']?.tools).toEqual(
       expect.arrayContaining(['Agent', 'Bash', 'mcp__*']),
     );

@@ -1,12 +1,11 @@
 import agentYaml from './default/agent.yaml?raw';
-import aggregatorYaml from './default/aggregator.yaml?raw';
 import coderYaml from './default/coder.yaml?raw';
-import collectorYaml from './default/collector.yaml?raw';
-import debaterYaml from './default/debater.yaml?raw';
+import criticYaml from './default/critic.yaml?raw';
 import exploreYaml from './default/explore.yaml?raw';
 import initMd from './default/init.md?raw';
 import orchestratorYaml from './default/orchestrator.yaml?raw';
 import planYaml from './default/plan.yaml?raw';
+import synthesizerYaml from './default/synthesizer.yaml?raw';
 import systemMd from './default/system.md?raw';
 import { loadAgentProfilesFromSources } from './load';
 
@@ -14,13 +13,12 @@ import { loadAgentProfilesFromSources } from './load';
 // plus any file referenced through `systemPromptPath`.
 const PROFILE_SOURCES: Record<string, string> = {
   'profile/default/agent.yaml': agentYaml,
-  'profile/default/aggregator.yaml': aggregatorYaml,
   'profile/default/coder.yaml': coderYaml,
-  'profile/default/collector.yaml': collectorYaml,
-  'profile/default/debater.yaml': debaterYaml,
+  'profile/default/critic.yaml': criticYaml,
   'profile/default/explore.yaml': exploreYaml,
   'profile/default/orchestrator.yaml': orchestratorYaml,
   'profile/default/plan.yaml': planYaml,
+  'profile/default/synthesizer.yaml': synthesizerYaml,
   'profile/default/system.md': systemMd,
 };
 
@@ -29,13 +27,12 @@ export const DEFAULT_INIT_PROMPT = initMd;
 export const DEFAULT_AGENT_PROFILES = loadAgentProfilesFromSources(
   [
     'agent.yaml',
-    'aggregator.yaml',
     'coder.yaml',
-    'collector.yaml',
-    'debater.yaml',
+    'critic.yaml',
     'explore.yaml',
     'orchestrator.yaml',
     'plan.yaml',
+    'synthesizer.yaml',
   ].map((file) => `profile/default/${file}`),
   PROFILE_SOURCES,
 );
