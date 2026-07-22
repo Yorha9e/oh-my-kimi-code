@@ -43,13 +43,13 @@ describe('targetTriple', () => {
 });
 
 describe('executableName', () => {
-  it('returns kimi.exe on win32', () => {
-    expect(executableName('win32')).toBe('kimi.exe');
+  it('returns omkc.exe on win32', () => {
+    expect(executableName('win32')).toBe('omkc.exe');
   });
 
-  it('returns kimi on other platforms', () => {
-    expect(executableName('darwin')).toBe('kimi');
-    expect(executableName('linux')).toBe('kimi');
+  it('returns omkc on other platforms', () => {
+    expect(executableName('darwin')).toBe('omkc');
+    expect(executableName('linux')).toBe('omkc');
   });
 });
 
@@ -64,10 +64,10 @@ describe('path helpers', () => {
 
   it('returns absolute bin path with executable name', () => {
     expect(nativeBinPath('darwin-arm64', 'darwin')).toBe(
-      p('dist-native/bin/darwin-arm64/kimi'),
+      p('dist-native/bin/darwin-arm64/omkc'),
     );
     expect(nativeBinPath('win32-x64', 'win32')).toBe(
-      p('dist-native/bin/win32-x64/kimi.exe'),
+      p('dist-native/bin/win32-x64/omkc.exe'),
     );
   });
 
