@@ -27,7 +27,12 @@ import type {
 import type { Logger } from '../../../logging';
 import { ToolAccesses } from '../../../loop/tool-access';
 import { isAbortError } from '../../../loop/errors';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
+import type {
+  ExecutableToolContext,
+  ExecutableToolOutput,
+  ExecutableToolResult,
+  ToolExecution,
+} from '../../../loop/types';
 import type { ResolvedAgentProfile } from '../../../profile';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
@@ -377,10 +382,16 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       ]
         .filter((line): line is string => line !== undefined)
         .join('\n');
-      const withWarning = (result: ExecutableToolResult): ExecutableToolResult =>
-        outputPrefix.length === 0
-          ? result
-          : { ...result, output: `${outputPrefix}\n${result.output}` };
+      const withWarning = (result: ExecutableToolResult): ExecutableToolResult => {
+        if (outputPrefix.length === 0) {
+          return result;
+        }
+        const output: ExecutableToolOutput =
+          typeof result.output === 'string'
+            ? `${outputPrefix}\n${result.output}`
+            : [{ type: 'text', text: outputPrefix }, ...result.output];
+        return { ...result, output };
+      };
       const runOptions = {
         parentToolCallId: toolCallId,
         prompt: args.prompt,
