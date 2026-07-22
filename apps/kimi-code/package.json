@@ -1,17 +1,17 @@
 {
-  "name": "@moonshot-ai/kimi-code",
-  "version": "0.28.0",
-  "description": "The Starting Point for Next-Gen Agents",
+  "name": "oh-my-kimi-code",
+  "version": "0.28.1",
+  "description": "Community fork of Kimi Code — the starting point for next-gen agents",
   "license": "MIT",
-  "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/apps/kimi-code#readme",
+  "author": "Yorha9e",
+  "homepage": "https://github.com/Yorha9e/kimi-code",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
+    "url": "git+https://github.com/Yorha9e/kimi-code.git",
     "directory": "apps/kimi-code"
   },
   "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+    "url": "https://github.com/Yorha9e/kimi-code/issues"
   },
   "keywords": [
     "kimi",
@@ -23,7 +23,7 @@
     "tui"
   ],
   "bin": {
-    "kimi": "dist/main.mjs"
+    "omkc": "dist/main.mjs"
   },
   "files": [
     "dist",
