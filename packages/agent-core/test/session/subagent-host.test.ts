@@ -1227,7 +1227,12 @@ describe('SessionSubagentHost', () => {
   });
 
   it('realigns a resumed subagent to the parent model when the experiment is off', async () => {
-    const parent = testAgent();
+    // The community edition flips the flag default to on, so pin it off here.
+    const parent = testAgent({
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': false,
+      }),
+    });
     parent.configure();
     parent.agent.permission.setMode('yolo');
 

@@ -38,7 +38,9 @@ export const FLAG_DEFINITIONS = [
     description:
       'Bind configured model aliases and thinking efforts to subagent types per workspace (.kimi-code/local.toml); bindings are applied mechanically at spawn.',
     env: 'KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION',
-    default: false,
+    // Released in the community edition: subagent model binding is a core omkc
+    // feature, no longer hidden behind the experiment gate.
+    default: true,
     surface: 'core',
   },
 ] as const satisfies readonly FlagDefinitionInput[];
