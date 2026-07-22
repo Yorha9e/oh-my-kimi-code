@@ -35,6 +35,7 @@ import { createCliTelemetryBootstrap, initializeCliTelemetry } from './cli/telem
 import { runUpdatePreflight } from './cli/update/preflight';
 import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
+import { runFirstRunHomeMigration } from './migration/kimi-code-home';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
 import { installNativeModuleHook } from './native/module-hook';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
@@ -223,7 +224,12 @@ export function main(): void {
   program.parse(process.argv);
 }
 
-main();
+// First-run migration from the official ~/.kimi-code home. Runs before any
+// engine initialization so config/credentials/sessions are in place when the
+// runtime first reads its home. It resolves to a no-op on every later start
+// (marker file), covers both interactive and headless paths, and never blocks
+// startup — failures degrade to a stderr warning inside.
+void runFirstRunHomeMigration().then(main, main);
 
 async function logStartupFailure(operation: string, error: unknown): Promise<void> {
   log.error('startup failed', { operation, error });

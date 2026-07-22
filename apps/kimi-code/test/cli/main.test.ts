@@ -134,6 +134,13 @@ vi.mock('../../src/cli/headless-exit', () => ({
   finalizeHeadlessRun: mocks.finalizeHeadlessRun,
 }));
 
+// Keep the first-run home migration out of unit tests: the entry wrapper
+// (`runFirstRunHomeMigration().then(main, main)`) must not touch the real
+// ~/.kimi-code / ~/.omkc on the dev machine.
+vi.mock('../../src/migration/kimi-code-home', () => ({
+  runFirstRunHomeMigration: vi.fn(() => Promise.resolve()),
+}));
+
 class ExitCalled extends Error {
   constructor(readonly code: number) {
     super(`exit(${code})`);
