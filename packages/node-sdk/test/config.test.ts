@@ -345,6 +345,17 @@ describe('KimiHarness config API', () => {
         enabled: false,
         source: 'default',
       },
+      {
+        id: 'subagent-model-selection',
+        title: 'Subagent model selection',
+        description:
+          'Bind configured model aliases and thinking efforts to subagent types per workspace (.kimi-code/local.toml); bindings are applied mechanically at spawn.',
+        surface: 'core',
+        env: 'KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION',
+        defaultEnabled: true,
+        enabled: true,
+        source: 'default',
+      },
     ]);
   });
 
