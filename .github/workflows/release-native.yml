@@ -1,0 +1,118 @@
+name: Release Native
+
+# Community release pipeline: single-file native executables (SEA) published to
+# GitHub Releases, without changesets / npm publishing.
+#
+# - Pushing a tag `oh-my-kimi-code@x.y.z` publishes a stable release.
+# - Manual dispatch (version input) publishes a prerelease tagged
+#   `oh-my-kimi-code@<version>` at the dispatched ref.
+#
+# Assets per platform: omkc-<target>.zip + .zip.sha256 + manifest.json
+# (aggregated checksums, consumed by installers).
+
+on:
+  push:
+    tags:
+      - 'oh-my-kimi-code@*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 0.28.2 (creates a prerelease)'
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  native-artifacts:
+    name: Native artifacts
+    uses: ./.github/workflows/_native-build.yml
+    with:
+      upload-artifact-prefix: omkc-native
+      retention-days: 7
+      # The community fork has no Apple signing/notarization secrets; macOS
+      # builds ship unsigned (profile=local). Flip to true once the APPLE_*
+      # secrets are configured.
+      sign-macos: false
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: native-artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            tag="$REF_NAME"
+            version="${tag#oh-my-kimi-code@}"
+            prerelease=false
+          else
+            version="$INPUT_VERSION"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::version must be semver (e.g. 0.28.2 or 0.29.0-beta.1), got: $version"
+              exit 1
+            fi
+            tag="oh-my-kimi-code@$version"
+            prerelease=true
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: omkc-native-*
+          path: dist-native-release
+          merge-multiple: true
+
+      - name: Produce manifest.json
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: node apps/kimi-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_file="$(mktemp)"
+          {
+            echo "omkc $VERSION — 单文件原生构建（SEA），下载对应平台的 \`omkc-<target>.zip\`，解压即用，无需 Node.js。"
+            echo
+            echo "校验：每个 zip 附带 \`.sha256\`，\`manifest.json\` 汇总了全部平台的校验和。"
+          } > "$notes_file"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist-native-release/* --clobber
+          else
+            args=(release create "$RELEASE_TAG" dist-native-release/* \
+              --title "omkc v$VERSION" \
+              --notes-file "$notes_file" \
+              --generate-notes)
+            if [ "$PRERELEASE" = "true" ]; then
+              args+=(--prerelease)
+            fi
+            gh "${args[@]}"
+          fi
