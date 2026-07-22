@@ -32,6 +32,7 @@ export const UpgradePreferencesSchema = z.object({
 
 export const MoaPreferencesSchema = z.object({
   card: z.boolean(),
+  statusExport: z.boolean(),
 });
 
 export const TuiConfigFileSchema = z.object({
@@ -56,6 +57,7 @@ export const TuiConfigFileSchema = z.object({
   moa: z
     .object({
       card: z.boolean().optional(),
+      status_export: z.boolean().optional(),
     })
     .optional(),
 });
@@ -86,6 +88,7 @@ export const DEFAULT_UPGRADE_PREFERENCES: UpgradePreferences = {
 
 export const DEFAULT_MOA_PREFERENCES: MoaPreferences = {
   card: true,
+  statusExport: true,
 };
 
 export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
@@ -163,6 +166,7 @@ export function normalizeTuiConfig(config: TuiConfigFileShape): TuiConfig {
     },
     moa: {
       card: config.moa?.card ?? DEFAULT_MOA_PREFERENCES.card,
+      statusExport: config.moa?.status_export ?? DEFAULT_MOA_PREFERENCES.statusExport,
     },
   });
 }
@@ -187,6 +191,7 @@ auto_install = ${String(config.upgrade.autoInstall)} # true | false
 
 [moa]
 card = ${String(config.moa.card)} # true launches the moa-card companion app on interactive startup
+status_export = ${String(config.moa.statusExport)} # true serves engine status events over SSE on 127.0.0.1:39631+
 `;
 }
 

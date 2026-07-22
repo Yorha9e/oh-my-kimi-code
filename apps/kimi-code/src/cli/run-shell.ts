@@ -30,6 +30,7 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { maybeLaunchMoaCard } from './moa-card';
 import type { CLIOptions } from './options';
+import { startStatusExport } from './status-export';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
@@ -84,6 +85,13 @@ export async function runShell(
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   });
+
+  // Like the moa-card companion, the status export is a migration-irrelevant
+  // extra; skip it when runShell is reused for `--migrate` only.
+  if (!runOptions.migrateOnly) {
+    startStatusExport(harness, tuiConfig.moa.statusExport);
+  }
+
   log.info('kimi-code starting', {
     version,
     uiMode: CLI_UI_MODE,

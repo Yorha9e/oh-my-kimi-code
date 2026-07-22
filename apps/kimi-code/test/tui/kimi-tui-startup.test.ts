@@ -92,7 +92,7 @@ function makeStartupInput(
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      moa: { card: true },
+      moa: { card: true, statusExport: true },
       ...tuiConfig,
     },
     version: '0.0.0-test',

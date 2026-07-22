@@ -55,7 +55,7 @@ const appState: AppState = {
   editorCommand: null,
   notifications: { enabled: true, condition: 'unfocused' },
   upgrade: { autoInstall: true },
-  moa: { card: true },
+  moa: { card: true, statusExport: true },
   availableModels: {},
   availableProviders: {},
   mcpServersSummary: null,

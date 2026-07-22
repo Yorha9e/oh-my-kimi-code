@@ -4,6 +4,7 @@ import {
   KimiError,
   ImageLimits,
   withTelemetryContext,
+  type Event,
   type ExperimentalFeatureState,
 } from '@moonshot-ai/agent-core';
 
@@ -33,6 +34,7 @@ import type {
   TelemetryContextPatch,
   TelemetryProperties,
   TestMcpServerOptions,
+  Unsubscribe,
 } from '#/types';
 
 export interface KimiHarnessRuntimeOptions {
@@ -107,6 +109,14 @@ export class KimiHarness {
 
   setTelemetryContext(patch: TelemetryContextPatch): void {
     this.telemetry.setContext?.(patch);
+  }
+
+  /**
+   * Subscribe to the global engine event stream. The listener is invoked
+   * synchronously per event and must be lightweight and non-blocking.
+   */
+  onEvent(listener: (event: Event) => void): Unsubscribe {
+    return this.rpc.onEvent(listener);
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
