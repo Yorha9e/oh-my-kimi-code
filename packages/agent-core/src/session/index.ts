@@ -19,6 +19,8 @@ import {
   parseBooleanEnv,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
+  readGlobalSubagentBindings,
+  readGlobalSubagentSlotBindings,
   readSubagentBindings,
   readSubagentSlotBindings,
   readWorkspaceAdditionalDirs,
@@ -26,6 +28,8 @@ import {
   resolveConfigValue,
   type BackgroundConfig,
   type SubagentBinding,
+  writeGlobalSubagentBinding,
+  writeGlobalSubagentSlotBinding,
   writeSubagentBinding,
   writeSubagentSlotBinding,
   type WorkspaceAdditionalDirsLoadResult,
@@ -371,6 +375,54 @@ export class Session {
       main.modelProvider?.resolveProviderConfig(binding.model);
     }
     return writeSubagentSlotBinding(systemKaos, cwd, slot, binding);
+  }
+
+  /** Global subagent model bindings from `~/.kimi-code/local.toml`. */
+  async getGlobalSubagentBindings(): Promise<Readonly<Record<string, SubagentBinding>>> {
+    const cwd = this.toolKaos.getcwd();
+    return readGlobalSubagentBindings(this.systemContextKaos(cwd));
+  }
+
+  /**
+   * Set or clear (binding `undefined`) one subagent type's global model
+   * binding. A bound model is validated against the configured providers
+   * first, same as the workspace write.
+   */
+  async setGlobalSubagentBinding(
+    agentType: string,
+    binding: SubagentBinding | undefined,
+  ): Promise<{ readonly configPath: string }> {
+    const cwd = this.toolKaos.getcwd();
+    const systemKaos = this.systemContextKaos(cwd);
+    if (binding?.model !== undefined) {
+      const main = await this.ensureAgentResumed('main');
+      main.modelProvider?.resolveProviderConfig(binding.model);
+    }
+    return writeGlobalSubagentBinding(systemKaos, agentType, binding);
+  }
+
+  /** Global named slot bindings from `~/.kimi-code/local.toml`. */
+  async getGlobalSubagentSlotBindings(): Promise<Readonly<Record<string, SubagentBinding>>> {
+    const cwd = this.toolKaos.getcwd();
+    return readGlobalSubagentSlotBindings(this.systemContextKaos(cwd));
+  }
+
+  /**
+   * Set or clear (binding `undefined`) one named slot's global model
+   * binding. A bound model is validated against the configured providers
+   * first, same as the workspace write.
+   */
+  async setGlobalSubagentSlotBinding(
+    slot: string,
+    binding: SubagentBinding | undefined,
+  ): Promise<{ readonly configPath: string }> {
+    const cwd = this.toolKaos.getcwd();
+    const systemKaos = this.systemContextKaos(cwd);
+    if (binding?.model !== undefined) {
+      const main = await this.ensureAgentResumed('main');
+      main.modelProvider?.resolveProviderConfig(binding.model);
+    }
+    return writeGlobalSubagentSlotBinding(systemKaos, slot, binding);
   }
 
   /**

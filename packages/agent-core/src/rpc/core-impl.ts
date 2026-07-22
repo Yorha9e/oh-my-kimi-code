@@ -106,6 +106,8 @@ import type {
   GetBackgroundPayload,
   GetCronTasksResult,
   GetKimiConfigPayload,
+  GetGlobalSubagentBindingsResult,
+  GetGlobalSubagentSlotBindingsResult,
   GetPluginInfoPayload,
   GetSubagentBindingsResult,
   GetSubagentSlotBindingsResult,
@@ -134,6 +136,10 @@ import type {
   SetModelPayload,
   SetModelResult,
   SetPermissionPayload,
+  SetGlobalSubagentBindingPayload,
+  SetGlobalSubagentBindingResult,
+  SetGlobalSubagentSlotBindingPayload,
+  SetGlobalSubagentSlotBindingResult,
   SetPluginEnabledPayload,
   SetSubagentBindingPayload,
   SetSubagentBindingResult,
@@ -1074,6 +1080,38 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     ...payload
   }: SessionScopedPayload<SetSubagentSlotBindingPayload>): Promise<SetSubagentSlotBindingResult> {
     return this.requireSession(sessionId).setSubagentSlotBinding(payload.slot, payload.binding);
+  }
+
+  getGlobalSubagentBindings({
+    sessionId,
+  }: SessionScopedPayload<EmptyPayload>): Promise<GetGlobalSubagentBindingsResult> {
+    return this.requireSession(sessionId).getGlobalSubagentBindings();
+  }
+
+  setGlobalSubagentBinding({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<SetGlobalSubagentBindingPayload>): Promise<SetGlobalSubagentBindingResult> {
+    return this.requireSession(sessionId).setGlobalSubagentBinding(
+      payload.agentType,
+      payload.binding,
+    );
+  }
+
+  getGlobalSubagentSlotBindings({
+    sessionId,
+  }: SessionScopedPayload<EmptyPayload>): Promise<GetGlobalSubagentSlotBindingsResult> {
+    return this.requireSession(sessionId).getGlobalSubagentSlotBindings();
+  }
+
+  setGlobalSubagentSlotBinding({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<SetGlobalSubagentSlotBindingPayload>): Promise<SetGlobalSubagentSlotBindingResult> {
+    return this.requireSession(sessionId).setGlobalSubagentSlotBinding(
+      payload.slot,
+      payload.binding,
+    );
   }
 
   startBtw({ sessionId, ...payload }: SessionAgentPayload<EmptyPayload>): Promise<string> {

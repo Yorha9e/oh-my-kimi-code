@@ -188,6 +188,32 @@ export interface SetSubagentSlotBindingResult {
   readonly configPath: string;
 }
 
+export type GetGlobalSubagentBindingsResult = Readonly<Record<string, SubagentBinding>>;
+
+export interface SetGlobalSubagentBindingInput {
+  readonly id: string;
+  readonly agentType: string;
+  /** Omit to clear the global binding for this subagent type. */
+  readonly binding?: SubagentBinding;
+}
+
+export interface SetGlobalSubagentBindingResult {
+  readonly configPath: string;
+}
+
+export type GetGlobalSubagentSlotBindingsResult = Readonly<Record<string, SubagentBinding>>;
+
+export interface SetGlobalSubagentSlotBindingInput {
+  readonly id: string;
+  readonly slot: string;
+  /** Omit to clear the global binding for this slot. */
+  readonly binding?: SubagentBinding;
+}
+
+export interface SetGlobalSubagentSlotBindingResult {
+  readonly configPath: string;
+}
+
 export interface ForkSessionInput {
   readonly id: string;
   readonly forkId?: string;

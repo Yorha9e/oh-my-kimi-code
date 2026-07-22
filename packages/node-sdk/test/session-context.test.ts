@@ -7,6 +7,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { LocalKaos, type Environment, type Kaos } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type KimiError } from '#/index';
@@ -47,6 +48,39 @@ describe('Session context', () => {
 
       await session.setSubagentBinding('coder', undefined);
       await expect(session.getSubagentBindings()).resolves.toEqual({});
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('round-trips global subagent model bindings through the public Session API', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-global-home-');
+    const osHomeDir = await makeTempDir(tempDirs, 'kimi-sdk-global-oshome-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-global-work-');
+    await writeTestConfig(homeDir, 200_000);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_global_subagent_binding',
+        workDir,
+        ...kaosWithHome(osHomeDir),
+      });
+      await expect(session.getGlobalSubagentBindings()).resolves.toEqual({});
+
+      const { configPath } = await session.setGlobalSubagentBinding('coder', {
+        model: 'test-model',
+        thinkingEffort: 'high',
+      });
+      expect(toPosix(configPath)).toBe(toPosix(join(osHomeDir, '.kimi-code', 'local.toml')));
+      await expect(session.getGlobalSubagentBindings()).resolves.toEqual({
+        coder: { model: 'test-model', thinkingEffort: 'high', inherit: undefined },
+      });
+      // The workspace layer is untouched by global writes.
+      await expect(session.getSubagentBindings()).resolves.toEqual({});
+
+      await session.setGlobalSubagentBinding('coder', undefined);
+      await expect(session.getGlobalSubagentBindings()).resolves.toEqual({});
     } finally {
       await harness.close();
     }
@@ -236,6 +270,41 @@ describe('Session context', () => {
     }
   });
 });
+
+/**
+ * Build a session Kaos pair whose `gethome()` points at a temp directory, so
+ * the global `~/.kimi-code/local.toml` never touches the real home. The
+ * wrapper re-wraps `withCwd`/`withEnv` results because `LocalKaos` returns a
+ * fresh instance from each of them.
+ */
+function kaosWithHome(home: string): { kaos: Kaos; persistenceKaos: Kaos } {
+  // `LocalKaos`'s constructor is `private` at the TS level only — build a
+  // fresh instance with a fixed `osEnv` (same pattern as the agent-core test
+  // fixture) instead of probing the host environment.
+  const osEnv: Environment = {
+    osKind: 'Linux',
+    osArch: 'x86_64',
+    osVersion: 'test',
+    shellName: 'bash',
+    shellPath: '/bin/bash',
+  };
+  type LocalKaosCtor = new (osEnv: Environment) => LocalKaos;
+  const inner = new (LocalKaos as unknown as LocalKaosCtor)(osEnv);
+
+  const wrap = (target: Kaos): Kaos =>
+    new Proxy(target, {
+      get(t, prop, receiver) {
+        if (prop === 'gethome') return () => home;
+        if (prop === 'withCwd') return (cwd: string) => wrap(t.withCwd(cwd));
+        if (prop === 'withEnv') return (env: Record<string, string>) => wrap(t.withEnv(env));
+        const value = Reflect.get(t, prop, receiver);
+        return typeof value === 'function' ? value.bind(t) : value;
+      },
+    });
+
+  const kaos = wrap(inner);
+  return { kaos, persistenceKaos: kaos };
+}
 
 async function writeTestConfig(homeDir: string, maxContextSize: number): Promise<void> {
   await writeFile(

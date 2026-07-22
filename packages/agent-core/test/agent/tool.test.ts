@@ -2,20 +2,30 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { Kaos } from '@moonshot-ai/kaos';
 import type { ToolCall } from '@moonshot-ai/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import { budgetToolResultForModel } from '../../src/agent/turn/tool-result-budget';
 import type { Agent } from '../../src/agent';
 import { createSubagentBindingCallbacks } from '../../src/agent/tool/subagent-binding';
-import { readSubagentBinding } from '../../src/config/workspace-local';
+import {
+  readGlobalSubagentBinding,
+  readSubagentBinding,
+  writeGlobalSubagentBinding,
+  writeGlobalSubagentSlotBinding,
+  writeSubagentBinding,
+  writeSubagentSlotBinding,
+} from '../../src/config/workspace-local';
 import type { KimiConfig } from '../../src/config';
 import { HookEngine } from '../../src/session/hooks';
 import { ProviderManager } from '../../src/session/provider-manager';
 import type { SessionSubagentHost } from '../../src/session/subagent-host';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
+import { AgentTool } from '../../src/tools/builtin/collaboration/agent';
 import { testKaos } from '../fixtures/test-kaos';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
+import { createBackgroundManager } from './background/helpers';
 import { createCommandKaos, testAgent } from './harness/agent';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
@@ -129,6 +139,7 @@ describe('Agent tools', () => {
         completion,
       }),
       resume: vi.fn(),
+      setBindingResolver: vi.fn(),
     } as unknown as SessionSubagentHost;
     const ctx = testAgent({ subagentHost });
     ctx.configure({ tools: ['Agent'] });
@@ -264,7 +275,7 @@ describe('Agent tools', () => {
   });
 
   it('exposes AgentSwarm when a subagent host is available', () => {
-    const subagentHost = {} as unknown as SessionSubagentHost;
+    const subagentHost = { setBindingResolver: vi.fn() } as unknown as SessionSubagentHost;
 
     const ctx = testAgent({
       subagentHost,
@@ -628,7 +639,182 @@ describe('createSubagentBindingCallbacks', () => {
     expect(requestQuestion).toHaveBeenCalledTimes(1);
     expect(binding).toEqual({ model: 'kimi-code/k3', thinkingEffort: undefined });
   });
+
+  function makeHome(): Kaos {
+    const home = mkdtempSync(join(tmpdir(), 'subagent-binding-home-'));
+    // Redirect only `gethome()` so global bindings land in a temp directory
+    // instead of the real home; every other Kaos method stays the real one.
+    const stubbed = Object.create(testKaos) as typeof testKaos;
+    stubbed.gethome = () => home;
+    return stubbed;
+  }
+
+  it('falls back to the global type binding when the workspace has none', async () => {
+    const root = makeProject();
+    const kaos = makeHome();
+    await writeGlobalSubagentBinding(kaos, 'coder', {
+      model: 'sub2/glm-5.2-x',
+      thinkingEffort: 'high',
+    });
+
+    const { readBinding } = createSubagentBindingCallbacks(fakeAgent(), kaos, root);
+
+    await expect(readBinding('coder')).resolves.toEqual({
+      model: 'sub2/glm-5.2-x',
+      thinkingEffort: 'high',
+      inherit: undefined,
+    });
+    // The fallback reads the global file; the workspace file stays empty.
+    await expect(readSubagentBinding(kaos, root, 'coder')).resolves.toBeUndefined();
+    await expect(readBinding('explore')).resolves.toBeUndefined();
+  });
+
+  it('prefers the workspace type binding over the global one', async () => {
+    const root = makeProject();
+    const kaos = makeHome();
+    await writeGlobalSubagentBinding(kaos, 'coder', { model: 'sub2/glm-5.2-x' });
+    await writeSubagentBinding(kaos, root, 'coder', { model: 'kimi-code/k3' });
+
+    const { readBinding } = createSubagentBindingCallbacks(fakeAgent(), kaos, root);
+
+    await expect(readBinding('coder')).resolves.toMatchObject({ model: 'kimi-code/k3' });
+  });
+
+  it('resolves slot bindings workspace-first with a global fallback', async () => {
+    const root = makeProject();
+    const kaos = makeHome();
+    await writeGlobalSubagentSlotBinding(kaos, 'debater_a', { model: 'sub2/glm-5.2-x' });
+
+    const { readSlotBinding } = createSubagentBindingCallbacks(fakeAgent(), kaos, root);
+
+    await expect(readSlotBinding('debater_a')).resolves.toMatchObject({
+      model: 'sub2/glm-5.2-x',
+    });
+
+    await writeSubagentSlotBinding(kaos, root, 'debater_a', { model: 'kimi-code/k3' });
+
+    await expect(readSlotBinding('debater_a')).resolves.toMatchObject({ model: 'kimi-code/k3' });
+    await expect(readSlotBinding('debater_b')).resolves.toBeUndefined();
+  });
+
+  it('applies a global type binding on spawn without asking', async () => {
+    const root = makeProject();
+    const kaos = makeHome();
+    await writeGlobalSubagentBinding(kaos, 'coder', { model: 'sub2/glm-5.2-x' });
+
+    const requestQuestion = vi.fn();
+    const host = {
+      spawn: vi.fn().mockResolvedValue({
+        agentId: 'agent-child',
+        profileName: 'coder',
+        resumed: false,
+        modelAlias: 'sub2/glm-5.2-x',
+        completion: Promise.resolve({ result: 'child result' }),
+      }),
+    };
+    const tool = new AgentTool(
+      host as unknown as SessionSubagentHost,
+      createBackgroundManager().manager,
+      undefined,
+      {
+        modelSelectionEnabled: true,
+        ...createSubagentBindingCallbacks(fakeAgent(requestQuestion), kaos, root),
+      },
+    );
+
+    await executeTool(
+      tool,
+      toolContext({ prompt: 'Investigate', description: 'Find cause', subagent_type: 'coder' }),
+    );
+
+    // The global entry counts as configured: no interactive ask, and the
+    // spawn carries the globally bound model.
+    expect(requestQuestion).not.toHaveBeenCalled();
+    expect(host.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ profileName: 'coder', modelAlias: 'sub2/glm-5.2-x' }),
+    );
+  });
+
+  it('prefers a global slot binding over the workspace type binding', async () => {
+    const root = makeProject();
+    const kaos = makeHome();
+    await writeSubagentBinding(kaos, root, 'coder', { model: 'kimi-code/k3' });
+    await writeGlobalSubagentSlotBinding(kaos, 'debater_a', { model: 'sub2/glm-5.2-x' });
+
+    const host = {
+      spawn: vi.fn().mockResolvedValue({
+        agentId: 'agent-child',
+        profileName: 'coder',
+        resumed: false,
+        modelAlias: 'sub2/glm-5.2-x',
+        completion: Promise.resolve({ result: 'child result' }),
+      }),
+    };
+    const tool = new AgentTool(
+      host as unknown as SessionSubagentHost,
+      createBackgroundManager().manager,
+      undefined,
+      {
+        modelSelectionEnabled: true,
+        ...createSubagentBindingCallbacks(fakeAgent(), kaos, root),
+      },
+    );
+
+    const result = await executeTool(
+      tool,
+      toolContext({
+        prompt: 'Investigate',
+        description: 'Find cause',
+        subagent_type: 'coder',
+        binding_slot: 'debater_a',
+      }),
+    );
+
+    expect(host.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ modelAlias: 'sub2/glm-5.2-x' }),
+    );
+    expect(result.output).toContain('binding_slot: debater_a');
+  });
+
+  it('persists the ask answer to the workspace file and leaves the global file untouched', async () => {
+    const root = makeProject();
+    const kaos = makeHome();
+    // The only configured entry lives in the global layer and references an
+    // alias that no longer exists — the tool layer re-asks to repair it.
+    await writeGlobalSubagentBinding(kaos, 'coder', { model: 'gone/model-x' });
+    const requestQuestion = vi.fn(async (request: unknown) => {
+      const questions = (request as { questions: Array<{ question: string }> }).questions;
+      return { answers: { [questions[0]!.question]: 'kimi-code/k3' } };
+    });
+    const { askBinding, isModelAliasKnown, readBinding } = createSubagentBindingCallbacks(
+      fakeAgent(requestQuestion),
+      kaos,
+      root,
+    );
+
+    const stored = await readBinding('coder');
+    expect(stored).toMatchObject({ model: 'gone/model-x' });
+    expect(isModelAliasKnown(stored!.model!)).toBe(false);
+
+    const repaired = await askBinding!('coder', { missingModel: 'gone/model-x' });
+
+    expect(repaired).toEqual({ model: 'kimi-code/k3', thinkingEffort: undefined });
+    // The repair lands in the workspace file (shadowing the global layer)...
+    await expect(readSubagentBinding(kaos, root, 'coder')).resolves.toMatchObject({
+      model: 'kimi-code/k3',
+    });
+    // ...and the global file keeps its original (broken) entry.
+    await expect(readGlobalSubagentBinding(kaos, 'coder')).resolves.toEqual({
+      model: 'gone/model-x',
+      thinkingEffort: undefined,
+      inherit: undefined,
+    });
+  });
 });
+
+function toolContext<Input>(args: Input) {
+  return { turnId: '0', toolCallId: 'call_agent', signal, args };
+}
 
 function bashCall(): ToolCall {
   return {

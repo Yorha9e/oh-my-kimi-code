@@ -180,6 +180,67 @@ export async function writeSubagentSlotBinding(
   return writeBindingEntry(kaos, workDir, 'subagent-slot', slot, binding);
 }
 
+/**
+ * Global subagent bindings — same TOML format and schema as the per-workspace
+ * file, but stored at a fixed path (`~/.kimi-code/local.toml`) instead of a
+ * project root. Workspace entries take precedence on spawn; global entries
+ * act as the fallback layer below them.
+ */
+
+/** Read the global binding for one subagent type; `undefined` means never configured. */
+export async function readGlobalSubagentBinding(
+  kaos: Kaos,
+  agentType: string,
+): Promise<SubagentBinding | undefined> {
+  return readBindingEntryAtPath(kaos, getGlobalLocalConfigPath(kaos), 'subagent', agentType);
+}
+
+/** Read all global subagent type bindings (for display/management). */
+export async function readGlobalSubagentBindings(
+  kaos: Kaos,
+): Promise<Readonly<Record<string, SubagentBinding>>> {
+  return readBindingSectionAtPath(kaos, getGlobalLocalConfigPath(kaos), 'subagent');
+}
+
+/**
+ * Write (or clear, when `binding` is `undefined`) the global binding for one
+ * subagent type, preserving unrelated TOML content.
+ */
+export async function writeGlobalSubagentBinding(
+  kaos: Kaos,
+  agentType: string,
+  binding: SubagentBinding | undefined,
+): Promise<{ readonly configPath: string }> {
+  return writeBindingEntryAtPath(kaos, getGlobalLocalConfigPath(kaos), 'subagent', agentType, binding);
+}
+
+/** Read the global binding for one named slot; `undefined` means never configured. */
+export async function readGlobalSubagentSlotBinding(
+  kaos: Kaos,
+  slot: string,
+): Promise<SubagentBinding | undefined> {
+  return readBindingEntryAtPath(kaos, getGlobalLocalConfigPath(kaos), 'subagent-slot', slot);
+}
+
+/** Read all global named slot bindings (for display/management). */
+export async function readGlobalSubagentSlotBindings(
+  kaos: Kaos,
+): Promise<Readonly<Record<string, SubagentBinding>>> {
+  return readBindingSectionAtPath(kaos, getGlobalLocalConfigPath(kaos), 'subagent-slot');
+}
+
+/**
+ * Write (or clear, when `binding` is `undefined`) the global binding for one
+ * named slot, preserving unrelated TOML content.
+ */
+export async function writeGlobalSubagentSlotBinding(
+  kaos: Kaos,
+  slot: string,
+  binding: SubagentBinding | undefined,
+): Promise<{ readonly configPath: string }> {
+  return writeBindingEntryAtPath(kaos, getGlobalLocalConfigPath(kaos), 'subagent-slot', slot, binding);
+}
+
 type BindingSection = 'subagent' | 'subagent-slot';
 
 async function readBindingEntry(
@@ -189,7 +250,15 @@ async function readBindingEntry(
   name: string,
 ): Promise<SubagentBinding | undefined> {
   const projectRoot = await findProjectRoot(kaos, workDir);
-  const configPath = getWorkspaceLocalConfigPath(projectRoot);
+  return readBindingEntryAtPath(kaos, getWorkspaceLocalConfigPath(projectRoot), section, name);
+}
+
+async function readBindingEntryAtPath(
+  kaos: Kaos,
+  configPath: string,
+  section: BindingSection,
+  name: string,
+): Promise<SubagentBinding | undefined> {
   const file = await readWorkspaceLocalToml(kaos, configPath);
   const entry = file?.parsed[section]?.[name];
   if (entry === undefined) return undefined;
@@ -206,7 +275,14 @@ async function readBindingSection(
   section: BindingSection,
 ): Promise<Readonly<Record<string, SubagentBinding>>> {
   const projectRoot = await findProjectRoot(kaos, workDir);
-  const configPath = getWorkspaceLocalConfigPath(projectRoot);
+  return readBindingSectionAtPath(kaos, getWorkspaceLocalConfigPath(projectRoot), section);
+}
+
+async function readBindingSectionAtPath(
+  kaos: Kaos,
+  configPath: string,
+  section: BindingSection,
+): Promise<Readonly<Record<string, SubagentBinding>>> {
   const file = await readWorkspaceLocalToml(kaos, configPath);
   const entries = file?.parsed[section] ?? {};
   return Object.fromEntries(
@@ -225,7 +301,22 @@ async function writeBindingEntry(
   binding: SubagentBinding | undefined,
 ): Promise<{ readonly configPath: string }> {
   const projectRoot = await findProjectRoot(kaos, workDir);
-  const configPath = getWorkspaceLocalConfigPath(projectRoot);
+  return writeBindingEntryAtPath(
+    kaos,
+    getWorkspaceLocalConfigPath(projectRoot),
+    section,
+    name,
+    binding,
+  );
+}
+
+async function writeBindingEntryAtPath(
+  kaos: Kaos,
+  configPath: string,
+  section: BindingSection,
+  name: string,
+  binding: SubagentBinding | undefined,
+): Promise<{ readonly configPath: string }> {
   const file = (await readWorkspaceLocalToml(kaos, configPath)) ?? { raw: {}, parsed: {} };
 
   const record = cloneRecord(file.raw[section]);
@@ -265,6 +356,14 @@ export function normalizeAdditionalDirs(additionalDirs: readonly string[]): stri
 
 function getWorkspaceLocalConfigPath(projectRoot: string): string {
   return join(projectRoot, '.kimi-code', 'local.toml');
+}
+
+/**
+ * The global config lives at a fixed path under the OS home directory — no
+ * project-root search, unlike the per-workspace file.
+ */
+function getGlobalLocalConfigPath(kaos: Kaos): string {
+  return join(kaos.gethome(), '.kimi-code', 'local.toml');
 }
 
 async function findProjectRoot(kaos: Kaos, workDir: string): Promise<string> {

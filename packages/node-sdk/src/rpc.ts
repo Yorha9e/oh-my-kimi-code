@@ -33,6 +33,8 @@ import type {
   CreateGoalInput,
   ForkSessionInput,
   GetConfigOptions,
+  GetGlobalSubagentBindingsResult,
+  GetGlobalSubagentSlotBindingsResult,
   GetSubagentBindingsResult,
   GetSubagentSlotBindingsResult,
   McpServerConfig,
@@ -58,6 +60,10 @@ import type {
   ResumeSessionInput,
   ResumedSessionSummary,
   SessionSummary,
+  SetGlobalSubagentBindingInput,
+  SetGlobalSubagentBindingResult,
+  SetGlobalSubagentSlotBindingInput,
+  SetGlobalSubagentSlotBindingResult,
   SetSubagentBindingInput,
   SetSubagentBindingResult,
   SetSubagentSlotBindingInput,
@@ -407,6 +413,42 @@ export abstract class SDKRpcClientBase {
   ): Promise<SetSubagentSlotBindingResult> {
     const rpc = await this.getRpc();
     return rpc.setSubagentSlotBinding({
+      sessionId: input.id,
+      slot: input.slot,
+      binding: input.binding,
+    });
+  }
+
+  async getGlobalSubagentBindings(
+    input: SessionIdRpcInput,
+  ): Promise<GetGlobalSubagentBindingsResult> {
+    const rpc = await this.getRpc();
+    return rpc.getGlobalSubagentBindings({ sessionId: input.sessionId });
+  }
+
+  async setGlobalSubagentBinding(
+    input: SetGlobalSubagentBindingInput,
+  ): Promise<SetGlobalSubagentBindingResult> {
+    const rpc = await this.getRpc();
+    return rpc.setGlobalSubagentBinding({
+      sessionId: input.id,
+      agentType: input.agentType,
+      binding: input.binding,
+    });
+  }
+
+  async getGlobalSubagentSlotBindings(
+    input: SessionIdRpcInput,
+  ): Promise<GetGlobalSubagentSlotBindingsResult> {
+    const rpc = await this.getRpc();
+    return rpc.getGlobalSubagentSlotBindings({ sessionId: input.sessionId });
+  }
+
+  async setGlobalSubagentSlotBinding(
+    input: SetGlobalSubagentSlotBindingInput,
+  ): Promise<SetGlobalSubagentSlotBindingResult> {
+    const rpc = await this.getRpc();
+    return rpc.setGlobalSubagentSlotBinding({
       sessionId: input.id,
       slot: input.slot,
       binding: input.binding,

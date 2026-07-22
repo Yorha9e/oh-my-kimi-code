@@ -15,6 +15,8 @@ import type {
   CompactOptions,
   CreateGoalInput,
   GetCronTasksResult,
+  GetGlobalSubagentBindingsResult,
+  GetGlobalSubagentSlotBindingsResult,
   GetSubagentBindingsResult,
   GetSubagentSlotBindingsResult,
   GoalSnapshot,
@@ -34,6 +36,8 @@ import type {
   SessionStatus,
   SessionSummary,
   SessionUsage,
+  SetGlobalSubagentBindingResult,
+  SetGlobalSubagentSlotBindingResult,
   SetSubagentBindingResult,
   SetSubagentSlotBindingResult,
   SkillSummary,
@@ -221,6 +225,42 @@ export class Session {
       ErrorCodes.REQUEST_INVALID,
     );
     return this.rpc.setSubagentSlotBinding({ id: this.id, slot: normalized, binding });
+  }
+
+  async getGlobalSubagentBindings(): Promise<GetGlobalSubagentBindingsResult> {
+    this.ensureOpen();
+    return this.rpc.getGlobalSubagentBindings({ sessionId: this.id });
+  }
+
+  async setGlobalSubagentBinding(
+    agentType: string,
+    binding?: SubagentBinding,
+  ): Promise<SetGlobalSubagentBindingResult> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      agentType,
+      'Subagent type cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    return this.rpc.setGlobalSubagentBinding({ id: this.id, agentType: normalized, binding });
+  }
+
+  async getGlobalSubagentSlotBindings(): Promise<GetGlobalSubagentSlotBindingsResult> {
+    this.ensureOpen();
+    return this.rpc.getGlobalSubagentSlotBindings({ sessionId: this.id });
+  }
+
+  async setGlobalSubagentSlotBinding(
+    slot: string,
+    binding?: SubagentBinding,
+  ): Promise<SetGlobalSubagentSlotBindingResult> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      slot,
+      'Slot name cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    return this.rpc.setGlobalSubagentSlotBinding({ id: this.id, slot: normalized, binding });
   }
 
   async cancel(): Promise<void> {

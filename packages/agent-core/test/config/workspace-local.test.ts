@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
+import type { Kaos } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { testKaos } from '../fixtures/test-kaos';
@@ -10,11 +11,17 @@ import {
   appendWorkspaceAdditionalDir,
   loadWorkspaceLocalConfig,
   normalizeAdditionalDirs,
+  readGlobalSubagentBinding,
+  readGlobalSubagentBindings,
+  readGlobalSubagentSlotBinding,
+  readGlobalSubagentSlotBindings,
   readSubagentBinding,
   readSubagentBindings,
   readSubagentSlotBinding,
   readSubagentSlotBindings,
   readWorkspaceAdditionalDirs,
+  writeGlobalSubagentBinding,
+  writeGlobalSubagentSlotBinding,
   writeSubagentBinding,
   writeSubagentSlotBinding,
 } from '../../src/config/workspace-local';
@@ -330,5 +337,110 @@ describe('subagent bindings', () => {
     const text = await readFile(join(root, '.kimi-code', 'local.toml'), 'utf-8');
     expect(text).toContain('[subagent.coder]');
     expect(text).not.toContain('debater_a');
+  });
+});
+
+describe('global subagent bindings', () => {
+  async function makeHome(): Promise<Kaos> {
+    const home = await mkdtemp(join(tmpdir(), 'kimi-global-local-'));
+    tempDirs.push(home);
+    // Redirect only `gethome()` so the global path lands in a temp directory
+    // instead of the real home; every other Kaos method stays the real one.
+    const stubbed = Object.create(testKaos) as typeof testKaos;
+    stubbed.gethome = () => home;
+    return stubbed;
+  }
+
+  it('returns empty when the global local.toml is missing', async () => {
+    const kaos = await makeHome();
+
+    await expect(readGlobalSubagentBinding(kaos, 'coder')).resolves.toBeUndefined();
+    await expect(readGlobalSubagentBindings(kaos)).resolves.toEqual({});
+    await expect(readGlobalSubagentSlotBinding(kaos, 'debater_a')).resolves.toBeUndefined();
+    await expect(readGlobalSubagentSlotBindings(kaos)).resolves.toEqual({});
+  });
+
+  it('writes and reads back a global type binding at ~/.kimi-code/local.toml', async () => {
+    const kaos = await makeHome();
+
+    const { configPath } = await writeGlobalSubagentBinding(kaos, 'coder', {
+      model: 'kimi-code/kimi-for-coding',
+      thinkingEffort: 'high',
+    });
+
+    expect(configPath).toBe(join(kaos.gethome(), '.kimi-code', 'local.toml'));
+    await expect(readGlobalSubagentBinding(kaos, 'coder')).resolves.toEqual({
+      model: 'kimi-code/kimi-for-coding',
+      thinkingEffort: 'high',
+      inherit: undefined,
+    });
+    await expect(readGlobalSubagentBindings(kaos)).resolves.toEqual({
+      coder: { model: 'kimi-code/kimi-for-coding', thinkingEffort: 'high', inherit: undefined },
+    });
+    await expect(readGlobalSubagentBinding(kaos, 'explore')).resolves.toBeUndefined();
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[subagent.coder]');
+    expect(text).toContain('model = "kimi-code/kimi-for-coding"');
+    expect(text).toContain('thinking_effort = "high"');
+  });
+
+  it('writes and reads back a global slot binding and clears it independently', async () => {
+    const kaos = await makeHome();
+
+    const { configPath } = await writeGlobalSubagentSlotBinding(kaos, 'debater_a', {
+      model: 'deepseek/deepseek-v4',
+    });
+    await writeGlobalSubagentSlotBinding(kaos, 'debater_b', { model: 'openrouter/claude' });
+
+    expect(configPath).toBe(join(kaos.gethome(), '.kimi-code', 'local.toml'));
+    await expect(readGlobalSubagentSlotBindings(kaos)).resolves.toEqual({
+      debater_a: { model: 'deepseek/deepseek-v4', thinkingEffort: undefined, inherit: undefined },
+      debater_b: { model: 'openrouter/claude', thinkingEffort: undefined, inherit: undefined },
+    });
+    // Global slot storage is independent from the global type-binding table.
+    await expect(readGlobalSubagentBinding(kaos, 'debater_a')).resolves.toBeUndefined();
+
+    await writeGlobalSubagentSlotBinding(kaos, 'debater_a', undefined);
+
+    await expect(readGlobalSubagentSlotBinding(kaos, 'debater_a')).resolves.toBeUndefined();
+    await expect(readGlobalSubagentSlotBinding(kaos, 'debater_b')).resolves.toMatchObject({
+      model: 'openrouter/claude',
+    });
+  });
+
+  it('keeps global bindings in their own file, separate from workspace bindings', async () => {
+    const kaos = await makeHome();
+    const root = await makeProject();
+
+    await writeGlobalSubagentBinding(kaos, 'coder', { model: 'sub2/glm-5.2-x' });
+    await writeSubagentBinding(kaos, root, 'coder', { model: 'kimi-code/k3' });
+
+    await expect(readGlobalSubagentBinding(kaos, 'coder')).resolves.toMatchObject({
+      model: 'sub2/glm-5.2-x',
+    });
+    await expect(readSubagentBinding(kaos, root, 'coder')).resolves.toMatchObject({
+      model: 'kimi-code/k3',
+    });
+    // Clearing the workspace entry must not touch the global file.
+    await writeSubagentBinding(kaos, root, 'coder', undefined);
+    await expect(readGlobalSubagentBinding(kaos, 'coder')).resolves.toMatchObject({
+      model: 'sub2/glm-5.2-x',
+    });
+  });
+
+  it('preserves unrelated content in the global local.toml', async () => {
+    const kaos = await makeHome();
+    const configPath = join(kaos.gethome(), '.kimi-code', 'local.toml');
+    await mkdir(join(kaos.gethome(), '.kimi-code'), { recursive: true });
+    await writeFile(configPath, '[workspace]\nadditional_dir = ["shared"]\n', 'utf-8');
+
+    await writeGlobalSubagentBinding(kaos, 'explore', { model: 'sub2/glm-5.2-x' });
+    await writeGlobalSubagentBinding(kaos, 'coder', { model: 'kimi-code/k3' });
+
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[workspace]');
+    expect(text).toContain('"shared"');
+    expect(text).toContain('[subagent.explore]');
+    expect(text).toContain('[subagent.coder]');
   });
 });

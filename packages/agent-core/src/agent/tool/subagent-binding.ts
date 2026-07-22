@@ -1,14 +1,17 @@
 /**
  * Workspace subagent model bindings — callback factory for the Agent tool.
  *
- * Bindings live in `<projectRoot>/.kimi-code/local.toml`: per-type bindings
- * under `[subagent.<type>]` and named binding slots under
- * `[subagent-slot.<name>]` (see `config/workspace-local.ts`). The Agent tool
- * uses these callbacks to (a) apply a binding mechanically on spawn and
- * (b) ask the user interactively the first time an unbound subagent type or
- * requested slot is spawned in this workspace, persisting the answer —
- * including an explicit "keep inheriting" choice so the question never
- * repeats for that type or slot.
+ * Bindings live in `<projectRoot>/.kimi-code/local.toml` (per-workspace) and
+ * `~/.kimi-code/local.toml` (global): per-type bindings under
+ * `[subagent.<type>]` and named binding slots under `[subagent-slot.<name>]`
+ * (see `config/workspace-local.ts`). Reads resolve workspace-first with a
+ * global fallback (workspace slot > global slot > workspace type > global
+ * type > inherit). The Agent tool uses these callbacks to (a) apply a
+ * binding mechanically on spawn and (b) ask the user interactively the first
+ * time a subagent type or requested slot is spawned with no binding in
+ * either layer, persisting the answer to the workspace file — including an
+ * explicit "keep inheriting" choice so the question never repeats for that
+ * type or slot. The global file is never written by an ask.
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
@@ -16,6 +19,8 @@ import type { Kaos } from '@moonshot-ai/kaos';
 import type { Agent } from '../index';
 import type { QuestionAnswers, QuestionResult } from '../../rpc';
 import {
+  readGlobalSubagentBinding,
+  readGlobalSubagentSlotBinding,
   readSubagentBinding,
   readSubagentSlotBinding,
   writeSubagentBinding,
@@ -58,7 +63,8 @@ const INHERIT_LABEL = 'Keep inheriting from the main agent';
 /**
  * Read-only binding resolver for the shared spawn path
  * (`SessionSubagentHost.spawn`): stored type bindings plus alias validation,
- * without any interactive capability.
+ * without any interactive capability. Type bindings resolve workspace-first
+ * with a global fallback, exactly like the Agent tool callbacks.
  */
 export function createSubagentBindingResolver(
   agent: Agent,
@@ -69,7 +75,7 @@ export function createSubagentBindingResolver(
   isAliasKnown: IsModelAliasKnownCallback;
 } {
   return {
-    readTypeBinding: (profileName) => readSubagentBinding(kaos, workDir, profileName),
+    readTypeBinding: (profileName) => readWorkspaceThenGlobalBinding(kaos, workDir, profileName),
     isAliasKnown: (alias) => {
       const models = agent.kimiConfig?.models;
       if (models === undefined) return true;
@@ -94,10 +100,10 @@ export function createSubagentBindingCallbacks(
   isModelAliasKnown: IsModelAliasKnownCallback;
 } {
   const readBinding: ReadSubagentBindingCallback = (profileName) =>
-    readSubagentBinding(kaos, workDir, profileName);
+    readWorkspaceThenGlobalBinding(kaos, workDir, profileName);
 
   const readSlotBinding: ReadSubagentSlotBindingCallback = (slot) =>
-    readSubagentSlotBinding(kaos, workDir, slot);
+    readWorkspaceThenGlobalSlotBinding(kaos, workDir, slot);
 
   // Without a models config there is nothing to validate against — stay
   // silent rather than nagging about every binding.
@@ -116,6 +122,10 @@ export function createSubagentBindingCallbacks(
     const missingModel = context?.missingModel;
     const slot = context?.slot;
     const subject = slot === undefined ? `Subagent type "${profileName}"` : `Binding slot "${slot}"`;
+    // The answer always lands in the workspace file: a workspace entry
+    // shadows the global layer, so an interactive choice (including the
+    // repair of a broken global alias) overrides it without touching the
+    // global config.
     const persist = async (binding: SubagentBinding): Promise<void> => {
       if (slot === undefined) {
         await writeSubagentBinding(kaos, workDir, profileName, binding);
@@ -177,6 +187,34 @@ export function createSubagentBindingCallbacks(
   };
 
   return { readBinding, readSlotBinding, askBinding, isModelAliasKnown };
+}
+
+/**
+ * Workspace-first type binding read with a global fallback: a workspace
+ * entry (including an explicit `inherit: true`) shadows the global layer;
+ * the global entry is consulted only when the workspace has none.
+ */
+async function readWorkspaceThenGlobalBinding(
+  kaos: Kaos,
+  workDir: string,
+  profileName: string,
+): Promise<SubagentBinding | undefined> {
+  return (
+    (await readSubagentBinding(kaos, workDir, profileName)) ??
+    (await readGlobalSubagentBinding(kaos, profileName))
+  );
+}
+
+/** Workspace-first slot binding read with a global fallback. */
+async function readWorkspaceThenGlobalSlotBinding(
+  kaos: Kaos,
+  workDir: string,
+  slot: string,
+): Promise<SubagentBinding | undefined> {
+  return (
+    (await readSubagentSlotBinding(kaos, workDir, slot)) ??
+    (await readGlobalSubagentSlotBinding(kaos, slot))
+  );
 }
 
 function answerFor(result: QuestionResult, question: string): string | undefined {

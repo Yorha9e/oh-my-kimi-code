@@ -432,6 +432,30 @@ export interface SetSubagentSlotBindingResult {
   readonly configPath: string;
 }
 
+export type GetGlobalSubagentBindingsResult = Readonly<Record<string, SubagentBinding>>;
+
+export interface SetGlobalSubagentBindingPayload {
+  readonly agentType: string;
+  /** Omit/undefined to clear the global binding for this subagent type. */
+  readonly binding?: SubagentBinding;
+}
+
+export interface SetGlobalSubagentBindingResult {
+  readonly configPath: string;
+}
+
+export type GetGlobalSubagentSlotBindingsResult = Readonly<Record<string, SubagentBinding>>;
+
+export interface SetGlobalSubagentSlotBindingPayload {
+  readonly slot: string;
+  /** Omit/undefined to clear the global binding for this slot. */
+  readonly binding?: SubagentBinding;
+}
+
+export interface SetGlobalSubagentSlotBindingResult {
+  readonly configPath: string;
+}
+
 export interface RenameSessionPayload {
   readonly title: string;
 }
@@ -543,6 +567,14 @@ export interface SessionAPI extends AgentAPIWithId {
   setSubagentBinding: (payload: SetSubagentBindingPayload) => SetSubagentBindingResult;
   getSubagentSlotBindings: (payload: EmptyPayload) => GetSubagentSlotBindingsResult;
   setSubagentSlotBinding: (payload: SetSubagentSlotBindingPayload) => SetSubagentSlotBindingResult;
+  getGlobalSubagentBindings: (payload: EmptyPayload) => GetGlobalSubagentBindingsResult;
+  setGlobalSubagentBinding: (
+    payload: SetGlobalSubagentBindingPayload,
+  ) => SetGlobalSubagentBindingResult;
+  getGlobalSubagentSlotBindings: (payload: EmptyPayload) => GetGlobalSubagentSlotBindingsResult;
+  setGlobalSubagentSlotBinding: (
+    payload: SetGlobalSubagentSlotBindingPayload,
+  ) => SetGlobalSubagentSlotBindingResult;
 }
 
 type SessionAPIWithId = WithSessionId<SessionAPI>;

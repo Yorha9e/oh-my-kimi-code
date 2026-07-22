@@ -16,6 +16,8 @@ import type {
   EnterSwarmPayload,
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
+  GetGlobalSubagentBindingsResult,
+  GetGlobalSubagentSlotBindingsResult,
   GetSubagentBindingsResult,
   GetSubagentSlotBindingsResult,
   ImportContextPayload,
@@ -30,6 +32,10 @@ import type {
   SetActiveToolsPayload,
   SetModelPayload,
   SetPermissionPayload,
+  SetGlobalSubagentBindingPayload,
+  SetGlobalSubagentBindingResult,
+  SetGlobalSubagentSlotBindingPayload,
+  SetGlobalSubagentSlotBindingResult,
   SetSubagentBindingPayload,
   SetSubagentBindingResult,
   SetSubagentSlotBindingPayload,
@@ -142,6 +148,26 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     payload: SetSubagentSlotBindingPayload,
   ): Promise<SetSubagentSlotBindingResult> {
     return this.session.setSubagentSlotBinding(payload.slot, payload.binding);
+  }
+
+  getGlobalSubagentBindings(): Promise<GetGlobalSubagentBindingsResult> {
+    return this.session.getGlobalSubagentBindings();
+  }
+
+  setGlobalSubagentBinding(
+    payload: SetGlobalSubagentBindingPayload,
+  ): Promise<SetGlobalSubagentBindingResult> {
+    return this.session.setGlobalSubagentBinding(payload.agentType, payload.binding);
+  }
+
+  getGlobalSubagentSlotBindings(): Promise<GetGlobalSubagentSlotBindingsResult> {
+    return this.session.getGlobalSubagentSlotBindings();
+  }
+
+  setGlobalSubagentSlotBinding(
+    payload: SetGlobalSubagentSlotBindingPayload,
+  ): Promise<SetGlobalSubagentSlotBindingResult> {
+    return this.session.setGlobalSubagentSlotBinding(payload.slot, payload.binding);
   }
 
   async prompt({ agentId, ...payload }: AgentScopedPayload<PromptPayload>) {
