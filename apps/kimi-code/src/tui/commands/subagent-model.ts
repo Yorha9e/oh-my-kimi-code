@@ -1,8 +1,12 @@
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
-import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
-import type { SlashCommandHost } from './dispatch';
+import type { SubagentBinding } from '@moonshot-ai/kimi-code-sdk';
 
-const INHERIT_VALUE = '__inherit__';
+import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import {
+  formatSubagentBinding,
+  pickSubagentBinding,
+  subagentModelAliases,
+} from '../utils/subagent-binding-picker';
+import type { SlashCommandHost } from './dispatch';
 
 /**
  * `/subagent-model` — manage per-workspace model bindings for subagent types
@@ -49,13 +53,13 @@ export async function handleSubagentModelCommand(
     if (entries.length > 0) {
       lines.push('  Types:');
       for (const [type, binding] of entries) {
-        lines.push(`    ${type}: ${formatBinding(binding)}`);
+        lines.push(`    ${type}: ${formatSubagentBinding(binding)}`);
       }
     }
     if (slotEntries.length > 0) {
       lines.push('  Slots:');
       for (const [slot, binding] of slotEntries) {
-        lines.push(`    ${slot}: ${formatBinding(binding)}`);
+        lines.push(`    ${slot}: ${formatSubagentBinding(binding)}`);
       }
     }
     host.showStatus(lines.join('\n'));
@@ -87,99 +91,35 @@ export async function handleSubagentModelCommand(
       host.showError('Usage: /subagent-model set [slot] <name>');
       return;
     }
-    const aliases = Object.keys(host.state.appState.availableModels).toSorted();
-    if (aliases.length === 0) {
+    const availableModels = host.state.appState.availableModels;
+    if (subagentModelAliases(availableModels).length === 0) {
       host.showError('No models configured. Run /login or /provider first.');
       return;
     }
-    host.mountEditorReplacement(
-      new ChoicePickerComponent({
-        title: `Bind model for ${targetLabel}`,
-        hint: '↑↓ navigate · Enter confirm · Esc cancel',
-        options: [
-          {
-            value: INHERIT_VALUE,
-            label: 'Keep inheriting from the main agent',
-          },
-          ...aliases.map((alias) => ({ value: alias, label: alias })),
-        ],
-        onSelect: (value) => {
-          if (value === INHERIT_VALUE) {
-            host.restoreEditor();
-            void persistBinding(host, isSlot, name, { inherit: true });
-            return;
-          }
-          void pickThinkingEffort(host, isSlot, name, value);
-        },
-        onCancel: () => {
-          host.restoreEditor();
-        },
-      }),
-    );
+    pickSubagentBinding({
+      targetLabel,
+      availableModels,
+      mount: (picker) => {
+        host.mountEditorReplacement(picker);
+      },
+      settle: () => {
+        host.restoreEditor();
+      },
+      onBinding: (binding) => {
+        void persistBinding(host, isSlot, name, binding);
+      },
+    });
     return;
   }
 
   host.showError('Usage: /subagent-model [list] | set [slot] <name> | clear [slot] <name>');
 }
 
-function formatBinding(binding: {
-  model?: string;
-  thinkingEffort?: string;
-  inherit?: boolean;
-}): string {
-  if (binding.inherit === true) return 'inherit from main agent';
-  const parts = [binding.model ?? 'inherit model'];
-  if (binding.thinkingEffort !== undefined) parts.push(`thinking ${binding.thinkingEffort}`);
-  return parts.join(', ');
-}
-
-async function pickThinkingEffort(
-  host: SlashCommandHost,
-  isSlot: boolean,
-  name: string,
-  model: string,
-): Promise<void> {
-  const supportEfforts =
-    host.state.appState.availableModels[model]?.supportEfforts?.filter(
-      (effort) => effort.length > 0,
-    ) ?? [];
-  const targetLabel = isSlot ? `slot "${name}"` : `subagent "${name}"`;
-  if (supportEfforts.length === 0) {
-    host.restoreEditor();
-    await persistBinding(host, isSlot, name, { model });
-    return;
-  }
-  host.restoreEditor();
-  host.mountEditorReplacement(
-    new ChoicePickerComponent({
-      title: `Thinking effort for ${targetLabel} on ${model}`,
-      hint: '↑↓ navigate · Enter confirm · Esc skip (inherit effort)',
-      options: [
-        { value: INHERIT_VALUE, label: 'Inherit the main agent thinking effort' },
-        ...supportEfforts.map((effort) => ({ value: effort, label: effort })),
-      ],
-      onSelect: (value) => {
-        host.restoreEditor();
-        void persistBinding(
-          host,
-          isSlot,
-          name,
-          value === INHERIT_VALUE ? { model } : { model, thinkingEffort: value },
-        );
-      },
-      onCancel: () => {
-        host.restoreEditor();
-        void persistBinding(host, isSlot, name, { model });
-      },
-    }),
-  );
-}
-
 async function persistBinding(
   host: SlashCommandHost,
   isSlot: boolean,
   name: string,
-  binding: { model?: string; thinkingEffort?: string; inherit?: boolean },
+  binding: SubagentBinding,
 ): Promise<void> {
   const session = host.session;
   if (session === undefined) {
@@ -192,7 +132,7 @@ async function persistBinding(
       ? await session.setSubagentSlotBinding(name, binding)
       : await session.setSubagentBinding(name, binding);
     host.showStatus(
-      `${targetLabel} binding: ${formatBinding(binding)}\nSaved to:\n  ${result.configPath}`,
+      `${targetLabel} binding: ${formatSubagentBinding(binding)}\nSaved to:\n  ${result.configPath}`,
       'success',
     );
   } catch (error) {

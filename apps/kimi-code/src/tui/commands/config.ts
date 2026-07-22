@@ -4,6 +4,7 @@ import {
   type ModelAlias,
   type PermissionMode,
   type Session,
+  type SubagentBinding,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
@@ -17,6 +18,10 @@ import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selec
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import { SettingsSelectorComponent, type SettingsSelection } from '../components/dialogs/settings-selector';
+import {
+  SubagentModelSettingsComponent,
+  type SubagentModelSettingsChange,
+} from '../components/dialogs/subagent-model-settings';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
@@ -784,7 +789,93 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'theme': showThemePicker(host); return;
     case 'editor': showEditorPicker(host); return;
     case 'experiments': void showExperimentsPanel(host); return;
+    case 'subagent-models': void showSubagentModelSettings(host); return;
     case 'upgrade': showUpdatePreferencePicker(host); return;
     case 'usage': void showUsage(host); return;
   }
+}
+
+async function showSubagentModelSettings(host: SlashCommandHost): Promise<void> {
+  const session = host.session;
+  if (session === undefined) {
+    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    return;
+  }
+  let bindings: Readonly<Record<string, SubagentBinding>>;
+  let slots: Readonly<Record<string, SubagentBinding>>;
+  try {
+    [bindings, slots] = await Promise.all([
+      session.getSubagentBindings(),
+      session.getSubagentSlotBindings(),
+    ]);
+  } catch (error) {
+    host.showError(`Failed to load subagent model bindings: ${formatErrorMessage(error)}`);
+    return;
+  }
+  mountSubagentModelSettingsPanel(host, session, bindings, slots);
+}
+
+function mountSubagentModelSettingsPanel(
+  host: SlashCommandHost,
+  session: Session,
+  bindings: Readonly<Record<string, SubagentBinding>>,
+  slots: Readonly<Record<string, SubagentBinding>>,
+): void {
+  const panel = new SubagentModelSettingsComponent({
+    bindings,
+    slots,
+    availableModels: host.state.appState.availableModels,
+    mountPicker: (picker) => {
+      host.mountEditorReplacement(picker);
+    },
+    remount: () => {
+      host.mountEditorReplacement(panel);
+    },
+    onApply: (changes) => {
+      void applySubagentModelSettingsChanges(host, session, changes);
+    },
+    onCancel: () => {
+      host.restoreEditor();
+    },
+  });
+  host.mountEditorReplacement(panel);
+}
+
+async function applySubagentModelSettingsChanges(
+  host: SlashCommandHost,
+  session: Session,
+  changes: readonly SubagentModelSettingsChange[],
+): Promise<void> {
+  if (changes.length === 0) {
+    host.restoreEditor();
+    return;
+  }
+  const failures: string[] = [];
+  let configPath: string | undefined;
+  for (const change of changes) {
+    const label = change.kind === 'slot' ? `slot "${change.name}"` : `"${change.name}"`;
+    try {
+      const result =
+        change.kind === 'slot'
+          ? await session.setSubagentSlotBinding(change.name, change.binding)
+          : await session.setSubagentBinding(change.name, change.binding);
+      configPath = result.configPath;
+    } catch (error) {
+      failures.push(`${label}: ${formatErrorMessage(error)}`);
+    }
+  }
+  if (failures.length > 0) {
+    // Leave the panel mounted with its draft so the user can retry; successful
+    // writes are idempotent when re-applied.
+    host.showError(
+      `Failed to save ${String(failures.length)} of ${String(changes.length)} subagent model change(s):\n` +
+        failures.join('\n'),
+    );
+    return;
+  }
+  host.restoreEditor();
+  const summary =
+    changes.length === 1 ? '1 subagent model change' : `${String(changes.length)} subagent model changes`;
+  const savedTo = configPath !== undefined ? `\nSaved to:\n  ${configPath}` : '';
+  host.showStatus(`Applied ${summary}.${savedTo}`, 'success');
 }

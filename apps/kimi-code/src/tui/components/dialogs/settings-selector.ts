@@ -6,6 +6,7 @@ export type SettingsSelection =
   | 'editor'
   | 'permission'
   | 'experiments'
+  | 'subagent-models'
   | 'upgrade'
   | 'usage';
 
@@ -36,6 +37,11 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
     description: 'Turn experimental features on or off.',
   },
   {
+    value: 'subagent-models',
+    label: 'Subagent models',
+    description: 'Bind models and thinking effort for subagent types and slots.',
+  },
+  {
     value: 'upgrade',
     label: 'Automatic updates',
     description: 'Turn automatic CLI updates on or off.',
@@ -54,6 +60,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'editor' ||
     value === 'permission' ||
     value === 'experiments' ||
+    value === 'subagent-models' ||
     value === 'upgrade' ||
     value === 'usage'
   );

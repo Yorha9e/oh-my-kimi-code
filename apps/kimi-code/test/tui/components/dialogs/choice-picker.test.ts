@@ -104,6 +104,10 @@ describe('ChoicePickerComponent', () => {
     const settingsOutput = settings.render(120).map(strip);
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
+    expect(settingsOutput).toContain('    Subagent models');
+    expect(settingsOutput).toContain(
+      '    Bind models and thinking effort for subagent types and slots.',
+    );
     expect(settingsOutput).toContain('    Turn automatic CLI updates on or off.');
 
     const upgradePreference = new UpdatePreferenceSelectorComponent({
