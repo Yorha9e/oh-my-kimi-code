@@ -1,131 +1,191 @@
-# Kimi Code CLI
+# oh-my-kimi-code（omkc）
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/zh/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · **Upstream**: [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) · [Issues](https://github.com/Yorha9e/oh-my-kimi-code/issues)
 
-[Documentation](https://moonshotai.github.io/kimi-code/zh/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [English](README.md)
+> English readers: this fork is documented primarily in Chinese. For the official English docs, see the upstream [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code).
 
----
+## 这是什么
 
-> ### ⚠️ 社区实验版声明 / Community Experimental Fork
->
-> **本仓库不是 Kimi Code 官方仓库**，而是个人维护的社区实验分支，用于在功能回馈上游之前（及期间）
-> 进行前沿功能探索。官方版本请使用 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)。
->
-> **This is not the official Kimi Code repository.** It is a personal, community-maintained fork
-> for exploring frontier features. For the official version, please use
-> [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code).
->
-> **当前实验 / Current experiments：**
-> - **子 Agent 模型与思考强度绑定**（Subagent model & thinking-effort bindings）—
->   使用说明：[SUBAGENT-MODEL-BINDING.md](SUBAGENT-MODEL-BINDING.md) ·
->   上游 PR：[MoonshotAI/kimi-code#1928](https://github.com/MoonshotAI/kimi-code/pull/1928)
-> - **多智能体编排 MoA**（Multi-agent orchestration）— 设计阶段，尚未合入 / under design
->
-> 实验代码随时可能变更、变基或移除，欢迎通过本仓库 Issues 反馈。
-> Experimental code here may be changed, rebased, or removed at any time.
+**oh-my-kimi-code** 是 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 的社区 fork，呼出命令为 `omkc`。它用来先行落地一批「多代理编排」相关的特性，成熟的功能会以 PR 形式回馈上游。
 
----
+社区版与官方版**完全并存**，互不污染：
 
-![Kimi Code 的使用演示](./docs/media/intro.gif)
+- **独立命令**：官方是 `kimi`，社区版是 `omkc`，全局安装不会互相覆盖
+- **独立数据目录**：官方是 `~/.kimi-code`，社区版是 `~/.omkc`（env 优先级：`OMKC_HOME` > `KIMI_CODE_HOME` > 默认）
+- **首次启动自动迁移**：从官方目录复制配置、凭据、会话、技能、输入历史等（复制不移动），**无需重新登录**
+- 两个版本可以同机安装、同时使用；出问题随时切回官方 `kimi` 排查
 
+## 特性
 
-## 什么是 Kimi Code CLI
-
-Kimi Code CLI 是一个运行在终端里的 AI 编程 agent，可以帮你读写代码、执行 shell 命令、检索文件、抓取网页，并根据反馈自主决定下一步动作。开箱即用对接 Moonshot AI 的 Kimi 模型，也可指向其他兼容厂商。
+1. **子代理模型绑定全家桶（默认开启）** — 按子代理类型（`coder` / `explore` / `plan` 等）或命名槽位（slot）绑定模型与思考强度。绑定是用户配置而非 LLM 决策，在 spawn 时机械生效。工作区层（`.kimi-code/local.toml`）与全局层两级存储；中断恢复的子代理保持原绑定（sticky resume）；`AgentSwarm` 支持槽位；绑定显示带模型能力标识。
+2. **MOA 多代理辩论 profiles** — 内置 `orchestrator` / `critic` / `synthesizer` 等角色化子代理配置（`packages/agent-core` 的 MOA profiles），让多代理协作以结构化辩论的形式展开。
+3. **桌面悬浮卡片 moa-card** — `omkc` 交互启动时自动拉起（`tui.toml` 的 `[moa] card` 开关，默认开），实时显示 MOA 辩论进度与各 agent 状态。
+4. **内嵌状态导出** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起，只绑环回、零写盘），供外部工具订阅 agent 状态；开关为 `tui.toml` 的 `[moa] status_export`（默认开）。
+5. **omkc-status 独立状态服务（伴生项目）** — 只读监听会话持久化文件，折叠出 agent 状态，对外提供 HTTP `/state` 与 SSE `/events`（39627 端口）。不依赖 CLI 进程存活，也不向会话目录写入任何东西。
+6. **kosong Anthropic 兼容端点加固** — `max_tokens` 保守兜底 + 400 错误自动解析并重试，兼容更多第三方 Anthropic 风格端点（已提上游 [PR #2066](https://github.com/MoonshotAI/kimi-code/pull/2066)）。
+7. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
 
 ## 安装
 
-推荐使用官方安装脚本，不需要提前安装 Node.js。
+### 前置要求
 
-- **macOS / Linux**：
+- Node.js **>= 24.15**（版本不够时 `pnpm install` 会被 `engine-strict` 拦截；临时绕过可把仓库根目录 `.npmrc` 里的 `engine-strict=true` 改为 `false`，用完改回）
+- pnpm（`corepack enable` 即可）
 
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
+> **单文件可执行文件即将提供**：后续会通过 [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) 提供打包好的单文件 exe，届时无需 Node.js 与构建步骤。当前阶段请从源码构建。
 
-- **Windows（PowerShell）**：
+#### 升级 Node.js（Windows）
+
+先用 `node -v` 确认当前版本，低于 24.15 时按下面任一方式升级：
+
+**方式 1：官方安装包（推荐，留在 24 线）**
+
+从 [nodejs.org](https://nodejs.org/dist/latest-v24.x/) 下载 24 线最新的 Windows 安装包（`node-v24.x.x-x64.msi`），直接运行即可**覆盖升级**，全局已装的 pnpm、npm 全局包都会保留。
+
+**方式 2：winget（只能跟 Current 线，慎选）**
 
 ```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
+winget install OpenJS.NodeJS          # 装的是 Current 线（如 26.x），主版本跨越大
 ```
 
-> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Kimi Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `KIMI_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
+注意：winget 源**没有 24 线的包**（按大版本拆分的 id 只到 `OpenJS.NodeJS.23`，通用的 `OpenJS.NodeJS` 是 Current 线）。另外 `winget upgrade` 可能报"找不到与输入条件匹配的已安装程序包"——这说明现有 Node 的注册 id 与实际版本不一致（例如注册为 `OpenJS.NodeJS.22` 实际已是 24.x），这时别用 winget，走方式 1。
 
-随后在新的终端会话中运行：
+**方式 3：版本管理器（需要在多个 Node 版本间切换时）**
 
-```sh
-kimi --version
+用 [nvm-windows](https://github.com/coreybutler/nvm-windows) 或 [fnm](https://github.com/Schniz/fnm) 安装管理多个版本，例如 fnm：`fnm install 24 && fnm use 24`。
+
+升级后重开终端，确认：
+
+```bash
+node -v          # 应 >= 24.15.0
+corepack enable  # 如 pnpm 失效，重新启用
 ```
 
-npm 安装、升级、卸载方式，见[快速上手](https://moonshotai.github.io/kimi-code/zh/guides/getting-started)。
+之后 `pnpm install` 就不再需要绕过 `engine-strict` 了。
 
-## 快速开始
+### 构建并全局安装（当前方式）
 
-进入项目目录并启动交互界面：
+```bash
+git clone https://github.com/Yorha9e/oh-my-kimi-code.git
+cd oh-my-kimi-code
 
-```sh
-cd your-project
-kimi
+pnpm install
+pnpm -C apps/kimi-code run build
+
+cd apps/kimi-code
+npm pack                                    # 生成 oh-my-kimi-code-<version>.tgz
+npm install -g ./oh-my-kimi-code-0.28.1.tgz
+
+omkc --version
 ```
 
-首次启动时，在 Kimi Code CLI 里输入 `/login`，选择 Kimi Code OAuth 或 Moonshot AI Open Platform API 密钥登录。登录完成后，可以先让它熟悉项目：
+之后在任意项目文件夹敲 `omkc` 启动。升级：`git pull --ff-only` 后重跑上面的构建与安装步骤。卸载：`npm rm -g oh-my-kimi-code`。
 
-```
-帮我看一下这个项目的目录结构，简单介绍一下每个目录是做什么的
-```
+> Kimi Code 的工作目录跟随**启动时所在的文件夹**：在哪个项目里启动 `omkc`，就操作哪个项目。
 
-## 核心特性
+### 免安装直接跑（试用 / 开发）
 
-- **二进制发行，零环境依赖** 一行命令安装，不需要预装 Node.js，不用折腾 PATH，也不会和全局模块冲突。
-- **极速启动** TUI 在毫秒级就绪，开一个新会话没有任何心智负担。
-- **精致的 TUI 体验** 端到端打磨的交互界面，专为长时间、专注的 Agent 会话优化。
-- **视频也能输入** 把屏幕录像、演示视频拖进对话，让 Agent 看那些难以用文字描述的东西——把参考片段做成 LUT、把长视频剪成短视频、把录屏变成代码，等等。
-- **AI-native 的 MCP 配置** 通过 `/mcp-config` 对话式添加、编辑、认证 MCP 服务器，无需手写 JSON。
-- **丰富的插件生态** 从插件市场或任意 GitHub 仓库安装 skills、MCP 服务器和数据源，每次安装都会标明来源的信任级别。
-- **子 Agent 聚焦并行工作** 内置 `coder`、`explore`、`plan` 子 Agent 在隔离上下文中处理子任务，主对话保持清爽。
-- **生命周期 hooks** 在关键节点执行本地命令：拦截高风险工具调用、审计决策、发送桌面通知，或对接你自己的自动化脚本。
-- **编辑器 / IDE 集成（ACP）** 用 `kimi acp` 让 Zed、JetBrains 等任意 [Agent Client Protocol](https://agentclientprotocol.com/) 客户端直接驱动会话。
-
-
-## 在编辑器里使用（ACP）
-
-Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)，ACP 兼容的编辑器 / IDE（Zed、JetBrains……）可以通过 stdio 直接驱动会话。登录一次后，把编辑器指向 `kimi acp` 子命令即可，无需重复登录。
-
-以 Zed 为例，在 `~/.config/zed/settings.json` 中加入：
-
-```json
-{
-  "agent_servers": {
-    "Kimi Code CLI": {
-      "type": "custom",
-      "command": "kimi",
-      "args": ["acp"],
-      "env": {}
-    }
-  }
-}
+```bash
+cd /path/to/你的项目
+node /path/to/oh-my-kimi-code/apps/kimi-code/dist/main.mjs
 ```
 
-随后在 Zed 的 Agent 面板新建对话即可。JetBrains 配置与排障见[在 IDE 中使用](https://moonshotai.github.io/kimi-code/zh/guides/ides)，完整能力矩阵见 [`kimi acp` 参考](https://moonshotai.github.io/kimi-code/zh/reference/kimi-acp)。
+可以起个别名（Git Bash 写进 `~/.bashrc`）：
 
-## 文档
+```bash
+alias omkc-dev='node /path/to/oh-my-kimi-code/apps/kimi-code/dist/main.mjs'
+```
 
-- [快速上手](https://moonshotai.github.io/kimi-code/zh/guides/getting-started)
-- [交互与审批](https://moonshotai.github.io/kimi-code/zh/guides/interaction)
-- [会话](https://moonshotai.github.io/kimi-code/zh/guides/sessions)
-- [在 IDE 中使用（ACP）](https://moonshotai.github.io/kimi-code/zh/guides/ides)
-- [配置](https://moonshotai.github.io/kimi-code/zh/configuration/config-files)
-- [命令参考](https://moonshotai.github.io/kimi-code/zh/reference/kimi-command)
+更新时重新构建即可，所有项目立刻用上新构建：
 
-## 本地开发
+```bash
+git pull --ff-only && pnpm install && pnpm -C apps/kimi-code run build
+```
+
+注意：`git pull` 拉取的是**本社区仓库的更新**；官方发布新版后不会自动出现在这里，需要先走[开发说明](#开发说明)里的上游同步流程。
+
+## 首次启动与迁移
+
+首次启动 `omkc` 时，如果检测到官方目录 `~/.kimi-code` 存在，会自动把用户数据**复制**进 `~/.omkc`：
+
+- **复制的内容**：`config.toml`、`tui.toml`、`mcp.json` 等配置；`credentials`（OAuth 凭据为明文文件，复制后**免登录**）；会话数据与索引；`skills`、`plugins`、`themes`；输入历史；托管工具（`rg` / `fd` / `moa-card`）
+- **复制不移动**：官方目录原封不动，官方版 `kimi` 照常使用；迁移也从不覆盖 `~/.omkc` 里已存在的文件，不阻塞启动
+- **自动调整**：`session_index` 中的路径前缀自动重写指向新目录；`device_id` 重新生成（社区版使用独立设备身份）
+- **跳过迁移**：在 `~/.kimi-code` 下放一个 `.skip-migration-to-omkc` 文件即可；迁移完成后目标目录会出现 `.migrated-from-kimi-code` 标记，不会重复迁移
+
+## 与官方版并存的注意事项
+
+- **refresh_token 轮换**：两边的凭据源自同一份 OAuth 文件，共用同一个 `refresh_token`。任一方触发 token 刷新后，另一方持有的旧 token 可能失效，届时需要在失效的一方重新 `/login`。
+- **项目级 `.kimi-code/` 目录仍然共享**：工作区配置（含子代理绑定所在的 `.kimi-code/local.toml`）放在项目目录里，官方与社区版读取同一份。这是有意为之——绑定配置在两个版本间通用。
+- **home 目录互不影响**：`~/.kimi-code` 与 `~/.omkc` 迁移后即分家，此后各自的会话、配置修改互不可见。
+
+## 常用命令对照
+
+| 场景 | 官方版 | 社区版 |
+| --- | --- | --- |
+| 启动 | `kimi` | `omkc` |
+| 数据目录 | `~/.kimi-code` | `~/.omkc`（`OMKC_HOME` > `KIMI_CODE_HOME`） |
+| 版本 | `kimi --version` | `omkc --version` |
+| Web UI | `kimi web` | `omkc web` |
+| IDE / ACP | `kimi acp` | `omkc acp` |
+| 诊断 | `kimi doctor` | `omkc doctor` |
+| 会话导出 | `kimi export` | `omkc export` |
+
+TUI 内的 slash 命令与官方版一致，另加社区版新增命令。
+
+## Slash 命令速查
+
+在 TUI 输入框敲 `/` 即弹出命令补全，随输入实时过滤；`Enter` 执行。部分命令仅在空闲状态可用（流式输出中先按 `Esc` 中断）。
+
+| 分类 | 命令 | 作用 |
+| --- | --- | --- |
+| 账号与模型 | `/login` `/logout` | 登录 / 清除凭据 |
+| | `/model` | 切换当前会话模型 |
+| | `/provider` | 管理供应商 |
+| | `/settings`（`/config`） | 设置面板（含子代理绑定批量编辑） |
+| | `/experiments` | 实验功能开关面板 |
+| | `/permission` | 切换权限模式 |
+| 会话管理 | `/new`（`/clear`） | 开新会话 |
+| | `/sessions`（`/resume`） | 浏览/恢复历史会话 |
+| | `/fork` | 复制当前会话开分支 |
+| | `/tasks` | 后台任务列表面板 |
+| | `/compact [指令]` | 压缩上下文 |
+| | `/undo [条数]` | 撤销最近的提示词 |
+| | `/export-md [路径]` | 导出会话为 Markdown |
+| | `/init` | 分析代码库生成 `AGENTS.md` |
+| | `/web` | 在 Web UI 打开当前会话 |
+| 运行模式 | `/plan on\|off` | Plan 模式 |
+| | `/yolo on\|off` | 跳过工具审批（慎用） |
+| | `/auto on\|off` | 自动权限模式 |
+| | `/swarm <任务>` | swarm 模式执行批量子代理任务 |
+| | `/goal <目标>` | 目标模式（自动续跑直至完成） |
+| 信息查询 | `/help` | 全部命令与快捷键 |
+| | `/usage` | token 用量与配额 |
+| | `/status` | 版本、模型、工作目录等 |
+| | `/mcp` | MCP server 连接状态 |
+| | `/exit`（`/q`） | 退出 |
+| 社区版新增 | `/subagent-model [list]` | 查看子代理模型绑定（Types / Slots 两节） |
+| | `/subagent-model set <type>` / `set slot <name>` | 为类型或命名槽位绑定模型与思考强度 |
+| | `/subagent-model clear <type>` / `clear slot <name>` | 移除绑定 |
+
+类型绑定示例（写入工作区 `.kimi-code/local.toml`）：
+
+```toml
+[subagent.explore]
+model = "kimi-code/kimi-for-coding"
+thinking_effort = "high"
+```
+
+Skill 命令：外部 Skill 自动注册为 `/skill:<name>`（或未占用时可直接 `/<name>`）；内置 Skill 命令开箱即用（`/update-config`、`/check-kimi-code-docs` 等）。
+
+完整命令表见上游文档 [Slash 命令参考](https://moonshotai.github.io/kimi-code/zh/reference/slash-commands)（官方文档以 `kimi` 命令为例，行为与 `omkc` 一致）。
+
+## 开发说明
 
 环境要求：Node.js ≥ 24.15.0，pnpm 10.33.0。
 
-```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
-cd kimi-code
-pnpm install
-```
+- **分支结构**：`main` 即社区版本身（旧的「`main` 与官方一致 + 实验特性放 `feat/subagent-model-binding` 分支」结构已废弃，全部特性已并入 `main` 且默认开启）
+- 本地开发常用命令：
 
 ```sh
 pnpm dev:cli    # 以开发模式运行 CLI
@@ -135,17 +195,19 @@ pnpm lint       # 运行 oxlint
 pnpm build      # 构建所有包
 ```
 
+### 上游同步流程
+
+```bash
+git remote add upstream https://github.com/MoonshotAI/kimi-code.git   # 只需一次
+git fetch upstream --tags
+git rebase upstream/main       # main 跟进官方
+pnpm install && pnpm run typecheck && pnpm test
+```
+
 完整贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## 社区
+## License 与致谢
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
-- 安全漏洞反馈，请见 [SECURITY.md](SECURITY.md)。
-
-## 致谢
-
-我们的 TUI 构建在 [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui) 之上。我们衷心感谢 `pi-tui` 作者的工作。
-
-## 许可证
-
-基于 [MIT](LICENSE) 协议发布。
+- **License**：[MIT](LICENSE)，与上游一致
+- **Upstream**：本 fork 的全部基础能力来自 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)，感谢 Moonshot AI 团队的开源工作
+- TUI 构建在 [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui) 之上，感谢 `pi-tui` 作者的工作
