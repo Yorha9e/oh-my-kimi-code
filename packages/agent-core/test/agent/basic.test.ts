@@ -9,9 +9,10 @@ it('creates an independent agent with a scoped experimental flag resolver', () =
     experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS),
   });
 
-  // No experimental flags are currently registered, so the scoped resolver
-  // reports none enabled.
-  expect(ctx.agent.experimentalFlags.enabledIds()).toEqual([]);
+  // The scoped resolver falls back to registry defaults; subagent-model-selection
+  // ships default-on in the community edition, so it is reported enabled even
+  // without explicit overrides.
+  expect(ctx.agent.experimentalFlags.enabledIds()).toEqual(['subagent-model-selection']);
 });
 
 it('runs a text-only agent turn from prompt to completion', async () => {

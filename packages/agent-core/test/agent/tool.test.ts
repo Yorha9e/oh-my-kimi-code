@@ -141,7 +141,17 @@ describe('Agent tools', () => {
       resume: vi.fn(),
       setBindingResolver: vi.fn(),
     } as unknown as SessionSubagentHost;
-    const ctx = testAgent({ subagentHost });
+    // This test exercises max_tokens recovery, not subagent model selection.
+    // The feature now defaults on (community edition), which would make the
+    // Agent tool open an interactive binding ask before spawning and stall the
+    // turn — pin it off so the spawn runs directly against the mocked host.
+    const ctx = testAgent({
+      subagentHost,
+      experimentalFlags: new FlagResolver(
+        { KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION: 'false' },
+        FLAG_DEFINITIONS,
+      ),
+    });
     ctx.configure({ tools: ['Agent'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will ask a subagent.' }, agentCall());
