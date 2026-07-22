@@ -6,12 +6,15 @@ const INHERIT_VALUE = '__inherit__';
 
 /**
  * `/subagent-model` — manage per-workspace model bindings for subagent types
- * (stored in `.kimi-code/local.toml`, applied mechanically at spawn when the
- * subagent-model-selection experiment is enabled).
+ * and named binding slots (stored in `.kimi-code/local.toml`, applied
+ * mechanically at spawn when the subagent-model-selection experiment is
+ * enabled).
  *
- *   /subagent-model [list]     show current bindings
- *   /subagent-model set <type> pick a model (and effort) for a subagent type
- *   /subagent-model clear <type> remove a binding
+ *   /subagent-model [list]            show current type bindings and slots
+ *   /subagent-model set <type>        pick a model (and effort) for a subagent type
+ *   /subagent-model set slot <name>   pick a model (and effort) for a named slot
+ *   /subagent-model clear <type>      remove a type binding
+ *   /subagent-model clear slot <name> remove a slot binding
  */
 export async function handleSubagentModelCommand(
   host: SlashCommandHost,
@@ -23,40 +26,56 @@ export async function handleSubagentModelCommand(
     return;
   }
 
-  const [actionRaw, typeRaw] = args.trim().split(/\s+/, 2);
+  const [actionRaw, targetRaw, nameRaw] = args.trim().split(/\s+/, 3);
   const action = (actionRaw ?? '').toLowerCase() || 'list';
-  const agentType = (typeRaw ?? '').trim();
+  const isSlot = (targetRaw ?? '').toLowerCase() === 'slot';
+  const name = (isSlot ? (nameRaw ?? '') : (targetRaw ?? '')).trim();
+  const targetLabel = isSlot ? `slot "${name}"` : `subagent "${name}"`;
 
   if (action === 'list') {
     const bindings = await session.getSubagentBindings();
+    const slotBindings = await session.getSubagentSlotBindings();
     const entries = Object.entries(bindings);
-    if (entries.length === 0) {
+    const slotEntries = Object.entries(slotBindings);
+    if (entries.length === 0 && slotEntries.length === 0) {
       host.showStatus(
         'No subagent model bindings in this workspace.\n' +
-          'Use /subagent-model set <type> to bind a model, or spawn a subagent to be asked once.',
+          'Use /subagent-model set <type> or /subagent-model set slot <name> to bind a model, ' +
+          'or spawn a subagent to be asked once.',
       );
       return;
     }
-    host.showStatus(
-      [
-        'Subagent model bindings (workspace):',
-        ...entries.map(
-          ([type, binding]) =>
-            `  ${type}: ${formatBinding(binding)}`,
-        ),
-      ].join('\n'),
-    );
+    const lines = ['Subagent model bindings (workspace):'];
+    if (entries.length > 0) {
+      lines.push('  Types:');
+      for (const [type, binding] of entries) {
+        lines.push(`    ${type}: ${formatBinding(binding)}`);
+      }
+    }
+    if (slotEntries.length > 0) {
+      lines.push('  Slots:');
+      for (const [slot, binding] of slotEntries) {
+        lines.push(`    ${slot}: ${formatBinding(binding)}`);
+      }
+    }
+    host.showStatus(lines.join('\n'));
     return;
   }
 
   if (action === 'clear') {
-    if (agentType.length === 0) {
-      host.showError('Usage: /subagent-model clear <type>');
+    if (name.length === 0) {
+      host.showError('Usage: /subagent-model clear [slot] <name>');
       return;
     }
     try {
-      const result = await session.setSubagentBinding(agentType, undefined);
-      host.showStatus(`Cleared model binding for "${agentType}".\nSaved to:\n  ${result.configPath}`, 'success');
+      const result = isSlot
+        ? await session.setSubagentSlotBinding(name, undefined)
+        : await session.setSubagentBinding(name, undefined);
+      const clearedLabel = isSlot ? `slot "${name}"` : `"${name}"`;
+      host.showStatus(
+        `Cleared model binding for ${clearedLabel}.\nSaved to:\n  ${result.configPath}`,
+        'success',
+      );
     } catch (error) {
       host.showError(error instanceof Error ? error.message : String(error));
     }
@@ -64,8 +83,8 @@ export async function handleSubagentModelCommand(
   }
 
   if (action === 'set') {
-    if (agentType.length === 0) {
-      host.showError('Usage: /subagent-model set <type>');
+    if (name.length === 0) {
+      host.showError('Usage: /subagent-model set [slot] <name>');
       return;
     }
     const aliases = Object.keys(host.state.appState.availableModels).toSorted();
@@ -75,7 +94,7 @@ export async function handleSubagentModelCommand(
     }
     host.mountEditorReplacement(
       new ChoicePickerComponent({
-        title: `Bind model for subagent "${agentType}"`,
+        title: `Bind model for ${targetLabel}`,
         hint: '↑↓ navigate · Enter confirm · Esc cancel',
         options: [
           {
@@ -87,10 +106,10 @@ export async function handleSubagentModelCommand(
         onSelect: (value) => {
           if (value === INHERIT_VALUE) {
             host.restoreEditor();
-            void persistBinding(host, agentType, { inherit: true });
+            void persistBinding(host, isSlot, name, { inherit: true });
             return;
           }
-          void pickThinkingEffort(host, agentType, value);
+          void pickThinkingEffort(host, isSlot, name, value);
         },
         onCancel: () => {
           host.restoreEditor();
@@ -100,7 +119,7 @@ export async function handleSubagentModelCommand(
     return;
   }
 
-  host.showError('Usage: /subagent-model [list] | set <type> | clear <type>');
+  host.showError('Usage: /subagent-model [list] | set [slot] <name> | clear [slot] <name>');
 }
 
 function formatBinding(binding: {
@@ -116,22 +135,24 @@ function formatBinding(binding: {
 
 async function pickThinkingEffort(
   host: SlashCommandHost,
-  agentType: string,
+  isSlot: boolean,
+  name: string,
   model: string,
 ): Promise<void> {
   const supportEfforts =
     host.state.appState.availableModels[model]?.supportEfforts?.filter(
       (effort) => effort.length > 0,
     ) ?? [];
+  const targetLabel = isSlot ? `slot "${name}"` : `subagent "${name}"`;
   if (supportEfforts.length === 0) {
     host.restoreEditor();
-    await persistBinding(host, agentType, { model });
+    await persistBinding(host, isSlot, name, { model });
     return;
   }
   host.restoreEditor();
   host.mountEditorReplacement(
     new ChoicePickerComponent({
-      title: `Thinking effort for subagent "${agentType}" on ${model}`,
+      title: `Thinking effort for ${targetLabel} on ${model}`,
       hint: '↑↓ navigate · Enter confirm · Esc skip (inherit effort)',
       options: [
         { value: INHERIT_VALUE, label: 'Inherit the main agent thinking effort' },
@@ -141,13 +162,14 @@ async function pickThinkingEffort(
         host.restoreEditor();
         void persistBinding(
           host,
-          agentType,
+          isSlot,
+          name,
           value === INHERIT_VALUE ? { model } : { model, thinkingEffort: value },
         );
       },
       onCancel: () => {
         host.restoreEditor();
-        void persistBinding(host, agentType, { model });
+        void persistBinding(host, isSlot, name, { model });
       },
     }),
   );
@@ -155,7 +177,8 @@ async function pickThinkingEffort(
 
 async function persistBinding(
   host: SlashCommandHost,
-  agentType: string,
+  isSlot: boolean,
+  name: string,
   binding: { model?: string; thinkingEffort?: string; inherit?: boolean },
 ): Promise<void> {
   const session = host.session;
@@ -163,10 +186,13 @@ async function persistBinding(
     host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return;
   }
+  const targetLabel = isSlot ? `slot "${name}"` : `subagent "${name}"`;
   try {
-    const result = await session.setSubagentBinding(agentType, binding);
+    const result = isSlot
+      ? await session.setSubagentSlotBinding(name, binding)
+      : await session.setSubagentBinding(name, binding);
     host.showStatus(
-      `Subagent "${agentType}" binding: ${formatBinding(binding)}\nSaved to:\n  ${result.configPath}`,
+      `${targetLabel} binding: ${formatBinding(binding)}\nSaved to:\n  ${result.configPath}`,
       'success',
     );
   } catch (error) {

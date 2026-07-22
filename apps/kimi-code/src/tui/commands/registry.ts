@@ -50,22 +50,28 @@ export function swarmArgumentCompletions(argumentPrefix: string): AutocompleteIt
 }
 
 const SUBAGENT_MODEL_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'list', description: 'Show current subagent model bindings' },
-  { value: 'set', description: 'Bind a model for a subagent type' },
+  { value: 'list', description: 'Show current subagent model bindings and slots' },
+  { value: 'set', description: 'Bind a model for a subagent type or named slot' },
   { value: 'clear', description: 'Remove a binding' },
 ];
 
 /** Argument autocompletion for the `/subagent-model` command. */
 export function subagentModelArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  const slotMatch = argumentPrefix.match(/^(set|clear)\s+slot\s+\S*$/i);
+  if (slotMatch !== null) {
+    // Slot names are user-chosen; nothing to suggest after the keyword.
+    return null;
+  }
   const subMatch = argumentPrefix.match(/^(set|clear)\s+(\S*)$/i);
   if (subMatch !== null) {
-    const types: readonly ArgCompletionSpec[] = [
+    const targets: readonly ArgCompletionSpec[] = [
+      { value: 'slot', description: 'Address a named binding slot' },
       { value: 'coder', description: 'General software engineering subagent' },
       { value: 'explore', description: 'Read-only exploration subagent' },
       { value: 'plan', description: 'Read-only planning subagent' },
     ];
     return (
-      completeLeadingArg(types, subMatch[2] ?? '')?.map((item) => ({
+      completeLeadingArg(targets, subMatch[2] ?? '')?.map((item) => ({
         ...item,
         value: `${subMatch[1]} ${item.value}`,
       })) ?? null
@@ -282,10 +288,10 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'subagent-model',
     aliases: [],
-    description: 'Manage per-workspace model bindings for subagent types',
+    description: 'Manage per-workspace model bindings for subagent types and slots',
     priority: 60,
     availability: 'idle-only',
-    argumentHint: '[list] | set <type> | clear <type>',
+    argumentHint: '[list] | set [slot] <name> | clear [slot] <name>',
     completeArgs: subagentModelArgumentCompletions,
     experimentalFlag: 'subagent-model-selection',
   },

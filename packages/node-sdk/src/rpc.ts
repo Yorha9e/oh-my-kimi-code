@@ -34,6 +34,7 @@ import type {
   ForkSessionInput,
   GetConfigOptions,
   GetSubagentBindingsResult,
+  GetSubagentSlotBindingsResult,
   McpServerConfig,
   GoalSnapshot,
   GoalToolResult,
@@ -59,6 +60,8 @@ import type {
   SessionSummary,
   SetSubagentBindingInput,
   SetSubagentBindingResult,
+  SetSubagentSlotBindingInput,
+  SetSubagentSlotBindingResult,
   SkillSummary,
   PluginCommandDef,
   Unsubscribe,
@@ -390,6 +393,22 @@ export abstract class SDKRpcClientBase {
     return rpc.setSubagentBinding({
       sessionId: input.id,
       agentType: input.agentType,
+      binding: input.binding,
+    });
+  }
+
+  async getSubagentSlotBindings(input: SessionIdRpcInput): Promise<GetSubagentSlotBindingsResult> {
+    const rpc = await this.getRpc();
+    return rpc.getSubagentSlotBindings({ sessionId: input.sessionId });
+  }
+
+  async setSubagentSlotBinding(
+    input: SetSubagentSlotBindingInput,
+  ): Promise<SetSubagentSlotBindingResult> {
+    const rpc = await this.getRpc();
+    return rpc.setSubagentSlotBinding({
+      sessionId: input.id,
+      slot: input.slot,
       binding: input.binding,
     });
   }

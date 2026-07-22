@@ -17,6 +17,7 @@ import type {
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
   GetSubagentBindingsResult,
+  GetSubagentSlotBindingsResult,
   ImportContextPayload,
   McpServerInfo,
   McpStartupMetrics,
@@ -31,6 +32,8 @@ import type {
   SetPermissionPayload,
   SetSubagentBindingPayload,
   SetSubagentBindingResult,
+  SetSubagentSlotBindingPayload,
+  SetSubagentSlotBindingResult,
   SetThinkingPayload,
   SkillSummary,
   PluginCommandDef,
@@ -129,6 +132,16 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   setSubagentBinding(payload: SetSubagentBindingPayload): Promise<SetSubagentBindingResult> {
     return this.session.setSubagentBinding(payload.agentType, payload.binding);
+  }
+
+  getSubagentSlotBindings(): Promise<GetSubagentSlotBindingsResult> {
+    return this.session.getSubagentSlotBindings();
+  }
+
+  setSubagentSlotBinding(
+    payload: SetSubagentSlotBindingPayload,
+  ): Promise<SetSubagentSlotBindingResult> {
+    return this.session.setSubagentSlotBinding(payload.slot, payload.binding);
   }
 
   async prompt({ agentId, ...payload }: AgentScopedPayload<PromptPayload>) {

@@ -10,9 +10,11 @@ type MountedPanel = {
 
 function makeHost(options: {
   bindings?: Record<string, { model?: string; thinkingEffort?: string; inherit?: boolean }>;
+  slotBindings?: Record<string, { model?: string; thinkingEffort?: string; inherit?: boolean }>;
   availableModels?: Record<string, { supportEfforts?: string[] }>;
 }) {
   const bindings = options.bindings ?? {};
+  const slotBindings = options.slotBindings ?? {};
   const availableModels = options.availableModels ?? { 'k3': {}, 'glm': { supportEfforts: ['low', 'high'] } };
   const state = {
     appState: {
@@ -27,6 +29,10 @@ function makeHost(options: {
     getSubagentBindings: vi.fn(async () => bindings),
     setSubagentBinding: vi.fn(
       async (_type: string, _binding?: unknown) => ({ configPath: '/repo/.kimi-code/local.toml' }),
+    ),
+    getSubagentSlotBindings: vi.fn(async () => slotBindings),
+    setSubagentSlotBinding: vi.fn(
+      async (_slot: string, _binding?: unknown) => ({ configPath: '/repo/.kimi-code/local.toml' }),
     ),
   };
   const host = {
@@ -69,11 +75,26 @@ describe('handleSubagentModelCommand', () => {
 
     await handleSubagentModelCommand(host, 'list');
 
+    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('Types:'));
     expect(host.showStatus).toHaveBeenCalledWith(
       expect.stringContaining('coder: k3, thinking high'),
     );
     expect(host.showStatus).toHaveBeenCalledWith(
       expect.stringContaining('explore: inherit from main agent'),
+    );
+  });
+
+  it('lists slot bindings in their own section', async () => {
+    const { host } = makeHost({
+      bindings: { coder: { model: 'k3' } },
+      slotBindings: { fast: { model: 'glm', thinkingEffort: 'low' } },
+    });
+
+    await handleSubagentModelCommand(host, 'list');
+
+    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('Slots:'));
+    expect(host.showStatus).toHaveBeenCalledWith(
+      expect.stringContaining('fast: glm, thinking low'),
     );
   });
 
@@ -85,6 +106,19 @@ describe('handleSubagentModelCommand', () => {
     expect(session.setSubagentBinding).toHaveBeenCalledWith('coder', undefined);
     expect(host.showStatus).toHaveBeenCalledWith(
       expect.stringContaining('Cleared model binding for "coder"'),
+      'success',
+    );
+  });
+
+  it('clears a slot binding', async () => {
+    const { host, session } = makeHost({});
+
+    await handleSubagentModelCommand(host, 'clear slot fast');
+
+    expect(session.setSubagentSlotBinding).toHaveBeenCalledWith('fast', undefined);
+    expect(session.setSubagentBinding).not.toHaveBeenCalled();
+    expect(host.showStatus).toHaveBeenCalledWith(
+      expect.stringContaining('Cleared model binding for slot "fast"'),
       'success',
     );
   });
@@ -124,6 +158,21 @@ describe('handleSubagentModelCommand', () => {
     });
   });
 
+  it('binds a model for a named slot', async () => {
+    const { host, session, getMountedPanel } = makeHost({});
+
+    await handleSubagentModelCommand(host, 'set slot fast');
+    // Options: [inherit, glm, k3] — pick k3 (no declared efforts).
+    getMountedPanel()?.handleInput('[B');
+    getMountedPanel()?.handleInput('[B');
+    getMountedPanel()?.handleInput(' ');
+
+    await vi.waitFor(() => {
+      expect(session.setSubagentSlotBinding).toHaveBeenCalledWith('fast', { model: 'k3' });
+    });
+    expect(session.setSubagentBinding).not.toHaveBeenCalled();
+  });
+
   it('records an explicit inherit choice', async () => {
     const { host, session, getMountedPanel } = makeHost({});
 
@@ -140,6 +189,14 @@ describe('handleSubagentModelCommand', () => {
 
     await handleSubagentModelCommand(host, 'set');
 
-    expect(host.showError).toHaveBeenCalledWith('Usage: /subagent-model set <type>');
+    expect(host.showError).toHaveBeenCalledWith('Usage: /subagent-model set [slot] <name>');
+  });
+
+  it('rejects a slot set without a name', async () => {
+    const { host } = makeHost({});
+
+    await handleSubagentModelCommand(host, 'set slot');
+
+    expect(host.showError).toHaveBeenCalledWith('Usage: /subagent-model set [slot] <name>');
   });
 });

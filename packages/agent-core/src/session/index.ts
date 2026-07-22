@@ -20,12 +20,14 @@ import {
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
   readSubagentBindings,
+  readSubagentSlotBindings,
   readWorkspaceAdditionalDirs,
   resolveWorkspaceAdditionalDirs,
   resolveConfigValue,
   type BackgroundConfig,
   type SubagentBinding,
   writeSubagentBinding,
+  writeSubagentSlotBinding,
   type WorkspaceAdditionalDirsLoadResult,
 } from '../config';
 import { makeErrorPayload } from '../errors';
@@ -346,6 +348,29 @@ export class Session {
       main.modelProvider?.resolveProviderConfig(binding.model);
     }
     return writeSubagentBinding(systemKaos, cwd, agentType, binding);
+  }
+
+  /** Per-workspace named slot bindings from `.kimi-code/local.toml`. */
+  async getSubagentSlotBindings(): Promise<Readonly<Record<string, SubagentBinding>>> {
+    const cwd = this.toolKaos.getcwd();
+    return readSubagentSlotBindings(this.systemContextKaos(cwd), cwd);
+  }
+
+  /**
+   * Set or clear (binding `undefined`) one named slot's model binding.
+   * A bound model is validated against the configured providers first.
+   */
+  async setSubagentSlotBinding(
+    slot: string,
+    binding: SubagentBinding | undefined,
+  ): Promise<{ readonly configPath: string }> {
+    const cwd = this.toolKaos.getcwd();
+    const systemKaos = this.systemContextKaos(cwd);
+    if (binding?.model !== undefined) {
+      const main = await this.ensureAgentResumed('main');
+      main.modelProvider?.resolveProviderConfig(binding.model);
+    }
+    return writeSubagentSlotBinding(systemKaos, cwd, slot, binding);
   }
 
   /**

@@ -175,6 +175,19 @@ export interface SetSubagentBindingResult {
   readonly configPath: string;
 }
 
+export type GetSubagentSlotBindingsResult = Readonly<Record<string, SubagentBinding>>;
+
+export interface SetSubagentSlotBindingInput {
+  readonly id: string;
+  readonly slot: string;
+  /** Omit to clear the binding for this slot. */
+  readonly binding?: SubagentBinding;
+}
+
+export interface SetSubagentSlotBindingResult {
+  readonly configPath: string;
+}
+
 export interface ForkSessionInput {
   readonly id: string;
   readonly forkId?: string;

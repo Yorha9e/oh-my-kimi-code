@@ -420,6 +420,18 @@ export interface SetSubagentBindingResult {
   readonly configPath: string;
 }
 
+export type GetSubagentSlotBindingsResult = Readonly<Record<string, SubagentBinding>>;
+
+export interface SetSubagentSlotBindingPayload {
+  readonly slot: string;
+  /** Omit/undefined to clear the binding for this slot. */
+  readonly binding?: SubagentBinding;
+}
+
+export interface SetSubagentSlotBindingResult {
+  readonly configPath: string;
+}
+
 export interface RenameSessionPayload {
   readonly title: string;
 }
@@ -529,6 +541,8 @@ export interface SessionAPI extends AgentAPIWithId {
   addAdditionalDir: (payload: AddAdditionalDirPayload) => AddAdditionalDirResult;
   getSubagentBindings: (payload: EmptyPayload) => GetSubagentBindingsResult;
   setSubagentBinding: (payload: SetSubagentBindingPayload) => SetSubagentBindingResult;
+  getSubagentSlotBindings: (payload: EmptyPayload) => GetSubagentSlotBindingsResult;
+  setSubagentSlotBinding: (payload: SetSubagentSlotBindingPayload) => SetSubagentSlotBindingResult;
 }
 
 type SessionAPIWithId = WithSessionId<SessionAPI>;

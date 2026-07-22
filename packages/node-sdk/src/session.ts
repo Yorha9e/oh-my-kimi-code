@@ -16,6 +16,7 @@ import type {
   CreateGoalInput,
   GetCronTasksResult,
   GetSubagentBindingsResult,
+  GetSubagentSlotBindingsResult,
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
@@ -34,6 +35,7 @@ import type {
   SessionSummary,
   SessionUsage,
   SetSubagentBindingResult,
+  SetSubagentSlotBindingResult,
   SkillSummary,
   PluginCommandDef,
   SubagentBinding,
@@ -201,6 +203,24 @@ export class Session {
       ErrorCodes.REQUEST_INVALID,
     );
     return this.rpc.setSubagentBinding({ id: this.id, agentType: normalized, binding });
+  }
+
+  async getSubagentSlotBindings(): Promise<GetSubagentSlotBindingsResult> {
+    this.ensureOpen();
+    return this.rpc.getSubagentSlotBindings({ sessionId: this.id });
+  }
+
+  async setSubagentSlotBinding(
+    slot: string,
+    binding?: SubagentBinding,
+  ): Promise<SetSubagentSlotBindingResult> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      slot,
+      'Slot name cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    return this.rpc.setSubagentSlotBinding({ id: this.id, slot: normalized, binding });
   }
 
   async cancel(): Promise<void> {
