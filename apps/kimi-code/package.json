@@ -4,14 +4,14 @@
   "description": "Community fork of Kimi Code — the starting point for next-gen agents",
   "license": "MIT",
   "author": "Yorha9e",
-  "homepage": "https://github.com/Yorha9e/kimi-code",
+  "homepage": "https://github.com/Yorha9e/oh-my-kimi-code",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Yorha9e/kimi-code.git",
+    "url": "git+https://github.com/Yorha9e/oh-my-kimi-code.git",
     "directory": "apps/kimi-code"
   },
   "bugs": {
-    "url": "https://github.com/Yorha9e/kimi-code/issues"
+    "url": "https://github.com/Yorha9e/oh-my-kimi-code/issues"
   },
   "keywords": [
     "kimi",

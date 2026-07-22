@@ -3,7 +3,7 @@
 这是 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 的个人 fork。
 
 - `main` 与官方版本完全一致（当前为 **0.28.0**），仅额外包含本说明文档
-- 实验功能「子代理模型绑定」在 [`feat/subagent-model-binding`](https://github.com/Yorha9e/kimi-code/tree/feat/subagent-model-binding) 分支，对应上游 [PR #1928](https://github.com/MoonshotAI/kimi-code/pull/1928) / [Issue #1927](https://github.com/MoonshotAI/kimi-code/issues/1927)，功能说明见 [SUBAGENT-MODEL-BINDING.md](./SUBAGENT-MODEL-BINDING.md)
+- 实验功能「子代理模型绑定」在 [`feat/subagent-model-binding`](https://github.com/Yorha9e/oh-my-kimi-code/tree/feat/subagent-model-binding) 分支，对应上游 [PR #1928](https://github.com/MoonshotAI/kimi-code/pull/1928) / [Issue #1927](https://github.com/MoonshotAI/kimi-code/issues/1927)，功能说明见 [SUBAGENT-MODEL-BINDING.md](./SUBAGENT-MODEL-BINDING.md)
 
 ## 前置要求
 
@@ -42,7 +42,7 @@ corepack enable  # 如 pnpm 失效，重新启用
 ## 一、构建临时产物
 
 ```bash
-git clone https://github.com/Yorha9e/kimi-code.git
+git clone https://github.com/Yorha9e/oh-my-kimi-code.git
 cd kimi-code
 
 # 二选一：
