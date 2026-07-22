@@ -27,12 +27,35 @@
 
 ## 安装
 
-### 前置要求
+### 单文件可执行文件（推荐）
+
+从 [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) 下载对应平台的压缩包，解压即用，**无需 Node.js 或构建步骤**：
+
+| 平台 | Release 产物 |
+| --- | --- |
+| Windows x64 / ARM64 | `omkc-win32-x64.zip` / `omkc-win32-arm64.zip` |
+| macOS Intel / Apple Silicon | `omkc-darwin-x64.zip` / `omkc-darwin-arm64.zip` |
+| Linux x64 / ARM64 | `omkc-linux-x64.zip` / `omkc-linux-arm64.zip` |
+
+```powershell
+# Windows 示例
+Expand-Archive .\omkc-win32-x64.zip -DestinationPath C:\tools\omkc
+C:\tools\omkc\omkc.exe --version
+```
+
+```bash
+# macOS / Linux 示例
+unzip omkc-linux-x64.zip -d ~/tools/omkc && chmod +x ~/tools/omkc/omkc
+```
+
+把解压目录加入 `PATH`（或起个别名），在任意项目文件夹敲 `omkc` 启动。每个 zip 附带 `.sha256` 校验文件，Release 中的 `manifest.json` 汇总了全部平台的校验和。macOS / Linux 产物未经代码签名，首次运行被系统拦截时：macOS 右键打开，或 `xattr -d com.apple.quarantine omkc`。
+
+首次启动检测到官方 `kimi` 的数据目录时会自动完成迁移（复制不移动、无需重新登录），见[首次启动与迁移](#首次启动与迁移)。
+
+### 前置要求（仅源码构建）
 
 - Node.js **>= 24.15**（版本不够时 `pnpm install` 会被 `engine-strict` 拦截；临时绕过可把仓库根目录 `.npmrc` 里的 `engine-strict=true` 改为 `false`，用完改回）
 - pnpm（`corepack enable` 即可）
-
-> **单文件可执行文件即将提供**：后续会通过 [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) 提供打包好的单文件 exe，届时无需 Node.js 与构建步骤。当前阶段请从源码构建。
 
 #### 升级 Node.js（Windows）
 
@@ -63,7 +86,7 @@ corepack enable  # 如 pnpm 失效，重新启用
 
 之后 `pnpm install` 就不再需要绕过 `engine-strict` 了。
 
-### 构建并全局安装（当前方式）
+### 构建并全局安装（源码方式）
 
 ```bash
 git clone https://github.com/Yorha9e/oh-my-kimi-code.git
