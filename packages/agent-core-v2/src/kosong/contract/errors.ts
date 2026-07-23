@@ -5,6 +5,9 @@
  * the `API*Error` class family, the retry verdict (`isRetryableGenerateError`),
  * the telemetry classification (`ApiErrorKind` / `classifyApiError`), and the
  * status-error normalizer every dialect's error converter funnels through.
+ * Alongside the wire-status classes, `VideoUploadUnsupportedError` marks the
+ * by-design capability gap (provider has no video upload hook) so callers
+ * can tell it apart from an upload that failed at runtime.
  *
  * Abort has exactly one standard shape here: the DOMException built by
  * `createAbortError`. Provider error converters must run the `throwIfAbortError`
@@ -14,6 +17,16 @@
  */
 
 import type { FinishReason } from './provider';
+
+/**
+ * Wire error code for invalid model/provider configuration (`config.invalid`).
+ * The code string is a wire contract matched downstream (protocol event
+ * schemas, clients), so it is declared here in the L0 contract; the error
+ * registry entry is owned by the `config` domain's error module, which
+ * registers this constant. Kosong code throws it without registering, keeping
+ * a single registry owner.
+ */
+export const CONFIG_INVALID_ERROR_CODE = 'config.invalid';
 
 export class ChatProviderError extends Error {
   constructor(message: string) {
@@ -26,6 +39,13 @@ export class APIConnectionError extends ChatProviderError {
   constructor(message: string) {
     super(message);
     this.name = 'APIConnectionError';
+  }
+}
+
+export class VideoUploadUnsupportedError extends ChatProviderError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VideoUploadUnsupportedError';
   }
 }
 

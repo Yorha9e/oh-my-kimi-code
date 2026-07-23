@@ -97,7 +97,7 @@ pnpm -C apps/kimi-code run build
 
 cd apps/kimi-code
 npm pack                                    # 生成 oh-my-kimi-code-<version>.tgz
-npm install -g ./oh-my-kimi-code-0.28.1.tgz
+npm install -g ./oh-my-kimi-code-0.29.0-omkc.1.tgz
 
 omkc --version
 ```

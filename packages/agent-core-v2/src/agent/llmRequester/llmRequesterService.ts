@@ -9,7 +9,11 @@
  * resolved from `IModelCatalog`: one primary `requester.request(input, signal,
  * params)` attempt plus projection rebuilds for request structure or media
  * compatibility; general retry policy remains in the loop's `stepRetry`
- * plugin. When a model is configured, `prepareTurnConfig` snapshots the
+ * plugin. Before each request the projected messages pass through `media`'s
+ * video resolver, which rewrites every `kimi-file://` prompt-video reference
+ * to a provider-acceptable part (uploaded `ms://`, inline base64, or a
+ * `<video path>` tag) so the internal reference never reaches the wire. When a
+ * model is configured, `prepareTurnConfig` snapshots the
  * model, effective thinking effort, and system prompt at the turn boundary
  * so loop telemetry and every request in that turn share one configuration.
  * Forwards streamed `part` events to the caller's `onPart`
@@ -38,6 +42,7 @@ import {
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
@@ -63,9 +68,10 @@ import {
   type ModelRequestTiming,
 } from '#/kosong/model/modelRequester';
 import type { ModelOverrides } from '#/kosong/model/model.types';
-import { MODELS_SECTION, type ModelsSection } from '#/kosong/model/model';
+import { IModelService } from '#/kosong/model/model';
 import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/completionBudget';
-import { resolveThinkingKeep, THINKING_SECTION, type ThinkingConfig } from '#/kosong/model/thinking';
+import { resolveThinkingKeep, type ThinkingConfig } from '#/kosong/model/thinking';
+import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import type { Protocol } from '#/kosong/protocol/protocol';
 import type { ApiErrorEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -149,9 +155,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentToolRegistryService private readonly tools: IAgentToolRegistryService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
+    @IAgentVideoResolverService private readonly videoResolver: IAgentVideoResolverService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @IConfigService private readonly config: IConfigService,
+    @IModelService private readonly modelService: IModelService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ILogService private readonly log: ILogService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -299,7 +307,15 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
 
     const run = async (projection: RequestProjection): Promise<AgentLLMRequestFinish> => {
       onRequestTrace(undefined);
-      const input = requestInput(projection);
+      const projected = requestInput(projection);
+      const input = {
+        ...projected,
+        messages: await this.videoResolver.resolve(
+          projected.messages,
+          request.requester,
+          signal,
+        ),
+      };
       const fields =
         projection === 'normal'
           ? request.logFields
@@ -451,23 +467,17 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   private warnAboutAnthropicThinkingEffort(request: ResolvedLLMRequest): void {
     if (request.model.protocol !== 'anthropic') return;
     const effort = request.thinkingEffort;
-    if (effort === 'on') return;
+    if (effort === 'on' || effort === 'off') return;
 
     let code: string;
     let message: string;
     let knownEfforts: string | undefined;
-    if (effort === 'off') {
-      if (!request.model.alwaysThinking) return;
-      code = 'anthropic-thinking-cannot-disable';
-      message = `Model "${request.model.name}" declares always-on thinking. The configured effort "off" will be sent unchanged to the Anthropic-compatible backend.`;
-    } else {
-      const supportEfforts = request.model.supportEfforts?.filter((value) => value.length > 0);
-      if (supportEfforts === undefined || supportEfforts.length === 0) return;
-      if (supportEfforts.includes(effort)) return;
-      code = 'anthropic-thinking-effort-not-listed';
-      knownEfforts = supportEfforts.join(',');
-      message = `Thinking effort "${effort}" is not listed for model "${request.model.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
-    }
+    const supportEfforts = request.model.supportEfforts?.filter((value) => value.length > 0);
+    if (supportEfforts === undefined || supportEfforts.length === 0) return;
+    if (supportEfforts.includes(effort)) return;
+    code = 'anthropic-thinking-effort-not-listed';
+    knownEfforts = supportEfforts.join(',');
+    message = `Thinking effort "${effort}" is not listed for model "${request.model.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
 
     const key = [code, request.modelAlias, request.model.name, effort, knownEfforts].join('\u0000');
     if (this.emittedThinkingEffortWarnings.has(key)) return;
@@ -612,9 +622,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const systemPromptHash = fingerprint(input.systemPrompt);
     const overrides = this.config.get<ModelOverrides>('modelOverrides');
     const thinkingConfig = this.config.get<ThinkingConfig>(THINKING_SECTION);
-    const models = this.config.get<ModelsSection>(MODELS_SECTION);
     const modelConfig =
-      input.modelAlias === undefined ? undefined : models?.[input.modelAlias];
+      input.modelAlias === undefined ? undefined : this.modelService.get(input.modelAlias);
     const payload: PayloadOf<typeof llmRequest> = {
       kind: requestKindForRecord(fields),
       provider: input.protocol,

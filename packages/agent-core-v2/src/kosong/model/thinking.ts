@@ -3,12 +3,11 @@
  *
  * Three kinds of knowledge live here, and nowhere else:
  *
- *  1. The `thinking` config section (`[thinking]`: enabled / effort / keep,
- *     plus the env-only `KIMI_MODEL_THINKING_EFFORT` force override). The
- *     section self-registers at module load — a side effect; production gets
- *     it from the `src/index.ts` side-effect block and tests import this
- *     module on demand. This module is the sole owner of the section — the
- *     legacy `agent/profile/configSection` is gone.
+ *  1. The `thinking` config-section type (`[thinking]`: enabled / effort /
+ *     keep, plus the env-only `forcedEffort` field). Kosong owns only the
+ *     type; the section constant, zod schema (compile-time pinned to the
+ *     type), registration, env binding, and write-path strip all live in the
+ *     persistence wrapper (`app/kosongConfig/configSection`).
  *  2. Effort/keep resolution: pure helpers that fold a requested effort, the
  *     config defaults, and the model's declared thinking metadata into the
  *     effective `ThinkingEffort`, and that resolve the thinking-keep value.
@@ -18,48 +17,37 @@
  *     (protocol, providerType) pair contains a `withThinking` hook). Neither
  *     hardcodes a vendor or protocol string — trait-driven thinking means
  *     "thinking is driven by traits", which the registry answers.
+ *     `requiresStrictThinkingValidation` reads the same identity for the
+ *     strict-validation flag. Strict gates only listed-effort validation
+ *     and the `'on'` projection; the always-on clamp is UNCONDITIONAL — a
+ *     model that declares `always_thinking` never resolves to `'off'` on
+ *     any wire (a claimed off state would be a lie, since upstream keeps
+ *     reasoning at its default when no off encoding exists). Unlisted
+ *     concrete efforts stay lenient on compatible transports
+ *     (warn-and-send, `anthropic-thinking-effort-not-listed`) because the
+ *     backend may accept values the local catalog does not list. The
+ *     strict flag is declared by `kimiOpenAITrait` — Kimi's native API
+ *     rejects unlisted efforts — and deliberately NOT by
+ *     `kimiAnthropicTrait`.
  */
-
-import { z } from 'zod';
 
 import type { ThinkingEffort } from '#/kosong/contract/provider';
 import type { IProtocolAdapterRegistry, Protocol } from '#/kosong/protocol/protocol';
 
-import { type ConfigStripEnv, envBindings } from '../../app/config/config';
-import { registerConfigSection } from '../../app/config/configSectionContributions';
 import { getProviderDefinitions } from '../provider/providerDefinition';
 
 import type { ModelThinkingMetadata, ThinkingDefaults } from './model.types';
 
 // ---------------------------------------------------------------------------
-// `thinking` config section (side-effect registration)
+// `thinking` config-section type (constant + schema live in `app/kosongConfig`)
 // ---------------------------------------------------------------------------
 
-export const THINKING_SECTION = 'thinking';
-
-export const ThinkingConfigSchema = z.object({
-  enabled: z.boolean().optional(),
-  effort: z.string().optional(),
-  forcedEffort: z.string().optional(),
-  keep: z.string().optional(),
-});
-
-export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
-
-export const thinkingEnvBindings = envBindings(ThinkingConfigSchema, {
-  forcedEffort: 'KIMI_MODEL_THINKING_EFFORT',
-});
-
-export const stripThinkingEnv: ConfigStripEnv<ThinkingConfig> = (value) => {
-  const result = { ...value };
-  delete result.forcedEffort;
-  return result;
-};
-
-registerConfigSection(THINKING_SECTION, ThinkingConfigSchema, {
-  env: thinkingEnvBindings,
-  stripEnv: stripThinkingEnv,
-});
+export interface ThinkingConfig {
+  enabled?: boolean;
+  effort?: string;
+  forcedEffort?: string;
+  keep?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Registry-driven vendor verdicts
@@ -95,23 +83,9 @@ export function usesTraitDrivenThinking(
 }
 
 /**
- * ⚠ PHASE 6 PARITY PATCH — v1 `provider.type === 'kimi'` gate restored.
- *
  * Whether client-side thinking-effort validation must be STRICT for the
- * (protocol, providerType) pair: the resolved traits take thinking over and
- * the last `withThinking` declarer marks `strictThinkingValidation`.
- *
- * This is the gate for client-side effort strictness (validation, the
- * always-on clamp, and the `'on'` projection). The strict flag is declared
- * by `kimiOpenAITrait` — Kimi's native API rejects unlisted efforts — and
- * deliberately NOT by `kimiAnthropicTrait`: over the Anthropic
- * transport the backend may accept efforts the local catalog metadata does
- * not list, so the profile must stay lenient there (warn-and-send, with the
- * `anthropic-thinking-*` warnings) instead of rejecting or rewriting the
- * effort. Gating on plain `usesTraitDrivenThinking` (true for the
- * anthropic pair registration too) made `setThinking` throw for Kimi-managed
- * Anthropic models and left the warning path unreachable — a v1 behavioral
- * regression.
+ * (protocol, providerType) pair — answered through the resolved adapter
+ * identity's `strictThinkingValidation` flag.
  */
 export function requiresStrictThinkingValidation(
   registry: IProtocolAdapterRegistry,
@@ -155,7 +129,7 @@ export function resolveForcedThinkingEffort(
   traitDriven: boolean,
 ): ThinkingEffort | undefined {
   if (!traitDriven || effective === 'off') return undefined;
-  return nonEmpty(forced) as ThinkingEffort | undefined;
+  return nonEmpty(forced)?.toLowerCase() as ThinkingEffort | undefined;
 }
 
 function hasCapability(
@@ -257,7 +231,7 @@ export function resolveThinkingEffortForModel(
   model: ModelThinkingMetadata | undefined,
   strictValidation = false,
 ): ThinkingEffort {
-  const configured = nonEmpty(defaults?.effort) as ThinkingEffort | undefined;
+  const configured = normalizeRequestedThinkingEffort(defaults?.effort);
   const normalized = normalizeRequestedThinkingEffort(requested);
   let effort: ThinkingEffort;
   if (normalized !== undefined) {
@@ -268,8 +242,11 @@ export function resolveThinkingEffortForModel(
     effort = configured ?? defaultThinkingEffortForModel(model);
   }
 
-  if (strictValidation && effort === 'off' && model?.alwaysThinking === true) {
-    effort = configured ?? defaultThinkingEffortForModel(model);
+  if (effort === 'off' && model?.alwaysThinking === true) {
+    effort =
+      configured !== undefined && configured !== 'off'
+        ? configured
+        : defaultThinkingEffortForModel(model);
   }
   return normalizeThinkingEffortForModel(effort, model, strictValidation);
 }
