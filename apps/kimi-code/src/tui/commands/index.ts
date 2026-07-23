@@ -29,6 +29,7 @@ export { handleReloadCommand, handleReloadTuiCommand } from './reload';
 export { handleGoalCommand, parseGoalCommand } from './goal';
 export { goalArgumentCompletions } from './registry';
 export { handleForkCommand, handleInitCommand, handleTitleCommand } from './session';
+export { handleSyncFromKimiCommand } from './sync-from-kimi';
 export { handleUndoCommand } from './undo';
 export { handleWebCommand } from './web';
 export {

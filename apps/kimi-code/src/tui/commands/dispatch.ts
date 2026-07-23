@@ -54,6 +54,7 @@ import {
   handleTitleCommand,
 } from './session';
 import { handleSwarmCommand } from './swarm';
+import { handleSyncFromKimiCommand } from './sync-from-kimi';
 import { handleUndoCommand } from './undo';
 import { handleWebCommand } from './web';
 
@@ -91,6 +92,7 @@ export {
   handleInitCommand,
   handleTitleCommand,
 } from './session';
+export { handleSyncFromKimiCommand } from './sync-from-kimi';
 export { handleUndoCommand } from './undo';
 export { handleWebCommand } from './web';
 
@@ -288,6 +290,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'subagent-model':
       await handleSubagentModelCommand(host, args);
+      return;
+    case 'sync-from-kimi':
+      await handleSyncFromKimiCommand(host);
       return;
     case 'experiments':
       await showExperimentsPanel(host);

@@ -135,6 +135,7 @@ git pull --ff-only && pnpm install && pnpm -C apps/kimi-code run build
 - **复制不移动**：官方目录原封不动，官方版 `kimi` 照常使用；迁移也从不覆盖 `~/.omkc` 里已存在的文件，不阻塞启动
 - **自动调整**：`session_index` 中的路径前缀自动重写指向新目录；`device_id` 重新生成（社区版使用独立设备身份）
 - **跳过迁移**：在 `~/.kimi-code` 下放一个 `.skip-migration-to-omkc` 文件即可；迁移完成后目标目录会出现 `.migrated-from-kimi-code` 标记，不会重复迁移
+- **增量同步**：首启迁移只做一次。之后随时可以在 TUI 里运行 `/sync-from-kimi`，把官方目录里新增或更新的数据增量同步过来——文件按 mtime 新者覆盖（omkc 里更新的文件不会被盖掉），`session_index` 按 `sessionId` 去重合并。同步期间建议先退出官方 `kimi`，避免复制到写入一半的文件
 
 ## 与官方版并存的注意事项
 
@@ -190,6 +191,7 @@ TUI 内的 slash 命令与官方版一致，另加社区版新增命令。
 | 社区版新增 | `/subagent-model [list]` | 查看子代理模型绑定（Types / Slots 两节） |
 | | `/subagent-model set <type>` / `set slot <name>` | 为类型或命名槽位绑定模型与思考强度 |
 | | `/subagent-model clear <type>` / `clear slot <name>` | 移除绑定 |
+| | `/sync-from-kimi` | 从官方 `~/.kimi-code` 增量同步数据到 `~/.omkc`（可反复执行） |
 
 类型绑定示例（写入工作区 `.kimi-code/local.toml`）：
 
