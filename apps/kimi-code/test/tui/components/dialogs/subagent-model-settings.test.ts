@@ -14,6 +14,7 @@ const ESC = String.fromCodePoint(27);
 const ENTER = '\r';
 const DOWN = `${ESC}[B`;
 const UP = `${ESC}[A`;
+const LEFT = `${ESC}[D`;
 const TAB = '\t';
 const SHIFT_TAB = `${ESC}[Z`;
 
@@ -28,6 +29,7 @@ interface Harness {
   onApply: ReturnType<
     typeof vi.fn<(layer: SubagentLayer, changes: readonly SubagentModelSettingsChange[]) => void>
   >;
+  onDelete: ReturnType<typeof vi.fn<(layer: SubagentLayer, name: string) => boolean>>;
   onCancel: ReturnType<typeof vi.fn>;
 }
 
@@ -45,6 +47,7 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
   const onApply = vi.fn<
     (layer: SubagentLayer, changes: readonly SubagentModelSettingsChange[]) => void
   >();
+  const onDelete = vi.fn<(layer: SubagentLayer, name: string) => boolean>().mockReturnValue(true);
   const onCancel = vi.fn();
   const panel = new SubagentModelSettingsComponent({
     workspace: overrides.workspace ?? EMPTY_LAYER,
@@ -53,9 +56,10 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
     mountPicker,
     remount,
     onApply,
+    onDelete,
     onCancel,
   });
-  return { panel, mountPicker, remount, onApply, onCancel };
+  return { panel, mountPicker, remount, onApply, onDelete, onCancel };
 }
 
 function text(panel: SubagentModelSettingsComponent, width = 120): string {
@@ -99,7 +103,7 @@ describe('SubagentModelSettingsComponent', () => {
 
     expect(out).toContain(' Subagent models (workspace)');
     expect(out).toContain(
-      ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · Esc cancel',
+      ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · ← remove slot · Esc cancel',
     );
     expect(out).toContain(' Types');
     expect(out).toContain('coder  kimi-k2, thinking high');
@@ -456,5 +460,203 @@ describe('SubagentModelSettingsComponent', () => {
 
     panel.handleInput(ESC);
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('arms the inline Delete zone on a bound slot row with ←', () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, onDelete } = makeHarness({ workspace });
+
+    moveDown(panel, 6); // onto the `review` slot row
+    expect(text(panel)).toContain('  ❯ review');
+    panel.handleInput(LEFT);
+
+    const out = text(panel);
+    expect(out).toContain('✕ Delete');
+    expect(out).not.toContain('Delete slot "review"?');
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('ignores ← on type rows', () => {
+    const { panel } = makeHarness();
+
+    // The cursor starts on the first built-in type row (`coder`).
+    panel.handleInput(LEFT);
+
+    expect(text(panel)).not.toContain('✕ Delete');
+  });
+
+  it('asks for confirmation on Enter and deletes the slot on a second Enter', async () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, remount, onDelete } = makeHarness({ workspace });
+
+    moveDown(panel, 6);
+    panel.handleInput(LEFT);
+    panel.handleInput(ENTER);
+    expect(text(panel)).toContain('Delete slot "review"? Enter confirm · Esc cancel');
+    expect(onDelete).not.toHaveBeenCalled();
+
+    panel.handleInput(ENTER);
+    await vi.waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith('workspace', 'review');
+      expect(text(panel)).not.toContain('review');
+    });
+    // The panel re-mounts to redraw, and the cursor lands on the row that took
+    // the deleted slot's place (`+ Add slot…`).
+    expect(remount).toHaveBeenCalled();
+    expect(text(panel)).toContain('  ❯ + Add slot…');
+  });
+
+  it('deletes from the active global layer and clears the workspace reference', async () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const global: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'gpt-5' } },
+    };
+    const { panel, onDelete } = makeHarness({ workspace, global });
+
+    expect(text(panel)).toContain('review  kimi-k2 · global: gpt-5');
+
+    panel.handleInput(TAB); // global layer
+    moveDown(panel, 6); // onto the global `review` row
+    panel.handleInput(LEFT);
+    panel.handleInput(ENTER);
+    panel.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith('global', 'review');
+      expect(text(panel)).not.toContain('review');
+    });
+
+    // Back on the workspace layer, the stale `global:` reference is gone.
+    panel.handleInput(TAB);
+    expect(text(panel)).toContain('review  kimi-k2');
+    expect(text(panel)).not.toContain('global: gpt-5');
+  });
+
+  it('keeps the row when the deletion is not persisted', async () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, remount, onDelete } = makeHarness({ workspace });
+    onDelete.mockReturnValue(false);
+
+    moveDown(panel, 6);
+    panel.handleInput(LEFT);
+    panel.handleInput(ENTER);
+    panel.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith('workspace', 'review');
+    });
+    expect(text(panel)).toContain('review  kimi-k2');
+    expect(remount).not.toHaveBeenCalled();
+  });
+
+  it('cancels the confirmation on Esc without deleting', () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, onDelete } = makeHarness({ workspace });
+
+    moveDown(panel, 6);
+    panel.handleInput(LEFT);
+    panel.handleInput(ENTER);
+    expect(text(panel)).toContain('Delete slot "review"?');
+
+    panel.handleInput(ESC);
+
+    const out = text(panel);
+    expect(out).not.toContain('Delete slot "review"?');
+    expect(out).not.toContain('✕ Delete');
+    expect(out).toContain('review  kimi-k2');
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('cancels the confirmation when the cursor moves', () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, onDelete } = makeHarness({ workspace });
+
+    moveDown(panel, 6);
+    panel.handleInput(LEFT);
+    panel.handleInput(ENTER);
+    expect(text(panel)).toContain('Delete slot "review"?');
+
+    panel.handleInput(DOWN);
+
+    const out = text(panel);
+    expect(out).not.toContain('Delete slot "review"?');
+    expect(out).toContain('review  kimi-k2');
+    expect(out).toContain('  ❯ + Add slot…');
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('disarms the Delete zone on Esc without closing the panel', () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, onCancel } = makeHarness({ workspace });
+
+    moveDown(panel, 6);
+    panel.handleInput(LEFT);
+    expect(text(panel)).toContain('✕ Delete');
+
+    panel.handleInput(ESC);
+    expect(text(panel)).not.toContain('✕ Delete');
+    expect(onCancel).not.toHaveBeenCalled();
+
+    panel.handleInput(ESC);
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('warns when the focused slot is only bound on the other layer', () => {
+    const global: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'gpt-5' } },
+    };
+    const { panel, onDelete } = makeHarness({ global });
+
+    // Add an unbound `review` slot on the workspace layer; the persisted
+    // binding lives on the global layer only.
+    openAddSlot(panel);
+    type(panel, 'review');
+    panel.handleInput(ENTER);
+    // The cursor is on the new row; ← tries to arm the Delete zone.
+    panel.handleInput(LEFT);
+
+    const out = text(panel);
+    expect(out).toContain(
+      'Slot "review" is only bound on the global layer. Switch layers to delete it.',
+    );
+    expect(out).not.toContain('✕ Delete');
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('warns when the new slot has no binding anywhere', () => {
+    const { panel, onDelete } = makeHarness();
+
+    openAddSlot(panel);
+    type(panel, 'fast');
+    panel.handleInput(ENTER);
+    panel.handleInput(LEFT);
+
+    expect(text(panel)).toContain(
+      'Slot "fast" has no binding on the workspace layer; nothing to delete.',
+    );
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });

@@ -840,6 +840,7 @@ function mountSubagentModelSettingsPanel(
     onApply: (layer, changes) => {
       void applySubagentModelSettingsChanges(host, session, layer, changes);
     },
+    onDelete: (layer, name) => deleteSubagentSlotBinding(host, session, layer, name),
     onCancel: () => {
       host.restoreEditor();
     },
@@ -897,4 +898,29 @@ async function applySubagentModelChange(
   return change.kind === 'slot'
     ? session.setSubagentSlotBinding(change.name, change.binding)
     : session.setSubagentBinding(change.name, change.binding);
+}
+
+async function deleteSubagentSlotBinding(
+  host: SlashCommandHost,
+  session: Session,
+  layer: SubagentLayer,
+  name: string,
+): Promise<boolean> {
+  try {
+    // Same removal path as `/subagent-model clear slot <name>`: writing an
+    // undefined binding drops the slot from that layer's local.toml.
+    const result = await applySubagentModelChange(session, layer, {
+      kind: 'slot',
+      name,
+      binding: undefined,
+    });
+    host.showStatus(
+      `Deleted slot "${name}" from the ${layer} layer.\nSaved to:\n  ${result.configPath}`,
+      'success',
+    );
+    return true;
+  } catch (error) {
+    host.showError(`Failed to delete slot "${name}": ${formatErrorMessage(error)}`);
+    return false;
+  }
 }

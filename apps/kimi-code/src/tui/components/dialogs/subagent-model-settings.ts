@@ -7,6 +7,9 @@
  * step that hands the changed rows of the ACTIVE layer to the command layer for
  * persistence. Tab / Shift+Tab switch layers (their drafts stay independent);
  * the Slots section offers a `+ Add slot…` row that opens an inline name input.
+ * A bound slot row can also be deleted outright: ← arms an inline `✕ Delete`
+ * zone on the row, Enter asks for confirmation, and a second Enter hands the
+ * removal to the command layer (`onDelete`) and drops the row once persisted.
  * The component never talks to the SDK itself.
  */
 
@@ -70,6 +73,9 @@ export interface SubagentModelSettingsOptions {
     layer: SubagentLayer,
     changes: readonly SubagentModelSettingsChange[],
   ) => void;
+  /** Delete a persisted slot binding from `layer`'s local.toml. Resolves
+   * `true` once persisted; the panel then drops the row and re-renders. */
+  readonly onDelete: (layer: SubagentLayer, name: string) => Promise<boolean> | boolean;
   readonly onCancel: () => void;
 }
 
@@ -89,7 +95,9 @@ type SubagentModelItem =
 /** Per-layer rows + draft + cursor, kept independent across the two layers. */
 class SubagentModelLayerState {
   readonly bindings: Readonly<Record<string, SubagentBinding>>;
-  readonly slots: Readonly<Record<string, SubagentBinding>>;
+  /** Mutable copy of the persisted slot bindings, kept in sync when a slot is
+   * deleted from this layer (the workspace layer reads it for `global:` refs). */
+  readonly slots: Record<string, SubagentBinding>;
   items: SubagentModelItem[];
   /** Keyed by `${kind}:${name}`; value `undefined` stages a clear. */
   readonly draft = new Map<string, SubagentBinding | undefined>();
@@ -97,7 +105,7 @@ class SubagentModelLayerState {
 
   constructor(data: SubagentModelLayerData) {
     this.bindings = data.bindings;
-    this.slots = data.slots;
+    this.slots = { ...data.slots };
     this.items = buildItems(data);
     this.list = makeList(this.items, 0);
   }
@@ -129,6 +137,11 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   private readonly slotInput = new Input();
   private addingSlot = false;
   private slotInputError: string | undefined;
+  /** Slot row whose inline Delete zone is armed (←); `confirming` shows the
+   * Enter/Esc prompt on that row. */
+  private deleteState: { readonly row: SubagentModelRow; confirming: boolean } | undefined;
+  /** One-shot message shown when ← cannot delete the focused slot row. */
+  private deleteError: string | undefined;
 
   constructor(opts: SubagentModelSettingsOptions) {
     super();
@@ -148,17 +161,36 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       this.handleSlotNameInput(data);
       return;
     }
+    this.deleteError = undefined;
+    if (this.deleteState?.confirming === true) {
+      this.handleDeleteConfirmInput(data);
+      return;
+    }
     if (matchesKey(data, Key.escape)) {
+      // Esc disarms the Delete zone first; only a bare Esc closes the panel.
+      if (this.deleteState !== undefined) {
+        this.deleteState = undefined;
+        return;
+      }
       this.opts.onCancel();
       return;
     }
     if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift('tab'))) {
+      this.deleteState = undefined;
       this.activeLayer = this.activeLayer === 'workspace' ? 'global' : 'workspace';
+      return;
+    }
+    if (matchesKey(data, Key.left)) {
+      this.enterDeleteZone();
       return;
     }
     const activate =
       matchesKey(data, Key.enter) || matchesKey(data, Key.space) || printableChar(data) === ' ';
     if (activate) {
+      if (this.deleteState !== undefined) {
+        this.deleteState = { row: this.deleteState.row, confirming: true };
+        return;
+      }
       const item = this.active.list.selected();
       if (item === undefined) return;
       if (item.kind === 'apply') {
@@ -173,6 +205,8 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       this.openBindingPicker(this.active, item.row);
       return;
     }
+    // Any other key (↑↓, D, …) disarms the Delete zone and behaves as usual.
+    this.deleteState = undefined;
     const decoded = printableChar(data);
     if (decoded === 'D' || decoded === 'd') {
       const item = this.active.list.selected();
@@ -192,7 +226,7 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       this.renderTitle(),
       currentTheme.fg(
         'textMuted',
-        ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · Esc cancel',
+        ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · ← remove slot · Esc cancel',
       ),
       '',
       renderTabStrip({
@@ -231,6 +265,9 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       lines.push(this.renderRow(layer, item.row, selected));
     }
 
+    if (this.deleteError !== undefined) {
+      lines.push(currentTheme.fg('error', ` ${this.deleteError}`));
+    }
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
@@ -329,6 +366,69 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     layer.draft.set(key, undefined);
   }
 
+  /** ← arms the inline Delete zone on the focused slot row. Only rows with a
+   * binding persisted in the active layer are deletable — a slot that is only
+   * bound on the other layer (or not bound at all) reports why it cannot be. */
+  private enterDeleteZone(): void {
+    const item = this.active.list.selected();
+    if (item === undefined || item.kind !== 'row' || item.row.kind !== 'slot') return;
+    const row = item.row;
+    if (row.original === undefined) {
+      this.deleteError = this.notDeletableMessage(row);
+      return;
+    }
+    this.deleteState = { row, confirming: false };
+  }
+
+  private notDeletableMessage(row: SubagentModelRow): string {
+    const otherLayer: SubagentLayer = this.activeLayer === 'workspace' ? 'global' : 'workspace';
+    if (this.layers[otherLayer].slots[row.name] !== undefined) {
+      return `Slot "${row.name}" is only bound on the ${otherLayer} layer. Switch layers to delete it.`;
+    }
+    return `Slot "${row.name}" has no binding on the ${this.activeLayer} layer; nothing to delete.`;
+  }
+
+  /** Enter confirms the armed deletion; Esc cancels it outright; any other key
+   * cancels it and then performs its usual action (e.g. ↑↓ moves away). */
+  private handleDeleteConfirmInput(data: string): void {
+    const state = this.deleteState;
+    if (state === undefined) return;
+    if (matchesKey(data, Key.enter)) {
+      this.deleteState = undefined;
+      this.executeDelete(state.row);
+      return;
+    }
+    this.deleteState = undefined;
+    if (matchesKey(data, Key.escape)) return;
+    this.handleInput(data);
+  }
+
+  private executeDelete(row: SubagentModelRow): void {
+    const layer = this.active;
+    const layerName = this.activeLayer;
+    void Promise.resolve()
+      .then(() => this.opts.onDelete(layerName, row.name))
+      .then((persisted) => {
+        if (!persisted) return;
+        this.removeSlotRow(layer, row);
+        // Re-mount so the host redraws and re-focuses the slimmer panel.
+        this.opts.remount();
+      })
+      .catch(() => {
+        // The host already surfaced the failure; keep the row for a retry.
+      });
+  }
+
+  private removeSlotRow(layer: SubagentModelLayerState, row: SubagentModelRow): void {
+    const index = layer.items.findIndex((item) => item.kind === 'row' && item.row === row);
+    if (index === -1) return;
+    layer.items.splice(index, 1);
+    layer.draft.delete(rowKey(row));
+    delete layer.slots[row.name];
+    // Cursor lands on the row that took the deleted slot's place (clamped).
+    layer.list = makeList(layer.items, Math.max(0, Math.min(index, layer.items.length - 1)));
+  }
+
   private effectiveBinding(
     layer: SubagentModelLayerState,
     row: SubagentModelRow,
@@ -365,6 +465,14 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     const label = selected
       ? currentTheme.boldFg('primary', row.name)
       : currentTheme.fg('text', row.name);
+    const deleteState = this.deleteState?.row === row ? this.deleteState : undefined;
+    if (deleteState?.confirming === true) {
+      const prompt = currentTheme.boldFg(
+        'warning',
+        `Delete slot "${row.name}"? Enter confirm · Esc cancel`,
+      );
+      return `${prefix}${label}  ${prompt}`;
+    }
     const effective = this.effectiveBinding(layer, row);
     let status: string;
     if (effective === undefined) {
@@ -375,7 +483,9 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     let detail = layer.draft.has(rowKey(row)) ? `${status} · modified` : status;
     const globalRef = this.globalReference(row);
     if (globalRef !== undefined) detail += ` · global: ${globalRef}`;
-    return `${prefix}${label}  ${currentTheme.fg('textMuted', detail)}`;
+    const zone =
+      deleteState !== undefined ? `  ${currentTheme.boldFg('error', '✕ Delete')}` : '';
+    return `${prefix}${label}  ${currentTheme.fg('textMuted', detail)}${zone}`;
   }
 
   /** Workspace rows reference the persisted global binding for the same name. */
