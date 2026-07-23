@@ -17,7 +17,7 @@
 
 ## 特性
 
-1. **子代理模型绑定全家桶（默认开启）** — 按子代理类型（`coder` / `explore` / `plan` 等）或命名槽位（slot）绑定模型与思考强度。绑定是用户配置而非 LLM 决策，在 spawn 时机械生效。工作区层（`.kimi-code/local.toml`）与全局层两级存储；中断恢复的子代理保持原绑定（sticky resume）；`AgentSwarm` 支持槽位；绑定显示带模型能力标识。
+1. **子代理模型绑定全家桶（默认开启）** — 按子代理类型（`coder` / `explore` / `plan` 等）或命名槽位（slot）绑定模型与思考强度。绑定是用户配置而非 LLM 决策，在 spawn 时机械生效。工作区层（`.kimi-code/local.toml`）与全局层两级存储；中断恢复的子代理保持原绑定（sticky resume）；`AgentSwarm` 支持槽位；绑定显示带模型能力标识。详见 [SUBAGENT-MODEL-BINDING.md](SUBAGENT-MODEL-BINDING.md)。
 2. **MOA 多代理辩论 profiles** — 内置 `orchestrator` / `critic` / `synthesizer` 等角色化子代理配置（`packages/agent-core` 的 MOA profiles），让多代理协作以结构化辩论的形式展开。
 3. **桌面悬浮卡片 moa-card** — `omkc` 交互启动时自动拉起（`tui.toml` 的 `[moa] card` 开关，默认开），实时显示 MOA 辩论进度与各 agent 状态。
 4. **内嵌状态导出** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起，只绑环回、零写盘），供外部工具订阅 agent 状态；开关为 `tui.toml` 的 `[moa] status_export`（默认开）。

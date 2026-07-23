@@ -1,8 +1,10 @@
-# @moonshot-ai/kimi-code
+# oh-my-kimi-code
 
 > The Starting Point for Next-Gen Agents
 
-[![npm](https://img.shields.io/npm/v/@moonshot-ai/kimi-code)](https://www.npmjs.com/package/@moonshot-ai/kimi-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/)
+[![Release](https://img.shields.io/github/v/release/Yorha9e/oh-my-kimi-code)](https://github.com/Yorha9e/oh-my-kimi-code/releases) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/)
+
+`oh-my-kimi-code` is a community fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code): the command is `omkc`, it runs from its own data home (`~/.omkc`), and it coexists with the official `kimi` install. See the [repository README](../../README.md) for the full picture (install options, migration, community features).
 
 ## What is Kimi Code CLI
 
@@ -10,43 +12,35 @@ Kimi Code CLI is an AI coding agent that runs in your terminal. It can read and 
 
 ## Install
 
-The recommended install path is the official script. It does not require Node.js to be installed first.
+### Native executables (recommended)
 
-- **macOS / Linux**:
+Download the archive for your platform from [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) and extract it — no Node.js or build step required:
 
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
+- Windows: `omkc-win32-x64.zip` / `omkc-win32-arm64.zip`
+- macOS: `omkc-darwin-x64.zip` / `omkc-darwin-arm64.zip`
+- Linux: `omkc-linux-x64.zip` / `omkc-linux-arm64.zip`
 
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-Then run it with a new Terminal session:
+Put the extracted directory on your `PATH`, then in a new terminal:
 
 ```sh
-kimi --version
+omkc --version
 ```
 
-### Alternative: npm
+> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because the CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
 
-If you prefer npm, use Node.js 22.19.0 or later:
+### Build from source
+
+Requires Node.js >= 24.15 and pnpm:
 
 ```sh
-npm install -g @moonshot-ai/kimi-code
+git clone https://github.com/Yorha9e/oh-my-kimi-code.git
+cd oh-my-kimi-code
+pnpm install
+pnpm -C apps/kimi-code run build
+node apps/kimi-code/dist/main.mjs
 ```
 
-Or with pnpm:
-
-```sh
-pnpm add -g @moonshot-ai/kimi-code
-```
-
-For upgrade and uninstall instructions, see the [Getting Started guide](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
+The repository README covers global install from the built tarball and upgrades. The community fork is **not published to npm** — `npm install -g @moonshot-ai/kimi-code` installs the official `kimi` CLI, not this fork.
 
 ## Quick Start
 
@@ -54,10 +48,10 @@ Open a project and start the interactive UI:
 
 ```sh
 cd your-project
-kimi
+omkc
 ```
 
-On first launch, run `/login` inside Kimi Code CLI and choose either Kimi Code OAuth or a Kimi Platform API key. After login, try a first task:
+On first launch, run `/login` inside the CLI and choose either Kimi Code OAuth or a Kimi Platform API key. After login, try a first task:
 
 ```
 Take a look at this project and explain the main directories.
@@ -65,7 +59,7 @@ Take a look at this project and explain the main directories.
 
 ## Key Features
 
-- **Single-binary distribution.** Install with one command — no Node.js setup, no PATH gymnastics, no global module conflicts.
+- **Single-binary distribution.** Download and extract — no Node.js setup, no PATH gymnastics, no global module conflicts.
 - **Blazing-fast startup.** The TUI is ready in milliseconds, so opening a session never feels heavy.
 - **Polished TUI.** A carefully tuned interface designed for long, focused agent sessions.
 - **Video input.** Drop a screen recording or demo clip into the chat — let the agent watch instead of typing out what's hard to describe in words.
@@ -75,14 +69,16 @@ Take a look at this project and explain the main directories.
 
 ## Documentation
 
+Upstream documentation (the command there is `kimi`; behavior matches `omkc` unless noted as a community feature):
+
 - Full docs: https://moonshotai.github.io/kimi-code/en/
 - 中文文档: https://moonshotai.github.io/kimi-code/zh/
 - Getting Started: https://moonshotai.github.io/kimi-code/en/guides/getting-started
 
 ## Repository & Issues
 
-- Source: https://github.com/MoonshotAI/kimi-code
-- Issues: https://github.com/MoonshotAI/kimi-code/issues
+- Source: https://github.com/Yorha9e/oh-my-kimi-code (community fork of https://github.com/MoonshotAI/kimi-code)
+- Issues: https://github.com/Yorha9e/oh-my-kimi-code/issues
 - Security: see SECURITY.md in the main repository
 
 ## License

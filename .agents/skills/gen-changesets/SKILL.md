@@ -5,9 +5,9 @@ description: Use when generating changesets in the kimi-code repository, includi
 
 # Generate Changesets
 
-`kimi-code` uses changesets to manage versions and changelogs. The current user-facing published package is:
+This fork uses changesets to record user-visible changes and changelog material. The community fork does not publish to npm: versions are bumped manually and releases ship as native binaries via GitHub Releases (see `.changeset/README.md` for the flow). The user-facing CLI package is:
 
-- `@moonshot-ai/kimi-code`: the CLI
+- `oh-my-kimi-code`: the CLI
 
 All other `@moonshot-ai/*` packages are treated as internal packages, including `@moonshot-ai/kimi-code-sdk`, `agent-core`, `kosong`, `kaos`, `kimi-code-oauth`, `kimi-telemetry`, and `migration-legacy`.
 
@@ -17,9 +17,9 @@ All other `@moonshot-ai/*` packages are treated as internal packages, including 
 
 1. **Inspect the actual changes first.** Use `git status` / `git diff --name-only` to identify which packages were actually changed.
 2. **List packages that changesets can release.** If a changed package is ignored in `.changeset/config.json`, do not put that ignored package in frontmatter together with a non-ignored package; changesets rejects mixed ignored/non-ignored frontmatter.
-3. **Map ignored internal changes to the affected released package.** If an ignored internal package changes CLI output or behavior, list `@moonshot-ai/kimi-code` and describe the actual user-visible or release-artifact change in the changelog text.
-4. **Internal package source changes that enter the CLI bundle must manually list the CLI.** `@moonshot-ai/kimi-code` inline-bundles `@moonshot-ai/*` source, but those internal packages are devDependencies from the CLI's perspective, so changesets will not automatically propagate bumps. If a change enters the CLI output, list `@moonshot-ai/kimi-code`.
-   - **Web app (`@moonshot-ai/kimi-web`) changes always enter the CLI bundle.** `@moonshot-ai/kimi-web` is ignored by changesets (see `.changeset/config.json`) and cannot be mixed with `@moonshot-ai/kimi-code` in one changeset frontmatter. Describe the web change in the changelog text, but list `@moonshot-ai/kimi-code` so the CLI release carries the bundled `dist-web` output.
+3. **Map ignored internal changes to the affected released package.** If an ignored internal package changes CLI output or behavior, list `oh-my-kimi-code` and describe the actual user-visible or release-artifact change in the changelog text.
+4. **Internal package source changes that enter the CLI bundle must manually list the CLI.** `oh-my-kimi-code` inline-bundles `@moonshot-ai/*` source, but those internal packages are devDependencies from the CLI's perspective, so changesets will not automatically propagate bumps. If a change enters the CLI output, list `oh-my-kimi-code`.
+   - **Web app (`@moonshot-ai/kimi-web`) changes always enter the CLI bundle.** `@moonshot-ai/kimi-web` is ignored by changesets (see `.changeset/config.json`) and cannot be mixed with `oh-my-kimi-code` in one changeset frontmatter. Describe the web change in the changelog text, but list `oh-my-kimi-code` so the CLI release carries the bundled `dist-web` output.
 5. **Docs-only and tests-only changes usually do not need a changeset.** README, internal docs, and `test/` changes that do not enter package output do not trigger a CLI bump.
 6. `@moonshot-ai/vis` / `vis-server` / `vis-web` are ignored by changesets and should not be handled. `@moonshot-ai/kimi-inspect` (a private dev app that never ships) is likewise ignored and must never appear in a changeset frontmatter.
 
@@ -27,7 +27,7 @@ All other `@moonshot-ai/*` packages are treated as internal packages, including 
 
 1. List the changed packages and check whether each one is ignored by `.changeset/config.json`.
 2. Choose a bump level for each package.
-3. If an ignored internal package change enters the CLI bundle, put `@moonshot-ai/kimi-code` in frontmatter instead of mixing the ignored package into the same changeset.
+3. If an ignored internal package change enters the CLI bundle, put `oh-my-kimi-code` in frontmatter instead of mixing the ignored package into the same changeset.
 4. Create a short kebab-case file under `.changeset/`.
 5. Split unrelated changes into separate changesets; keep one logical change in one file.
 
@@ -87,7 +87,7 @@ An internal package fixes a bug visible to CLI users:
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": patch
+"oh-my-kimi-code": patch
 ---
 
 Fix occasional loss of tool call results in long conversations.
@@ -97,7 +97,7 @@ A new user-facing slash command (note the short usage hint):
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": minor
+"oh-my-kimi-code": minor
 ---
 
 Add the /foo slash command to list active sessions. Run /foo to see them.
@@ -107,7 +107,7 @@ A new CLI subcommand:
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": minor
+"oh-my-kimi-code": minor
 ---
 
 Add the kimi web subcommand to open the web UI. Run kimi web to launch it.
@@ -117,7 +117,7 @@ A new flag on an existing command:
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": patch
+"oh-my-kimi-code": patch
 ---
 
 Add a --bar flag to skip confirmation prompts. Pass --bar to skip.
@@ -127,7 +127,7 @@ An internal package has an internal-only change, but it enters the CLI bundle:
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": patch
+"oh-my-kimi-code": patch
 ---
 
 Unify tool execution metadata handling.
@@ -145,7 +145,7 @@ Clarify session status typing for internal SDK callers.
 
 ## Web app changes
 
-`@moonshot-ai/kimi-web` is ignored by changesets and must **never** appear in a changeset frontmatter. Because the web app is bundled into the CLI release artifact, any web change that ships must list `@moonshot-ai/kimi-code` instead and describe the actual web-facing change in the text.
+`@moonshot-ai/kimi-web` is ignored by changesets and must **never** appear in a changeset frontmatter. Because the web app is bundled into the CLI release artifact, any web change that ships must list `oh-my-kimi-code` instead and describe the actual web-facing change in the text.
 
 - Prefix the changelog entry text with `web: ` (for example `web: Fix the chat not scrolling to the bottom after sending a message.`) so the synced docs changelog can mark web UI entries. Apply this whenever the change is to the web project (`@moonshot-ai/kimi-web`).
 - If a PR ships a web UI feature backed by server API changes that exist solely to power that feature, prefer a single `web:` entry describing what the web user gets. Do not add a separate server-API changeset unless the API has independent user value (a public endpoint that SDK or server consumers call directly). The docs changelog sync also deduplicates this pattern, but catching it here avoids duplicate changesets.
@@ -155,7 +155,7 @@ Web-only fix:
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": patch
+"oh-my-kimi-code": patch
 ---
 
 web: Fix the chat not scrolling to the bottom after sending a message.
@@ -165,7 +165,7 @@ Web UI plus backing server APIs in the same PR (prefer a single `web:` entry; th
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": minor
+"oh-my-kimi-code": minor
 ---
 
 web: Add the server-hosted web UI, including chat layout and session list behaviors.
@@ -175,10 +175,10 @@ Split into two changesets only when the API has independent user value on its ow
 
 ## `@moonshot-ai/pi-tui` changes
 
-`@moonshot-ai/pi-tui` is a vendored fork that lives in `packages/pi-tui`. It is `private: true` and is never published, but it is **not** ignored by changesets: changesets versions it and writes `packages/pi-tui/CHANGELOG.md` so the fork keeps its own history. Because it is bundled into the CLI like other internal packages, it is an exception to Core Rule 4 — do **not** list `@moonshot-ai/kimi-code` for a change that only touches pi-tui.
+`@moonshot-ai/pi-tui` is a vendored fork that lives in `packages/pi-tui`. It is `private: true` and is never published, but it is **not** ignored by changesets: changesets versions it and writes `packages/pi-tui/CHANGELOG.md` so the fork keeps its own history. Because it is bundled into the CLI like other internal packages, it is an exception to Core Rule 4 — do **not** list `oh-my-kimi-code` for a change that only touches pi-tui.
 
 - Changes that only affect pi-tui (build, package, strict-mode cleanup, renderer fixes): list `@moonshot-ai/pi-tui` only. No CLI changeset.
-- If the same change is also user-visible in the CLI (for example a terminal rendering fix that CLI users can see), add a **separate** changeset that lists `@moonshot-ai/kimi-code` with CLI-focused wording, in addition to the pi-tui changeset. Do not mix both packages in one frontmatter — the two changelogs need different wording.
+- If the same change is also user-visible in the CLI (for example a terminal rendering fix that CLI users can see), add a **separate** changeset that lists `oh-my-kimi-code` with CLI-focused wording, in addition to the pi-tui changeset. Do not mix both packages in one frontmatter — the two changelogs need different wording.
 
 pi-tui-only change:
 
@@ -202,7 +202,7 @@ Clamp the differential render to the visible viewport so scrolling up during str
 
 ```markdown
 ---
-"@moonshot-ai/kimi-code": patch
+"oh-my-kimi-code": patch
 ---
 
 Fix the transcript jumping to the top when scrolling up through history during streaming output.
@@ -213,13 +213,13 @@ Fix the transcript jumping to the top when scrolling up through history during s
 - You are about to write `major` without asking the user.
 - A new user-facing feature entry has no usage hint, or the hint runs to multiple lines and explains design rationale.
 - You guessed wording for a change you do not understand instead of asking the user whether you may dig into the repo.
-- Internal package source enters the CLI bundle, but `@moonshot-ai/kimi-code` is missing.
+- Internal package source enters the CLI bundle, but `oh-my-kimi-code` is missing.
 - A changeset frontmatter mixes ignored internal packages with non-ignored packages.
 - `packages/node-sdk` was not changed, but `@moonshot-ai/kimi-code-sdk` was listed for "internal package sync".
 - The changelog entry is in Chinese.
 - The wording claims more than the diff actually did.
 - The CLI wording mentions internal package names, class names, or PR numbers.
 - The entry includes real internal identifiers instead of neutral placeholders.
-- A change that only touches `@moonshot-ai/pi-tui` lists `@moonshot-ai/kimi-code` instead of `@moonshot-ai/pi-tui`, or mixes both packages in one frontmatter.
+- A change that only touches `@moonshot-ai/pi-tui` lists `oh-my-kimi-code` instead of `@moonshot-ai/pi-tui`, or mixes both packages in one frontmatter.
 - A web app change entry is missing the `web: ` prefix.
 - A server/API changeset exists only to back a web feature that a `web:` changeset already describes (use one `web:` entry instead, unless the API has independent user value).

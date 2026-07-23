@@ -1,4 +1,6 @@
-# Contributing to kimi-code
+# Contributing to oh-my-kimi-code
+
+`oh-my-kimi-code` is a community fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code): `main` is the community branch, and mature features are sent upstream as PRs.
 
 Thanks for taking the time to contribute! This project moves quickly, and thoughtful contributions from the community are what keep it sharp. The guide below walks you through how we work so your PR has the best chance of landing smoothly.
 
@@ -40,8 +42,8 @@ For the full project map, see [AGENTS.md](AGENTS.md).
 Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
-cd kimi-code
+git clone https://github.com/Yorha9e/oh-my-kimi-code.git
+cd oh-my-kimi-code
 pnpm install
 ```
 
@@ -75,7 +77,7 @@ PR titles are enforced by the `pr-title-checker` workflow — a non-conforming t
 
 ## Changesets
 
-This repo uses [changesets](https://github.com/changesets/changesets) to manage versioning and releases.
+This repo uses [changesets](https://github.com/changesets/changesets) to record user-visible changes. The community fork does not publish to npm: versions are bumped manually and releases ship as native binaries via GitHub Releases — see `.changeset/README.md` for the flow.
 
 - Every PR that affects release artifacts (code, behavior, public API) **must** include a changeset.
 - Docs-only, test-only, or CI-only PRs may skip changesets.
@@ -86,7 +88,7 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 
 Use the [PR template](.github/pull_request_template.md) when opening a feature pull request.
 
-PR titles must follow [Conventional Commits](#commit-convention); CI runs `pnpm lint`, `pnpm typecheck`, and `pnpm test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.
+PR titles must follow [Conventional Commits](#commit-convention); CI runs `pnpm lint`, `pnpm typecheck`, and `pnpm test` on every PR. User-facing docs under `docs/` mirror the upstream docs site and are not updated for community-only behavior — document community features in the root `README.md` (plus feature references like `SUBAGENT-MODEL-BINDING.md`) instead; for behavior changes that track upstream, the `gen-docs` skill still applies.
 
 ## Code Style
 

@@ -84,7 +84,7 @@ The server's wire protocol has a few things that will bite you if forgotten:
 ## Release & deployment
 
 Kimi Web is **not published as a standalone package**. It ships as the built-in
-web UI of the `kimi` CLI (`apps/kimi-code`).
+web UI of the `omkc` CLI (`apps/kimi-code`, package `oh-my-kimi-code`).
 
 ### Current release flow
 
@@ -93,15 +93,16 @@ web UI of the `kimi` CLI (`apps/kimi-code`).
 3. **Bundle into CLI** — `pnpm -C apps/kimi-code run build` runs
    `scripts/copy-web-assets.mjs`, which copies `apps/kimi-web/dist` into
    `apps/kimi-code/dist-web`.
-4. **Publish** — the root `.github/workflows/release.yml` publishes
-   `@moonshot-ai/kimi-code` to npm; `dist-web` is listed in the package `files`
-   array, so the built web assets travel with the CLI package.
-5. **Serve** — `kimi web` serves `dist-web` from the
-   installed package.
+4. **Publish** — the community fork does not publish to npm. The root
+   `.github/workflows/release-native.yml` builds single-file native
+   executables (SEA) for six platforms and publishes them to GitHub Releases;
+   the SEA blob embeds `dist-web`, so the built web assets travel with every
+   native binary.
+5. **Serve** — `omkc web` serves `dist-web` embedded in the native binary.
 
 The web UI does not display its own package version or build commit. It is
-bundled into the CLI package and follows the published `@moonshot-ai/kimi-code`
-release.
+bundled into the CLI and follows the published `oh-my-kimi-code` release on
+GitHub Releases.
 
 ### Suggested improvements
 
