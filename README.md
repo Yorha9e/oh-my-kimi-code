@@ -52,6 +52,37 @@ unzip omkc-linux-x64.zip -d ~/tools/omkc && chmod +x ~/tools/omkc/omkc
 
 首次启动检测到官方 `kimi` 的数据目录时会自动完成迁移（复制不移动、无需重新登录），见[首次启动与迁移](#首次启动与迁移)。
 
+### 更新
+
+omkc 启动时会在后台检查社区 [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) 的最新版本（检查失败/限流时静默跳过，不影响使用）。发现新版本时会提示当前版本 → 目标版本、检测到的安装形态和对应动作：
+
+- **macOS / Linux（SEA 单文件）**：`tui.toml` 里 `[upgrade] auto_install = true` 时自动下载、SHA-256 校验并替换，下次启动生效；为 `false` 时显示手动指引
+- **Windows（SEA 单文件）**：运行中的 exe 无法被覆盖，显示手动指引，按下面的「Windows 手动更新」操作（约 1 分钟）
+- **任意形态**：TUI 里随时可敲 `/upgrade` 手动触发检查与更新
+
+更新源默认为 `Yorha9e/oh-my-kimi-code`，可用环境变量 `OMKC_UPDATE_REPO` 覆盖（例如指向 fork 测试仓）。
+
+#### Windows 手动更新
+
+利用「Windows 允许重命名运行中的 exe」的特性，**无需关闭 omkc**：
+
+```powershell
+# 1. 从 Release 下载 omkc-win32-x64.zip 并解压（浏览器或 gh CLI 均可）
+gh release download oh-my-kimi-code@<新版本> --repo Yorha9e/oh-my-kimi-code -p "omkc-win32-x64.zip" --clobber
+Expand-Archive .\omkc-win32-x64.zip -DestinationPath .\omkc-new -Force
+
+# 2.（可选）校验：certutil -hashfile omkc-win32-x64.zip SHA256 与 .sha256 文件比对
+
+# 3. 旧 exe 改名留作回滚备份，新 exe 放入原位（路径换成你的 omkc.exe 所在目录）
+mv "$env:APPDATA\npm\omkc.exe" "$env:APPDATA\npm\omkc.exe.bak"
+cp .\omkc-new\omkc.exe "$env:APPDATA\npm\omkc.exe"
+
+# 4. 新开一个终端验证
+omkc --version
+```
+
+回滚：删掉新 `omkc.exe`，把 `omkc.exe.bak` 改回 `omkc.exe` 即可；确认无误后 `.bak` 可删。
+
 ### 前置要求（仅源码构建）
 
 - Node.js **>= 24.15**（版本不够时 `pnpm install` 会被 `engine-strict` 拦截；临时绕过可把仓库根目录 `.npmrc` 里的 `engine-strict=true` 改为 `false`，用完改回）
