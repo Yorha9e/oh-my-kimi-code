@@ -1,13 +1,13 @@
 import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
-import { refreshUpdateCache } from '#/cli/update/refresh';
-import { selectUpdateTarget } from '#/cli/update/select';
-import { detectInstallSource } from '#/cli/update/source';
+import { PRODUCT_NAME } from '#/constant/app';
+
+import { releaseNotesUrlForVersion } from '#/cli/update/github';
+import { nativeAssetFileName, nativeTargetTriple } from '#/cli/update/native-target';
 import {
   canAutoInstall,
-  installCommandFor,
-  installUpdate as installUpdateForeground,
+  performUpdateInstall,
   renderInstallSuccessMessage,
   renderManualUpdateMessage,
 } from '#/cli/update/preflight';
@@ -16,10 +16,14 @@ import {
   type InstallPromptChoiceValue,
   type InstallPromptOptions,
 } from '#/cli/update/prompt';
+import { refreshUpdateCache } from '#/cli/update/refresh';
+import { selectUpdateTarget } from '#/cli/update/select';
+import { detectInstallSource } from '#/cli/update/source';
 import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateCache,
+  type UpdateTarget,
 } from '#/cli/update/types';
 
 interface WritableLike {
@@ -34,18 +38,24 @@ export interface UpgradeDeps {
   readonly detectInstallSource: () => Promise<InstallSource>;
   readonly installUpdate: (
     source: InstallSource,
-    version: string,
+    target: UpdateTarget,
+    cache: UpdateCache,
     platform: NodeJS.Platform,
   ) => Promise<void>;
   readonly promptForInstallChoice: (
     options: InstallPromptOptions,
   ) => Promise<InstallPromptChoiceValue>;
   readonly platform: NodeJS.Platform;
+  readonly arch: string;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
   readonly isInteractive: boolean;
   readonly track: UpgradeTrack;
   readonly logger: UpgradeLogger;
+}
+
+function releaseUrlForCache(cache: UpdateCache, target: UpdateTarget): string {
+  return cache.releaseUrl ?? releaseNotesUrlForVersion(target.version);
 }
 
 export async function handleUpgrade(
@@ -80,12 +90,11 @@ export async function handleUpgrade(
     logUpgradeInfo(deps.logger, 'manual upgrade no update', {
       currentVersion,
     });
-    deps.stdout.write(`Kimi Code is already up to date (${formatDisplayVersion(currentVersion)}).\n`);
+    deps.stdout.write(`${PRODUCT_NAME} is already up to date (${formatDisplayVersion(currentVersion)}).\n`);
     return 0;
   }
 
   const source = await deps.detectInstallSource().catch(() => 'unsupported' as const);
-  const installCommand = installCommandFor(source, target.version, deps.platform);
   if (!canAutoInstall(source, deps.platform) || !deps.isInteractive) {
     trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
       current_version: currentVersion,
@@ -97,7 +106,13 @@ export async function handleUpgrade(
       targetVersion: target.version,
       source,
     });
-    deps.stdout.write(renderManualUpdateMessage(currentVersion, target, source, installCommand));
+    deps.stdout.write(renderManualUpdateMessage(
+      currentVersion,
+      target,
+      source,
+      releaseUrlForCache(cache, target),
+      deps.platform,
+    ));
     return 0;
   }
 
@@ -111,10 +126,12 @@ export async function handleUpgrade(
     targetVersion: target.version,
     source,
   });
+  const assetName = nativeAssetFileName(nativeTargetTriple(deps.platform, deps.arch));
   const choice = await deps.promptForInstallChoice({
     currentVersion,
     target,
-    installCommand,
+    releaseUrl: releaseUrlForCache(cache, target),
+    installSummary: `Download ${assetName} from GitHub Releases and replace the current binary`,
     installSource: source,
   });
   if (choice === 'skip') {
@@ -137,7 +154,7 @@ export async function handleUpgrade(
       target_version: target.version,
       source,
     });
-    await deps.installUpdate(source, target.version, deps.platform);
+    await deps.installUpdate(source, target, cache, deps.platform);
     trackUpgradeEvent(deps.track, 'upgrade_command_succeeded', {
       current_version: currentVersion,
       target_version: target.version,
@@ -176,9 +193,10 @@ function createDefaultUpgradeDeps(overrides: Partial<UpgradeDeps>): UpgradeDeps 
   return {
     refreshUpdateCache: overrides.refreshUpdateCache ?? (() => refreshUpdateCache()),
     detectInstallSource: overrides.detectInstallSource ?? (() => detectInstallSource()),
-    installUpdate: overrides.installUpdate ?? installUpdateForeground,
+    installUpdate: overrides.installUpdate ?? performUpdateInstall,
     promptForInstallChoice: overrides.promptForInstallChoice ?? promptForInstallChoice,
     platform: overrides.platform ?? process.platform,
+    arch: overrides.arch ?? process.arch,
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     isInteractive: overrides.isInteractive ?? (process.stdin.isTTY && process.stdout.isTTY),

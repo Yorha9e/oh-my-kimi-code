@@ -14,8 +14,6 @@ import {
 
 import { type InstallSource, type UpdateTarget } from './types';
 
-export const CHANGELOG_URL = 'https://moonshotai.github.io/kimi-code/en/release-notes/changelog.html';
-
 export type InstallPromptChoiceValue = 'install' | 'skip';
 
 export interface InstallPromptChoice {
@@ -26,7 +24,10 @@ export interface InstallPromptChoice {
 export interface InstallPromptOptions {
   readonly currentVersion: string;
   readonly target: UpdateTarget;
-  readonly installCommand: string;
+  /** GitHub Release page for the target version. */
+  readonly releaseUrl: string;
+  /** One-line description of what installing will do. */
+  readonly installSummary: string;
   readonly installSource: InstallSource;
   readonly input?: NodeJS.ReadStream;
   readonly output?: NodeJS.WriteStream;
@@ -67,17 +68,19 @@ function renderInstallPrompt(
   const currentVersion = chalk.hex(UPDATE_PROMPT_WARNING).bold(options.currentVersion);
   const targetVersion = chalk.hex(UPDATE_PROMPT_SUCCESS).bold(options.target.version);
   const sourceLabel = chalk.hex(UPDATE_PROMPT_PRIMARY).bold(options.installSource);
-  const command = chalk.hex(UPDATE_PROMPT_PRIMARY)(options.installCommand);
-  const changelogText = chalk.hex(UPDATE_PROMPT_PRIMARY).underline(`View changelog: ${CHANGELOG_URL}`);
+  const summary = chalk.hex(UPDATE_PROMPT_PRIMARY)(options.installSummary);
+  const releaseNotesText = chalk
+    .hex(UPDATE_PROMPT_PRIMARY)
+    .underline(`Release notes: ${options.releaseUrl}`);
   const lines = [
-    chalk.hex(UPDATE_PROMPT_PRIMARY).bold('Kimi Code Update Available'),
-    chalk.hex(UPDATE_PROMPT_MUTED)(`${PRODUCT_NAME} has a newer release ready.`),
-    `]8;;${CHANGELOG_URL}\\${changelogText}]8;;\\`,
+    chalk.hex(UPDATE_PROMPT_PRIMARY).bold(`${PRODUCT_NAME} Update Available`),
+    chalk.hex(UPDATE_PROMPT_MUTED)('A newer community release is ready.'),
+    `\u001B]8;;${options.releaseUrl}\u001B\\${releaseNotesText}\u001B]8;;\u001B\\`,
     '',
     `${label('Current')}  ${currentVersion}`,
     `${label('Target ')}  ${targetVersion}`,
     `${label('Source ')}  ${sourceLabel}`,
-    `${label('Command')}  ${command}`,
+    `${label('Action ')}  ${summary}`,
     '',
     chalk.hex(UPDATE_PROMPT_MUTED)('↑↓ choose · Enter confirm · Esc continue'),
     '',

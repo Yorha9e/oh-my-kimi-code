@@ -124,7 +124,7 @@ export function createProgram(
   program
     .command('upgrade')
     .alias('update')
-    .description('Upgrade Kimi Code to the latest version.')
+    .description('Upgrade Oh My Kimi Code to the latest version.')
     .action(async () => {
       await onUpgrade();
     });

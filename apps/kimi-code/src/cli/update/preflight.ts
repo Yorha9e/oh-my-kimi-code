@@ -1,41 +1,30 @@
-import { spawn } from 'node:child_process';
-
 import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import type { TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
-import {
-  KIMI_CODE_OFFICIAL_INSTALL_URL,
-  NATIVE_INSTALL_COMMAND_UNIX,
-  NATIVE_INSTALL_COMMAND_WIN,
-} from '#/constant/app';
+import { PRODUCT_NAME } from '#/constant/app';
 import { loadTuiConfig } from '#/tui/config';
 
 import { readUpdateCache } from './cache';
+import { releaseNotesUrlForVersion } from './github';
 import { tryAcquireUpdateInstallLock } from './install-lock';
 import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
+import { installNativeUpdate } from './native-install';
+import { nativeAssetFileName, nativeTargetTriple } from './native-target';
 import {
-  CHANGELOG_URL,
   promptForInstallChoice,
   type InstallPromptChoiceValue,
   type InstallPromptOptions,
 } from './prompt';
 import { refreshUpdateCache } from './refresh';
-import {
-  appendRolloutDecisionLog,
-  decidePassiveUpdateTarget,
-  isRolloutBypassedByExperimentalEnv,
-  resolveUpdateDeviceId,
-  rolloutBucket,
-  rolloutDelayForBucket,
-  type PassiveUpdateDecision,
-} from './rollout';
+import { selectUpdateTarget } from './select';
 import { detectInstallSource } from './source';
 import {
+  emptyUpdateCache,
   NPM_PACKAGE_NAME,
   type InstallSource,
+  type UpdateCache,
   type UpdateDecision,
   type UpdateInstallState,
-  type UpdateManifest,
   type UpdatePreflightResult,
   type UpdateTarget,
 } from './types';
@@ -48,6 +37,8 @@ export interface RunUpdatePreflightOptions {
   readonly isTTY?: boolean;
   readonly track?: (event: string, properties?: TelemetryProperties) => void;
   readonly logger?: UpdateLogger;
+  /** Injectable for tests; defaults to `process.platform`. */
+  readonly platform?: NodeJS.Platform;
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
@@ -56,47 +47,23 @@ const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
 
 type UpdateLogger = Pick<Logger, 'info' | 'warn'>;
 
-function withCmdSuffix(base: string, platform: NodeJS.Platform): string {
-  return platform === 'win32' ? `${base}.cmd` : base;
-}
-
-function bunCommand(platform: NodeJS.Platform): string {
-  return platform === 'win32' ? 'bun.exe' : 'bun';
-}
-
-export function installCommandFor(
-  source: InstallSource,
-  version: string,
-  platform: NodeJS.Platform,
-): string {
-  switch (source) {
-    case 'npm-global':
-      return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
-    case 'pnpm-global':
-      return `pnpm add -g ${NPM_PACKAGE_NAME}@${version}`;
-    case 'yarn-global':
-      return `yarn global add ${NPM_PACKAGE_NAME}@${version}`;
-    case 'bun-global':
-      return `bun add -g ${NPM_PACKAGE_NAME}@${version}`;
-    case 'homebrew':
-      return 'brew upgrade kimi-code';
-    case 'native':
-      return platform === 'win32' ? NATIVE_INSTALL_COMMAND_WIN : NATIVE_INSTALL_COMMAND_UNIX;
-    case 'unsupported':
-      return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
-  }
-}
-
+/**
+ * Which install sources the community updater can apply on their own.
+ *
+ * The community edition ships as single-file native executables on GitHub
+ * Releases; the npm package name is not published to the registry, so
+ * package-manager installs cannot be auto-updated (the old `npm install -g
+ * oh-my-kimi-code@latest` would 404) and get manual download instructions
+ * instead. Native Windows executables cannot be renamed out of the way
+ * while this process holds them open, so win32 stays manual too.
+ */
 export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform): boolean {
   switch (source) {
     case 'npm-global':
     case 'pnpm-global':
     case 'yarn-global':
     case 'bun-global':
-      return true;
     case 'homebrew':
-      // Homebrew upgrade may mutate other dependents and the formula can lag
-      // behind the CDN release — prompt the user to run `brew upgrade` manually.
       return false;
     case 'native':
       return platform !== 'win32';
@@ -105,228 +72,98 @@ export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform)
   }
 }
 
-interface SpawnCommand {
-  readonly cmd: string;
-  readonly args: readonly string[];
-}
-
-export function spawnForSource(
-  source: InstallSource,
-  version: string,
-  platform: NodeJS.Platform,
-): SpawnCommand {
-  switch (source) {
-    case 'npm-global':
-      return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
-    case 'pnpm-global':
-      return { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
-    case 'yarn-global':
-      return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
-    case 'bun-global':
-      return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
-    case 'homebrew':
-      return { cmd: 'brew', args: ['upgrade', 'kimi-code'] };
-    case 'native':
-      // `curl … | bash` reports only the trailing bash's exit status, so a
-      // failed download (curl can't connect → empty stdin → bash exits 0)
-      // would look like a successful update. `pipefail` makes the pipeline
-      // surface curl's non-zero status so installUpdate() rejects and we warn
-      // instead of printing "Updated …".
-      return { cmd: 'bash', args: ['-c', `set -o pipefail; ${NATIVE_INSTALL_COMMAND_UNIX}`] };
-    case 'unsupported':
-      throw new Error('unsupported install source cannot be auto-installed');
-  }
-}
-
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const THIRD_PARTY_SOURCE_NOTE =
-  '\nNote: Third-party sources may lag behind the official release.\n' +
-  `For the latest updates, use the official installer: ${KIMI_CODE_OFFICIAL_INSTALL_URL}\n`;
+function releaseUrlForCache(cache: UpdateCache, target: UpdateTarget): string {
+  return cache.releaseUrl ?? releaseNotesUrlForVersion(target.version);
+}
+
+function sourceDescription(source: InstallSource, platform: NodeJS.Platform): string {
+  switch (source) {
+    case 'npm-global':
+    case 'pnpm-global':
+    case 'yarn-global':
+    case 'bun-global':
+      return source;
+    case 'homebrew':
+      return 'homebrew';
+    case 'native':
+      return platform === 'win32' ? 'native (windows)' : 'native';
+    case 'unsupported':
+      return 'unsupported install layout';
+  }
+}
+
+function manualUpdateNote(source: InstallSource, platform: NodeJS.Platform): string {
+  switch (source) {
+    case 'npm-global':
+    case 'pnpm-global':
+    case 'yarn-global':
+    case 'bun-global':
+      return (
+        `The community edition is not published to the npm registry, so it cannot be ` +
+        `updated with a package manager.\n`
+      );
+    case 'homebrew':
+      return 'The community edition is not distributed through Homebrew.\n';
+    case 'native':
+      if (platform === 'win32') {
+        return 'Auto-update cannot replace the running Windows executable.\n';
+      }
+      return '';
+    case 'unsupported':
+      return '';
+  }
+}
 
 export function renderManualUpdateMessage(
   currentVersion: string,
   target: UpdateTarget,
   source: InstallSource,
-  installCommand: string,
+  releaseUrl: string,
+  platform: NodeJS.Platform,
 ): string {
-  let sourceDesc: string;
-  switch (source) {
-    case 'npm-global':
-    case 'pnpm-global':
-    case 'yarn-global':
-    case 'bun-global':
-      sourceDesc = source;
-      break;
-    case 'homebrew':
-      sourceDesc = 'homebrew';
-      break;
-    case 'native':
-      sourceDesc = 'native (windows). Auto-update is not supported on this platform.';
-      break;
-    case 'unsupported':
-      sourceDesc = 'unsupported package manager or layout.';
-      break;
-  }
+  const note = manualUpdateNote(source, platform);
   return (
-    `A newer version of ${NPM_PACKAGE_NAME} is available ` +
+    `A newer version of ${PRODUCT_NAME} is available ` +
     `(${currentVersion} -> ${target.version}).\n` +
-    `Detected install source: ${sourceDesc}\n` +
-    `To update manually, run: ${installCommand}\n` +
-    (source === 'homebrew' ? THIRD_PARTY_SOURCE_NOTE : '')
+    `Detected install source: ${sourceDescription(source, platform)}\n` +
+    (note.length > 0 ? note : '') +
+    `Download the new release from GitHub Releases: ${releaseUrl}\n`
   );
 }
 
 export function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
+  return `Updated ${PRODUCT_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
 }
 
 function renderBackgroundInstallSuccessNotice(version: string): string {
   const displayVersion = version.startsWith('v') ? version : `v${version}`;
-  return `Kimi Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
+  return `${PRODUCT_NAME} updated to ${displayVersion}\nRelease notes: ${releaseNotesUrlForVersion(version)}\n`;
+}
+
+/**
+ * Apply an update for an auto-installable source. The community channel only
+ * auto-installs the single-file native executable: download the platform
+ * archive from the cached release assets, verify its SHA-256, and rename it
+ * over the running binary (effective on the next start).
+ */
+export async function performUpdateInstall(
+  source: InstallSource,
+  target: UpdateTarget,
+  cache: UpdateCache,
+  platform: NodeJS.Platform,
+): Promise<void> {
+  if (source !== 'native') {
+    throw new Error(`install source ${source} cannot be auto-installed by the community updater`);
+  }
+  await installNativeUpdate({ version: target.version, assets: cache.assets, platform });
 }
 
 function refreshInBackground(): void {
   void refreshUpdateCache().catch(() => {});
-}
-
-/** Telemetry properties describing where this device sits in the rollout. */
-interface RolloutTelemetry {
-  readonly rollout_bucket: number;
-  readonly rollout_delay_seconds: number;
-  readonly rollout_from_manifest: boolean;
-  readonly rollout_bypassed: boolean;
-}
-
-function rolloutTelemetryFor(
-  deviceId: string,
-  targetVersion: string,
-  manifest: UpdateManifest | null,
-  bypassRollout: boolean,
-): RolloutTelemetry {
-  const bucket = rolloutBucket(deviceId, targetVersion);
-  return {
-    rollout_bucket: bucket,
-    rollout_delay_seconds:
-      manifest === null || bypassRollout ? 0 : rolloutDelayForBucket(manifest.rollout, bucket),
-    rollout_from_manifest: manifest !== null,
-    rollout_bypassed: bypassRollout,
-  };
-}
-
-type RolloutCheckPhase = 'startup-cache' | 'background-refresh' | 'prompt-refresh';
-
-/** Record which case a passive version check hit in `updates/rollout.log`. */
-function logRolloutDecision(
-  phase: RolloutCheckPhase,
-  currentVersion: string,
-  latest: string | null,
-  manifest: UpdateManifest | null,
-  decision: PassiveUpdateDecision,
-): void {
-  void appendRolloutDecisionLog({
-    ts: nowIso(),
-    phase,
-    reason: decision.reason,
-    current: currentVersion,
-    latest,
-    target: decision.target?.version ?? null,
-    manifestPresent: manifest !== null,
-    publishedAt: manifest?.publishedAt ?? null,
-    bucket: decision.bucket,
-    delaySeconds: decision.delaySeconds,
-    eligibleAt: decision.eligibleAt,
-  });
-}
-
-function refreshAndMaybeInstallInBackground(
-  currentVersion: string,
-  deviceId: string,
-  bypassRollout: boolean,
-  isInteractive: boolean,
-  installState: UpdateInstallState,
-  platform: NodeJS.Platform,
-  track: RunUpdatePreflightOptions['track'],
-  logger: UpdateLogger,
-): void {
-  void (async () => {
-    const refreshed = await refreshUpdateCache();
-    if (!isInteractive) return;
-    const decision = decidePassiveUpdateTarget(
-      currentVersion,
-      refreshed.latest,
-      refreshed.manifest,
-      deviceId,
-      new Date(),
-      bypassRollout,
-    );
-    logRolloutDecision('background-refresh', currentVersion, refreshed.latest, refreshed.manifest, decision);
-    const target = decision.target;
-    if (target === null) return;
-    const source = await detectInstallSource().catch(() => 'unsupported' as const);
-    await tryStartAutomaticBackgroundInstall(
-      installState,
-      currentVersion,
-      target,
-      source,
-      platform,
-      track,
-      logger,
-      rolloutTelemetryFor(deviceId, target.version, refreshed.manifest, bypassRollout),
-    );
-  })().catch(() => {});
-}
-
-interface UserVisibleUpdateTarget {
-  readonly target: UpdateTarget | null;
-  readonly manifest: UpdateManifest | null;
-}
-
-async function refreshUserVisibleUpdateTarget(
-  currentVersion: string,
-  deviceId: string,
-  bypassRollout: boolean,
-  fallbackTarget: UpdateTarget,
-  fallbackManifest: UpdateManifest | null,
-): Promise<UserVisibleUpdateTarget> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const fallback: UserVisibleUpdateTarget = {
-    target: fallbackTarget,
-    manifest: fallbackManifest,
-  };
-  try {
-    const refresh = refreshUpdateCache()
-      .then((refreshed) => {
-        const decision = decidePassiveUpdateTarget(
-          currentVersion,
-          refreshed.latest,
-          refreshed.manifest,
-          deviceId,
-          new Date(),
-          bypassRollout,
-        );
-        logRolloutDecision('prompt-refresh', currentVersion, refreshed.latest, refreshed.manifest, decision);
-        return {
-          target: decision.target,
-          manifest: refreshed.manifest,
-        };
-      })
-      .catch(() => fallback);
-    const timeoutFallback = new Promise<UserVisibleUpdateTarget>((resolve) => {
-      timeout = setTimeout(() => {
-        resolve(fallback);
-      }, USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS);
-    });
-    return await Promise.race([refresh, timeoutFallback]);
-  } catch {
-    return fallback;
-  } finally {
-    if (timeout !== undefined) {
-      clearTimeout(timeout);
-    }
-  }
 }
 
 function nowIso(): string {
@@ -409,8 +246,7 @@ async function showPendingBackgroundInstallNotice(
 /**
  * `KIMI_CODE_NO_AUTO_UPDATE` (or the legacy `KIMI_CLI_NO_AUTO_UPDATE` alias)
  * fully disables the update preflight — no check, no background install, no
- * prompt. Migrated from kimi-cli, where the variable gated all auto-update
- * behavior. Accepts the usual truthy values (`1`/`true`/`yes`/`on`).
+ * prompt. Accepts the usual truthy values (`1`/`true`/`yes`/`on`).
  */
 function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   const truthy = (value?: string): boolean =>
@@ -433,14 +269,12 @@ function trackUpdatePrompted(
   target: UpdateTarget,
   source: InstallSource,
   decision: UpdateDecision,
-  rolloutTelemetry: RolloutTelemetry,
 ): void {
   trackUpdateEvent(track, 'update_prompted', {
     current_version: currentVersion,
     target_version: target.version,
     source,
     decision,
-    ...rolloutTelemetry,
   });
 }
 
@@ -475,54 +309,30 @@ function logUpdateWarn(logger: UpdateLogger, message: string, payload: Record<st
 async function promptInstall(
   currentVersion: string,
   target: UpdateTarget,
+  cache: UpdateCache,
   source: InstallSource,
-  installCommand: string,
+  platform: NodeJS.Platform,
 ): Promise<InstallPromptChoiceValue> {
+  const assetName = nativeAssetFileName(nativeTargetTriple(platform, process.arch));
   const options: InstallPromptOptions = {
     currentVersion,
     target,
     installSource: source,
-    installCommand,
+    releaseUrl: releaseUrlForCache(cache, target),
+    installSummary: `Download ${assetName} from GitHub Releases and replace the current binary`,
   };
   return promptForInstallChoice(options);
-}
-
-export async function installUpdate(
-  source: InstallSource,
-  version: string,
-  platform: NodeJS.Platform,
-): Promise<void> {
-  const { cmd, args } = spawnForSource(source, version, platform);
-  await new Promise<void>((resolve, reject) => {
-    // Windows package managers (npm/pnpm/yarn) are .cmd shims. Since the
-    // CVE-2024-27980 fix, Node throws EINVAL when spawning a .cmd/.bat without
-    // a shell, so run through the shell on win32. The version is a validated
-    // semver and the package name is a constant, so args are shell-safe.
-    const child = spawn(cmd, [...args], {
-      stdio: 'inherit',
-      shell: platform === 'win32' ? true : undefined,
-    });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      const detail = signal !== null ? `signal ${signal}` : `code ${String(code)}`;
-      reject(new Error(`${cmd} exited with ${detail}`));
-    });
-  });
 }
 
 async function startBackgroundInstall(
   state: UpdateInstallState,
   currentVersion: string,
   target: UpdateTarget,
+  cache: UpdateCache,
   source: InstallSource,
   platform: NodeJS.Platform,
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
-  rolloutTelemetry: RolloutTelemetry,
 ): Promise<void> {
   const lock = await tryAcquireUpdateInstallLock({ version: target.version });
   if (lock === null) return;
@@ -549,7 +359,6 @@ async function startBackgroundInstall(
       current_version: currentVersion,
       target_version: target.version,
       source,
-      ...rolloutTelemetry,
     });
     logUpdateInfo(logger, 'background update install started', {
       currentVersion,
@@ -557,72 +366,128 @@ async function startBackgroundInstall(
       source,
     });
 
-    const { cmd, args } = spawnForSource(source, target.version, platform);
-    let settled = false;
+    const attempts = failureAttemptsFor(startedState, target) + 1;
+    let succeeded = false;
+    try {
+      await performUpdateInstall(source, target, cache, platform);
+      succeeded = true;
+    } catch {
+      succeeded = false;
+    }
 
-    const finish = (succeeded: boolean): void => {
-      if (settled) return;
-      settled = true;
-      const attempts = failureAttemptsFor(startedState, target) + 1;
-
-      const nextState: UpdateInstallState = succeeded
-        ? {
-          ...startedState,
-          active: null,
-          lastFailure: null,
-          lastSuccess: {
-            version: target.version,
-            installedAt: nowIso(),
-            notifiedAt: null,
-          },
-        }
-        : {
-          ...startedState,
-          active: null,
-          lastFailure: {
-            version: target.version,
-            failedAt: nowIso(),
-            attempts,
-          },
-        };
-      void writeUpdateInstallState(nextState).catch(() => {});
-      if (succeeded) {
-        trackUpdateEvent(track, 'update_background_install_succeeded', {
-          target_version: target.version,
-          source,
-        });
-        logUpdateInfo(logger, 'background update install succeeded', {
-          targetVersion: target.version,
-          source,
-        });
-        return;
+    const nextState: UpdateInstallState = succeeded
+      ? {
+        ...startedState,
+        active: null,
+        lastFailure: null,
+        lastSuccess: {
+          version: target.version,
+          installedAt: nowIso(),
+          notifiedAt: null,
+        },
       }
-      trackUpdateEvent(track, 'update_background_install_failed', {
+      : {
+        ...startedState,
+        active: null,
+        lastFailure: {
+          version: target.version,
+          failedAt: nowIso(),
+          attempts,
+        },
+      };
+    await writeUpdateInstallState(nextState).catch(() => {});
+    if (succeeded) {
+      trackUpdateEvent(track, 'update_background_install_succeeded', {
         target_version: target.version,
         source,
-        attempts,
       });
-      logUpdateWarn(logger, 'background update install failed', {
+      logUpdateInfo(logger, 'background update install succeeded', {
         targetVersion: target.version,
         source,
-        attempts,
       });
-    };
-
-    const child = spawn(cmd, [...args], {
-      detached: true,
-      stdio: 'ignore',
-      shell: platform === 'win32' ? true : undefined,
-      // On Windows a detached child gets its own console window; with shell:true
-      // that window would flash during a passive background update. Hide it so
-      // the silent updater stays silent.
-      windowsHide: platform === 'win32' ? true : undefined,
+      return;
+    }
+    trackUpdateEvent(track, 'update_background_install_failed', {
+      target_version: target.version,
+      source,
+      attempts,
     });
-    child.once('error', () => { finish(false); });
-    child.once('exit', (code) => { finish(code === 0); });
-    child.unref();
+    logUpdateWarn(logger, 'background update install failed', {
+      targetVersion: target.version,
+      source,
+      attempts,
+    });
   } finally {
     await lock.release().catch(() => {});
+  }
+}
+
+function refreshAndMaybeInstallInBackground(
+  currentVersion: string,
+  isInteractive: boolean,
+  installState: UpdateInstallState,
+  platform: NodeJS.Platform,
+  track: RunUpdatePreflightOptions['track'],
+  logger: UpdateLogger,
+): void {
+  void (async () => {
+    const refreshed = await refreshUpdateCache();
+    if (!isInteractive) return;
+    const target = selectUpdateTarget(currentVersion, refreshed.latest);
+    if (target === null) return;
+    const source = await detectInstallSource().catch(() => 'unsupported' as const);
+    await tryStartAutomaticBackgroundInstall(
+      installState,
+      currentVersion,
+      target,
+      refreshed,
+      source,
+      platform,
+      track,
+      logger,
+    );
+  })().catch(() => {});
+}
+
+interface UserVisibleUpdate {
+  readonly target: UpdateTarget | null;
+  readonly cache: UpdateCache;
+}
+
+/**
+ * Re-check the release feed (1s budget) before showing anything to the user,
+ * falling back to the cached target when the check hangs or fails — e.g. a
+ * rate-limited GitHub API check must never stall the prompt.
+ */
+async function refreshUserVisibleUpdateTarget(
+  currentVersion: string,
+  fallbackTarget: UpdateTarget,
+  fallbackCache: UpdateCache,
+): Promise<UserVisibleUpdate> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const fallback: UserVisibleUpdate = {
+    target: fallbackTarget,
+    cache: fallbackCache,
+  };
+  try {
+    const refresh = refreshUpdateCache()
+      .then((refreshed) => ({
+        target: selectUpdateTarget(currentVersion, refreshed.latest),
+        cache: refreshed,
+      }))
+      .catch(() => fallback);
+    const timeoutFallback = new Promise<UserVisibleUpdate>((resolve) => {
+      timeout = setTimeout(() => {
+        resolve(fallback);
+      }, USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS);
+    });
+    return await Promise.race([refresh, timeoutFallback]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -630,11 +495,11 @@ async function tryStartAutomaticBackgroundInstall(
   installState: UpdateInstallState,
   currentVersion: string,
   target: UpdateTarget,
+  cache: UpdateCache,
   source: InstallSource,
   platform: NodeJS.Platform,
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
-  rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
   const sourceCanAutoInstall = canAutoInstall(source, platform);
   const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates() : false;
@@ -647,11 +512,11 @@ async function tryStartAutomaticBackgroundInstall(
       installState,
       currentVersion,
       target,
+      cache,
       source,
       platform,
       track,
       logger,
-      rolloutTelemetry,
     ).catch(() => {});
   }
   return true;
@@ -674,7 +539,7 @@ export async function runUpdatePreflight(
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const logger = options.logger ?? log;
-  const platform = process.platform;
+  const platform = options.platform ?? process.platform;
 
   if (isAutoUpdateDisabledByEnv()) {
     return 'continue';
@@ -683,8 +548,6 @@ export async function runUpdatePreflight(
   try {
     const isInteractive =
       options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
-    const deviceId = resolveUpdateDeviceId();
-    const bypassRollout = isRolloutBypassedByExperimentalEnv();
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
     if (isInteractive) {
       installState = await showPendingBackgroundInstallNotice(
@@ -696,23 +559,11 @@ export async function runUpdatePreflight(
       );
     }
 
-    const cache = await readUpdateCache().catch(() => null);
-    const cachedManifest = cache?.manifest ?? null;
-    const cachedDecision = decidePassiveUpdateTarget(
-      currentVersion,
-      cache?.latest ?? null,
-      cachedManifest,
-      deviceId,
-      new Date(),
-      bypassRollout,
-    );
-    logRolloutDecision('startup-cache', currentVersion, cache?.latest ?? null, cachedManifest, cachedDecision);
-    const target = cachedDecision.target;
+    const cache = await readUpdateCache().catch(() => emptyUpdateCache());
+    const target = selectUpdateTarget(currentVersion, cache.latest);
     if (target === null) {
       refreshAndMaybeInstallInBackground(
         currentVersion,
-        deviceId,
-        bypassRollout,
         isInteractive,
         installState,
         platform,
@@ -738,65 +589,59 @@ export async function runUpdatePreflight(
         installState,
         currentVersion,
         target,
+        cache,
         source,
         platform,
         options.track,
         logger,
-        rolloutTelemetryFor(deviceId, target.version, cachedManifest, bypassRollout),
       )
     ) {
       refreshInBackground();
       return 'continue';
     }
 
-    const userVisibleUpdate = await refreshUserVisibleUpdateTarget(
-      currentVersion,
-      deviceId,
-      bypassRollout,
-      target,
-      cachedManifest,
-    );
+    const userVisibleUpdate = await refreshUserVisibleUpdateTarget(currentVersion, target, cache);
     const userVisibleTarget = userVisibleUpdate.target;
     if (userVisibleTarget === null) return 'continue';
-    const userVisibleRollout = rolloutTelemetryFor(
-      deviceId,
-      userVisibleTarget.version,
-      userVisibleUpdate.manifest,
-      bypassRollout,
-    );
     if (
       await tryStartAutomaticBackgroundInstall(
         installState,
         currentVersion,
         userVisibleTarget,
+        userVisibleUpdate.cache,
         source,
         platform,
         options.track,
         logger,
-        userVisibleRollout,
       )
     ) {
       return 'continue';
     }
 
-    const installCommand = installCommandFor(source, userVisibleTarget.version, platform);
-    trackUpdatePrompted(options.track, currentVersion, userVisibleTarget, source, decision, userVisibleRollout);
+    trackUpdatePrompted(options.track, currentVersion, userVisibleTarget, source, decision);
 
     if (decision === 'manual-command') {
       stdout.write(renderManualUpdateMessage(
         currentVersion,
         userVisibleTarget,
         source,
-        installCommand,
+        releaseUrlForCache(userVisibleUpdate.cache, userVisibleTarget),
+        platform,
       ));
       return 'continue';
     }
 
-    const choice = await promptInstall(currentVersion, userVisibleTarget, source, installCommand);
+    const choice = await promptInstall(
+      currentVersion,
+      userVisibleTarget,
+      userVisibleUpdate.cache,
+      source,
+      platform,
+    );
     if (choice === 'skip') return 'continue';
 
     try {
-      await installUpdate(source, userVisibleTarget.version, platform);
+      await performUpdateInstall(source, userVisibleTarget, userVisibleUpdate.cache, platform);
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));
       return 'exit';
     } catch (error) {

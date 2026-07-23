@@ -38,14 +38,15 @@ describe('update cache', () => {
     await expect(readUpdateCache()).resolves.toEqual(emptyUpdateCache());
   });
 
-  it('falls back to an empty cache when the file has the old npm.json shape', async () => {
+  it('falls back to an empty cache for a legacy CDN-channel cache file', async () => {
     mkdirSync(join(dir, 'updates'), { recursive: true });
     writeFileSync(
       getUpdateStateFile(),
       JSON.stringify({
-        packageName: '@moonshot-ai/kimi-code',
+        source: 'cdn',
         checkedAt: '2026-04-23T08:00:00.000Z',
-        distTags: { beta: '0.0.1-beta.1' },
+        latest: '0.5.0',
+        manifest: null,
       }),
       'utf-8',
     );
@@ -54,10 +55,18 @@ describe('update cache', () => {
 
   it('writes and reads back the cache from updates/latest.json', async () => {
     const cache = {
-      source: 'cdn',
+      source: 'github',
       checkedAt: '2026-04-23T08:00:00.000Z',
-      latest: '0.5.0',
-      manifest: null,
+      latest: '0.29.0-omkc.2',
+      tag: 'oh-my-kimi-code@0.29.0-omkc.2',
+      releaseUrl:
+        'https://github.com/Yorha9e/oh-my-kimi-code/releases/tag/oh-my-kimi-code@0.29.0-omkc.2',
+      assets: [
+        {
+          name: 'omkc-linux-x64.zip',
+          url: 'https://github.com/Yorha9e/oh-my-kimi-code/releases/download/oh-my-kimi-code@0.29.0-omkc.2/omkc-linux-x64.zip',
+        },
+      ],
     } as const;
 
     await writeUpdateCache(cache);
@@ -66,65 +75,53 @@ describe('update cache', () => {
     await expect(readUpdateCache()).resolves.toEqual(cache);
   });
 
-  it('writes and reads back a cache carrying a rollout manifest', async () => {
-    const cache = {
-      source: 'cdn',
-      checkedAt: '2026-04-23T08:00:00.000Z',
-      latest: '0.5.0',
-      manifest: {
-        version: '0.5.0',
-        publishedAt: '2026-04-23T07:00:00.000Z',
-        rollout: [
-          { percent: 30, delaySeconds: 0 },
-          { percent: 30, delaySeconds: 43_200 },
-          { percent: 40, delaySeconds: 86_400 },
-        ],
-      },
-    } as const;
-
-    await writeUpdateCache(cache);
-
-    await expect(readUpdateCache()).resolves.toEqual(cache);
-  });
-
-  it('reads a legacy cache file without a manifest field as manifest null', async () => {
+  it('keeps a known latest and drops malformed asset entries', async () => {
     mkdirSync(join(dir, 'updates'), { recursive: true });
     writeFileSync(
       getUpdateStateFile(),
       JSON.stringify({
-        source: 'cdn',
+        source: 'github',
         checkedAt: '2026-04-23T08:00:00.000Z',
         latest: '0.5.0',
+        tag: 'oh-my-kimi-code@0.5.0',
+        releaseUrl: 'https://example.test/releases/1',
+        assets: [
+          { name: 'omkc-linux-x64.zip', url: 'https://example.test/zip' },
+          { name: '', url: 'https://example.test/bad-name' },
+          { name: 'manifest.json' },
+          'garbage',
+        ],
       }),
       'utf-8',
     );
 
     await expect(readUpdateCache()).resolves.toEqual({
-      source: 'cdn',
+      source: 'github',
       checkedAt: '2026-04-23T08:00:00.000Z',
       latest: '0.5.0',
-      manifest: null,
+      tag: 'oh-my-kimi-code@0.5.0',
+      releaseUrl: 'https://example.test/releases/1',
+      assets: [{ name: 'omkc-linux-x64.zip', url: 'https://example.test/zip' }],
     });
   });
 
-  it('keeps latest and treats a malformed manifest field as null', async () => {
+  it('treats a missing assets field as an empty asset list', async () => {
     mkdirSync(join(dir, 'updates'), { recursive: true });
     writeFileSync(
       getUpdateStateFile(),
       JSON.stringify({
-        source: 'cdn',
+        source: 'github',
         checkedAt: '2026-04-23T08:00:00.000Z',
         latest: '0.5.0',
-        manifest: { version: 'not-semver', publishedAt: 'nope', rollout: 'bad' },
+        tag: 'oh-my-kimi-code@0.5.0',
+        releaseUrl: 'https://example.test/releases/1',
       }),
       'utf-8',
     );
 
-    await expect(readUpdateCache()).resolves.toEqual({
-      source: 'cdn',
-      checkedAt: '2026-04-23T08:00:00.000Z',
+    await expect(readUpdateCache()).resolves.toMatchObject({
       latest: '0.5.0',
-      manifest: null,
+      assets: [],
     });
   });
 });
@@ -144,7 +141,7 @@ describe('update install state', () => {
     const state: UpdateInstallState = {
       active: {
         version: '0.5.0',
-        source: 'npm-global',
+        source: 'native',
         startedAt: '2026-04-23T08:00:00.000Z',
       },
       lastFailure: {

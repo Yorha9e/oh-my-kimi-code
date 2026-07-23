@@ -1,14 +1,15 @@
 import { writeUpdateCache } from './cache';
-import { fetchLatestFromCdn, type FetchLatestResult } from './cdn';
-import { type UpdateCache } from './types';
+import { fetchLatestFromGitHub } from './github';
+import { type UpdateCache, type UpdateFeed } from './types';
 
 export interface RefreshUpdateCacheDeps {
-  /** Resolves with the latest version + rollout manifest. **Throws** on any
-   * failure — callers (including the default background invocation in
-   * preflight) must catch. Errors intentionally skip `writeCache` so a
-   * transient CDN blip does not overwrite a previously known `latest` with
-   * `null`. */
-  readonly fetchLatest: () => Promise<FetchLatestResult>;
+  /** Resolves with the newest community release. **Throws** on any
+   * failure (including GitHub API rate limiting) — callers (including the
+   * default background invocation in preflight) must catch. Errors
+   * intentionally skip `writeCache` so a failed check never overwrites a
+   * previously known release, and the passive surfaces fall back to the
+   * cache silently. */
+  readonly fetchLatest: () => Promise<UpdateFeed>;
   readonly writeCache: (cache: UpdateCache) => Promise<void>;
   readonly now: () => Date;
 }
@@ -17,17 +18,19 @@ export async function refreshUpdateCache(
   overrides: Partial<RefreshUpdateCacheDeps> = {},
 ): Promise<UpdateCache> {
   const resolved: RefreshUpdateCacheDeps = {
-    fetchLatest: overrides.fetchLatest ?? (() => fetchLatestFromCdn()),
+    fetchLatest: overrides.fetchLatest ?? (() => fetchLatestFromGitHub()),
     writeCache: overrides.writeCache ?? writeUpdateCache,
     now: overrides.now ?? (() => new Date()),
   };
 
-  const { latest, manifest } = await resolved.fetchLatest();
+  const feed = await resolved.fetchLatest();
   const cache: UpdateCache = {
-    source: 'cdn',
+    source: 'github',
     checkedAt: resolved.now().toISOString(),
-    latest,
-    manifest,
+    latest: feed.version,
+    tag: feed.tag,
+    releaseUrl: feed.releaseUrl,
+    assets: feed.assets,
   };
   await resolved.writeCache(cache);
   return cache;
