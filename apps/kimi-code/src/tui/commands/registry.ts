@@ -296,6 +296,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     experimentalFlag: 'subagent-model-selection',
   },
   {
+    name: 'sync-from-kimi',
+    aliases: [],
+    description: 'Incrementally sync data from the official ~/.kimi-code home into the omkc home',
+    priority: 60,
+    availability: 'idle-only',
+  },
+  {
     name: 'experiments',
     aliases: ['experimental'],
     description: 'Manage experimental features',
