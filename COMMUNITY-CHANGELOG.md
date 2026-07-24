@@ -2,6 +2,31 @@
 
 本文件记录 [oh-my-kimi-code](https://github.com/Yorha9e/oh-my-kimi-code) 社区版（呼出命令 `omkc`）相对上游 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 新增的变更。按版本倒序排列。
 
+## 0.29.1-omkc.4
+
+_2026-07-24 · 自定义子代理 profile 与显示修复。_
+
+### 自定义子代理 profile（home 目录）
+
+- 在 `~/.omkc/agents/*.md` 放 Markdown 文件即可定义自己的子代理类型：frontmatter 支持 `name`（缺省取文件名）、`description`（缺省取正文首行）、`when_to_use`、`tools`（缺省继承 `coder` 工具集），正文作为角色 prompt 接在内置 `coder` 的子代理前导之后。
+- 定义后立即可用：主代理 `Agent`/`AgentSwarm` 的 `subagent_type` 类型列表中出现并可派遣；`/subagent-model set <名字>` 与 `.kimi-code/local.toml` 的 `[subagent.<名字>]` 可直接绑模型。
+- 容错：目录不存在、单文件解析失败、非法名字、与内置类型同名，均跳过并告警，不影响会话启动。仅 home 一级，无项目级覆盖。
+
+### 子代理模型管理界面增强
+
+- `/settings` 的 Subagent models 面板类型下拉改为经新增的 `listSubagentProfiles` RPC 拉取（含用户自定义 profile，带来源标记），RPC 失败时回退内置列表；`/subagent-model list` 同样列出可用类型（用户 profile 标 `(user)`）。
+- 槽位删除交互改为在 Settings 面板选中后按 `D` 键。
+- `binding_slot` 工具参数描述收敛为纯透传语义：slot 是用户侧的隐式模型路由层，不再向 LLM 暴露「用于选择模型/effort」的描述，profile（用途/prompt）是 LLM 选择子代理的唯一语义接口——类型列表更短，主上下文更省 token。
+
+### 显示与杂项修复
+
+- 托管 OAuth provider（Kimi Code 官方模型服务）在模型选择器、`/logout` 列表与登出提示中固定显示为「Kimi Code」，不再随社区版品牌显示为 Oh My Kimi Code。
+- 反馈入口 URL 修正指向 `Yorha9e/oh-my-kimi-code` 的 Issues。
+
+### omkc-status 伴生状态服务
+
+- 交互启动时可自动拉起 omkc-status 伴生进程（独立于 MOA 卡片单独开关），只读监听会话持久化文件并对外提供 HTTP `/state` 与 SSE `/events`；`/health` 携带 status-protocol-v1 版本标记做兼容性协商。
+
 ## 0.29.0-omkc.2
 
 _2026-07-23 · 自更新机制改指社区 GitHub Releases。_
