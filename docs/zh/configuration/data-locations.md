@@ -44,7 +44,11 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 │   └── <workDirKey>/<sessionId>/
 ├── bin/
 │   ├── rg                  # Grep 使用的托管 ripgrep 二进制（Windows 为 rg.exe）
-│   └── fd                  # 文件引用使用的托管 fd 二进制（Windows 为 fd.exe）
+│   ├── fd                  # 文件引用使用的托管 fd 二进制（Windows 为 fd.exe）
+│   ├── moa-card            # 可选的悬浮卡片伴随应用（手动安装）
+│   └── omkc-status         # 可选的状态服务伴随应用（手动安装）
+├── status/
+│   └── server.json         # omkc-status 伴随应用写入的发现文件
 ├── logs/
 │   └── kimi-code.log       # 全局诊断日志
 ├── updates/
@@ -86,6 +90,15 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ## 内置工具缓存
 
 `Grep` 工具第一次需要 ripgrep 时，CLI 可自动下载 `rg` 并缓存到 `bin/rg`（Windows 为 `bin/rg.exe`）。终端界面的文件引用补全使用 `fd`；需要时 CLI 会在后台自动下载并缓存到 `bin/fd`（Windows 为 `bin/fd.exe`）。之后的运行会直接复用缓存的二进制。`rg` 优先使用系统 `PATH`，再使用缓存；`fd` 优先检查托管缓存，再回退到系统 `fd` / `fdfind`。删除 `bin/` 目录会在下次需要时触发重新下载。
+
+## 可选的伴随应用
+
+`bin/` 还可以存放可选的伴随可执行文件，CLI 会在交互式启动时尽力拉起它们。这些文件不由 CLI 下载——把二进制放进 `bin/` 即完成安装：
+
+- **`moa-card`**（Windows 为 `moa-card.exe`）：可选的悬浮卡片应用。当 `tui.toml` 中 `moa.card = true`（默认）时拉起。
+- **`omkc-status`**（Windows 为 `omkc-status.exe`）：只读状态服务，监听本地会话文件，在 `http://127.0.0.1:39627` 为桌面卡片等消费者提供状态（HTTP + SSE），由同一个 `moa.card` 开关控制。它是单实例的：`status/server.json` 中已记录存活实例时，CLI 和服务自身都会跳过重复拉起。该服务在绑定端口后写入这个发现文件（`{pid, port, started_at}`），并在优雅退出时删除。
+
+二进制缺失、拉起失败或重复启动都不会阻塞或破坏 CLI。
 
 ## 日志与更新状态
 

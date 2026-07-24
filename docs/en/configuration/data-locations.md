@@ -44,7 +44,11 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 │   └── <workDirKey>/<sessionId>/
 ├── bin/
 │   ├── rg                  # managed ripgrep binary for Grep (rg.exe on Windows)
-│   └── fd                  # managed fd binary for file references (fd.exe on Windows)
+│   ├── fd                  # managed fd binary for file references (fd.exe on Windows)
+│   ├── moa-card            # optional floating-card companion (manually installed)
+│   └── omkc-status         # optional status-service companion (manually installed)
+├── status/
+│   └── server.json         # discovery file written by the omkc-status companion
 ├── logs/
 │   └── kimi-code.log       # Global diagnostic log
 ├── updates/
@@ -86,6 +90,15 @@ Inside each session directory:
 ## Built-in tool cache
 
 The first time the `Grep` tool needs ripgrep, the CLI can automatically download `rg` and cache it at `bin/rg` (`bin/rg.exe` on Windows). File-reference completion in the terminal UI uses `fd`; the CLI downloads and caches it at `bin/fd` (`bin/fd.exe` on Windows) in the background when needed. Subsequent runs reuse the cached binaries. `rg` prefers the system `PATH` before the cache, while `fd` checks the managed cache before falling back to system `fd` / `fdfind`. Deleting the `bin/` directory triggers a fresh download on the next use.
+
+## Optional companion apps
+
+`bin/` can also hold optional companion executables that the CLI launches best-effort on interactive startup. The CLI never downloads these — install them manually by dropping the binary into `bin/`:
+
+- **`moa-card`** (`moa-card.exe` on Windows): an optional floating-card app. Launched when `moa.card = true` in `tui.toml` (the default).
+- **`omkc-status`** (`omkc-status.exe` on Windows): a read-only status service that watches the local session files and serves state at `http://127.0.0.1:39627` (HTTP + SSE) for desktop cards and other consumers. Gated by the same `moa.card` toggle. It is single-instance: when a live instance is already recorded in `status/server.json`, both the CLI and the service itself skip a duplicate launch. The service writes that discovery file (`{pid, port, started_at}`) after binding and removes it on graceful exit.
+
+A missing binary, a failed launch, or a duplicate start never blocks or breaks the CLI.
 
 ## Logs and update state
 

@@ -190,7 +190,7 @@ notification_condition = "${config.notifications.condition}" # "unfocused" | "al
 auto_install = ${String(config.upgrade.autoInstall)} # true | false
 
 [moa]
-card = ${String(config.moa.card)} # true launches the moa-card companion app on interactive startup
+card = ${String(config.moa.card)} # true launches the moa-card and omkc-status companions on interactive startup
 status_export = ${String(config.moa.statusExport)} # true serves engine status events over SSE on 127.0.0.1:39631+
 `;
 }

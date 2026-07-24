@@ -62,6 +62,8 @@ const mocks = vi.hoisted(() => {
     flushDiagnosticLogsSync: vi.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
     execSync: vi.fn(),
+    maybeLaunchMoaCard: vi.fn(),
+    maybeLaunchOmkcStatus: vi.fn(),
     TuiConfigParseError,
   };
 });
@@ -140,6 +142,14 @@ vi.mock('../../src/tui/theme/detect', () => ({
 
 vi.mock('../../src/migration/index', () => ({
   detectPendingMigration: mocks.detectPendingMigration,
+}));
+
+vi.mock('../../src/cli/moa-card', () => ({
+  maybeLaunchMoaCard: mocks.maybeLaunchMoaCard,
+}));
+
+vi.mock('../../src/cli/omkc-status', () => ({
+  maybeLaunchOmkcStatus: mocks.maybeLaunchOmkcStatus,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -247,6 +257,102 @@ describe('runShell', () => {
       init_ms: expect.any(Number),
       mcp_ms: 47,
     });
+  });
+
+  it('launches the moa-card and omkc-status companions when moa.card is true', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+      moa: { card: true, statusExport: true },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
+      },
+      '1.2.3-test',
+    );
+
+    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledWith(true);
+    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledWith(true);
+  });
+
+  it('does not launch the moa-card and omkc-status companions when moa.card is false', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+      moa: { card: false, statusExport: true },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
+      },
+      '1.2.3-test',
+    );
+
+    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledWith(false);
+    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledWith(false);
+  });
+
+  it('skips both companion launches when runShell is migrate-only', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+      moa: { card: true, statusExport: true },
+    });
+    mocks.detectPendingMigration.mockResolvedValue(null);
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
+      },
+      '1.2.3-test',
+      { migrateOnly: true },
+    );
+
+    expect(mocks.maybeLaunchMoaCard).not.toHaveBeenCalled();
+    expect(mocks.maybeLaunchOmkcStatus).not.toHaveBeenCalled();
   });
 
   it('forwards skillsDirs from CLI options to the harness', async () => {

@@ -29,6 +29,7 @@ import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { maybeLaunchMoaCard } from './moa-card';
+import { maybeLaunchOmkcStatus } from './omkc-status';
 import type { CLIOptions } from './options';
 import { startStatusExport } from './status-export';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
@@ -52,9 +53,11 @@ export async function runShell(
   }
 
   // The moa-card companion app is a migration-irrelevant extra; skip it when
-  // runShell is reused for `--migrate` only.
+  // runShell is reused for `--migrate` only. The omkc-status companion
+  // service follows the same `moa.card` toggle and is best-effort too.
   if (!runOptions.migrateOnly) {
     maybeLaunchMoaCard(tuiConfig.moa.card);
+    maybeLaunchOmkcStatus(tuiConfig.moa.card);
   }
 
   // Initialise the global Theme singleton before pi-tui grabs stdin.
