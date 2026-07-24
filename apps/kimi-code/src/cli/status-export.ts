@@ -6,6 +6,11 @@
  * SSE. Nothing is written to disk: consumers discover instances by scanning
  * 127.0.0.1 ports 39631..39731 for GET /health.
  *
+ * Wire contract: `status-protocol-v1` (see the cross-repo contract spec). The
+ * /health body carries `protocolVersion: 1`; the field is additive, so a
+ * legacy consumer that ignores unknown fields keeps working, and a consumer
+ * that sees no `protocolVersion` at all is reading a pre-v1 (legacy v0) source.
+ *
  * The event listener runs synchronously inside the RPC dispatch loop, so it
  * stays lightweight and non-blocking: it only serializes and writes into the
  * clients' socket buffers. Slow clients never back-pressure the engine — a
@@ -23,6 +28,12 @@ import { getVersion } from './version';
 export const STATUS_PORT_BASE = 39631;
 export const STATUS_PORT_MAX_RETRIES = 100;
 export const STATUS_PRODUCT_NAME = 'omkc-status-source';
+/**
+ * `status-protocol-v1` wire contract version advertised on /health. Bumping
+ * this major is a breaking change: consumers accept a missing field (legacy
+ * v0) or `1`, and must safely skip an unknown future major (> 1).
+ */
+export const STATUS_PROTOCOL_VERSION = 1;
 
 const LOOPBACK_HOST = '127.0.0.1';
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -193,7 +204,13 @@ export async function startStatusServer(
     if (req.method === 'GET' && path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
-        JSON.stringify({ ok: true, product: STATUS_PRODUCT_NAME, version, pid: process.pid }),
+        JSON.stringify({
+          ok: true,
+          product: STATUS_PRODUCT_NAME,
+          protocolVersion: STATUS_PROTOCOL_VERSION,
+          version,
+          pid: process.pid,
+        }),
       );
       return;
     }
