@@ -8,6 +8,7 @@ import {
   AgentStatusThrottle,
   shouldExportEventType,
   startStatusServer,
+  STATUS_PROTOCOL_VERSION,
   toStatusJson,
   type StatusServerHandle,
 } from '#/cli/status-export';
@@ -165,9 +166,30 @@ describe('status SSE server', () => {
     expect(await res.json()).toEqual({
       ok: true,
       product: 'omkc-status-source',
+      protocolVersion: 1,
       version: '9.9.9-test',
       pid: process.pid,
     });
+  });
+
+  it('advertises status-protocol-v1 additively alongside every legacy field', async () => {
+    const { source } = createStubSource();
+    const handle = await startTestServer(source);
+
+    const body = (await (await fetch(`http://127.0.0.1:${handle.port}/health`)).json()) as Record<
+      string,
+      unknown
+    >;
+    // The contract version is the number 1, sourced from the shared constant.
+    expect(STATUS_PROTOCOL_VERSION).toBe(1);
+    expect(body.protocolVersion).toBe(STATUS_PROTOCOL_VERSION);
+    // Additive only: every pre-v1 field is still present, so a legacy consumer
+    // relying on JSON unknown-field tolerance keeps working unchanged, and a
+    // consumer that checks `ok`/`product` still recognizes the source.
+    expect(body.ok).toBe(true);
+    expect(body.product).toBe('omkc-status-source');
+    expect(typeof body.version).toBe('string');
+    expect(typeof body.pid).toBe('number');
   });
 
   it('answers OPTIONS with 204 and unknown paths with 404', async () => {
