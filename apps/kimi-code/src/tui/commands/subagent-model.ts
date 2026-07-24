@@ -41,28 +41,40 @@ export async function handleSubagentModelCommand(
     const slotBindings = await session.getSubagentSlotBindings();
     const entries = Object.entries(bindings);
     const slotEntries = Object.entries(slotBindings);
-    if (entries.length === 0 && slotEntries.length === 0) {
-      host.showStatus(
-        'No subagent model bindings in this workspace.\n' +
-          'Use /subagent-model set <type> or /subagent-model set slot <name> to bind a model, ' +
-          'or spawn a subagent to be asked once.',
-      );
-      return;
-    }
     const availableModels = host.state.appState.availableModels;
-    const lines = ['Subagent model bindings (workspace):'];
-    if (entries.length > 0) {
-      lines.push('  Types:');
-      for (const [type, binding] of entries) {
-        lines.push(`    ${type}: ${formatSubagentBinding(binding, availableModels)}`);
+    const lines: string[] = [];
+    if (entries.length === 0 && slotEntries.length === 0) {
+      lines.push('No subagent model bindings in this workspace.');
+    } else {
+      lines.push('Subagent model bindings (workspace):');
+      if (entries.length > 0) {
+        lines.push('  Types:');
+        for (const [type, binding] of entries) {
+          lines.push(`    ${type}: ${formatSubagentBinding(binding, availableModels)}`);
+        }
+      }
+      if (slotEntries.length > 0) {
+        lines.push('  Slots:');
+        for (const [slot, binding] of slotEntries) {
+          lines.push(`    ${slot}: ${formatSubagentBinding(binding, availableModels)}`);
+        }
       }
     }
-    if (slotEntries.length > 0) {
-      lines.push('  Slots:');
-      for (const [slot, binding] of slotEntries) {
-        lines.push(`    ${slot}: ${formatSubagentBinding(binding, availableModels)}`);
+    // Best-effort: also list the profiles the Agent tool can actually spawn
+    // (builtin + user-defined from <home>/agents/*.md). On failure, skip.
+    try {
+      const profiles = await session.listSubagentProfiles();
+      if (profiles.length > 0) {
+        lines.push('Available subagent types:');
+        for (const profile of profiles) {
+          const tag = profile.source === 'user' ? ' (user)' : '';
+          lines.push(`  ${profile.name}${tag}`);
+        }
       }
+    } catch {
+      // Older engine without listSubagentProfiles — bindings list above still stands.
     }
+    lines.push('Use /subagent-model set <type> or /subagent-model set slot <name> to bind a model.');
     host.showStatus(lines.join('\n'));
     return;
   }
