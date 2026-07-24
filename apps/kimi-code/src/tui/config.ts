@@ -32,6 +32,7 @@ export const UpgradePreferencesSchema = z.object({
 
 export const MoaPreferencesSchema = z.object({
   card: z.boolean(),
+  statusService: z.boolean(),
   statusExport: z.boolean(),
 });
 
@@ -57,6 +58,7 @@ export const TuiConfigFileSchema = z.object({
   moa: z
     .object({
       card: z.boolean().optional(),
+      status_service: z.boolean().optional(),
       status_export: z.boolean().optional(),
     })
     .optional(),
@@ -88,6 +90,7 @@ export const DEFAULT_UPGRADE_PREFERENCES: UpgradePreferences = {
 
 export const DEFAULT_MOA_PREFERENCES: MoaPreferences = {
   card: true,
+  statusService: true,
   statusExport: true,
 };
 
@@ -166,6 +169,7 @@ export function normalizeTuiConfig(config: TuiConfigFileShape): TuiConfig {
     },
     moa: {
       card: config.moa?.card ?? DEFAULT_MOA_PREFERENCES.card,
+      statusService: config.moa?.status_service ?? DEFAULT_MOA_PREFERENCES.statusService,
       statusExport: config.moa?.status_export ?? DEFAULT_MOA_PREFERENCES.statusExport,
     },
   });
@@ -190,7 +194,8 @@ notification_condition = "${config.notifications.condition}" # "unfocused" | "al
 auto_install = ${String(config.upgrade.autoInstall)} # true | false
 
 [moa]
-card = ${String(config.moa.card)} # true launches the moa-card and omkc-status companions on interactive startup
+card = ${String(config.moa.card)} # true launches the moa-card GUI companion on interactive startup
+status_service = ${String(config.moa.statusService)} # true launches the omkc-status companion service on interactive startup
 status_export = ${String(config.moa.statusExport)} # true serves engine status events over SSE on 127.0.0.1:39631+
 `;
 }

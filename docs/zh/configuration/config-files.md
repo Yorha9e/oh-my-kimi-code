@@ -353,6 +353,9 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | `[notifications].enabled` | `boolean` | `true` | 是否发送桌面通知 |
 | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
 | `[upgrade].auto_install` | `boolean` | `true` | 是否自动安装新版本 |
+| `[moa].card` | `boolean` | `true` | 交互式启动时是否拉起可选的 moa-card 悬浮卡片界面 |
+| `[moa].status_service` | `boolean` | `true` | 交互式启动时是否拉起可选的 omkc-status 只读状态服务；与 `card` 相互独立 |
+| `[moa].status_export` | `boolean` | `true` | CLI 是否在 `127.0.0.1:39631+` 上以 SSE 提供引擎状态事件，供状态服务及其它消费者使用 |
 
 ```toml
 # ~/.kimi-code/tui.toml
@@ -368,6 +371,11 @@ notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
 auto_install = true
+
+[moa]
+card = true # 拉起 moa-card 悬浮卡片伴随应用
+status_service = true # 拉起 omkc-status 伴随服务
+status_export = true # 在 127.0.0.1:39631+ 上以 SSE 提供引擎状态事件
 ```
 
 修改在下次启动时生效，或用 `/reload-tui` 立即生效（只重载 `tui.toml`）；`/reload` 会同时重载 `config.toml` 和 `tui.toml`。

@@ -96,7 +96,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 `bin/` 还可以存放可选的伴随可执行文件，CLI 会在交互式启动时尽力拉起它们。这些文件不由 CLI 下载——把二进制放进 `bin/` 即完成安装：
 
 - **`moa-card`**（Windows 为 `moa-card.exe`）：可选的悬浮卡片应用。当 `tui.toml` 中 `moa.card = true`（默认）时拉起。
-- **`omkc-status`**（Windows 为 `omkc-status.exe`）：只读状态服务，监听本地会话文件，在 `http://127.0.0.1:39627` 为桌面卡片等消费者提供状态（HTTP + SSE），由同一个 `moa.card` 开关控制。它是单实例的：`status/server.json` 中已记录存活实例时，CLI 和服务自身都会跳过重复拉起。该服务在绑定端口后写入这个发现文件（`{pid, port, started_at}`），并在优雅退出时删除。
+- **`omkc-status`**（Windows 为 `omkc-status.exe`）：只读状态服务，监听本地会话文件，在 `http://127.0.0.1:39627` 为桌面卡片等消费者提供状态（HTTP + SSE），由 `tui.toml` 中的 `moa.status_service = true`（默认）控制，与 moa-card 相互独立。它是单实例的：`status/server.json` 中已记录存活实例时，CLI 和服务自身都会跳过重复拉起。该服务在绑定端口后写入这个发现文件（`{pid, port, started_at}`），并在优雅退出时删除。
 
 二进制缺失、拉起失败或重复启动都不会阻塞或破坏 CLI。
 

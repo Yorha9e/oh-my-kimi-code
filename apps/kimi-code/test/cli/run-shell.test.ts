@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => {
     theme: 'dark' | 'light' | 'auto';
     editorCommand: string | null;
     notifications: { enabled: boolean; condition: 'unfocused' | 'always' };
-    moa: { card: boolean; statusExport: boolean };
+    moa: { card: boolean; statusService: boolean; statusExport: boolean };
   };
 
   class TuiConfigParseError extends Error {
@@ -64,6 +64,7 @@ const mocks = vi.hoisted(() => {
     execSync: vi.fn(),
     maybeLaunchMoaCard: vi.fn(),
     maybeLaunchOmkcStatus: vi.fn(),
+    startStatusExport: vi.fn(),
     TuiConfigParseError,
   };
 });
@@ -152,6 +153,10 @@ vi.mock('../../src/cli/omkc-status', () => ({
   maybeLaunchOmkcStatus: mocks.maybeLaunchOmkcStatus,
 }));
 
+vi.mock('../../src/cli/status-export', () => ({
+  startStatusExport: mocks.startStatusExport,
+}));
+
 vi.mock('node:child_process', () => ({
   execSync: mocks.execSync,
   spawn: vi.fn(() => ({ on: vi.fn(), unref: vi.fn() })),
@@ -181,7 +186,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
     mocks.tuiGetStartupMcpMs.mockResolvedValue(47);
@@ -259,100 +264,68 @@ describe('runShell', () => {
     });
   });
 
-  it('launches the moa-card and omkc-status companions when moa.card is true', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
-    });
-    mocks.tuiStart.mockResolvedValue(undefined);
+  describe('companion launch toggles', () => {
+    const cliOptions = {
+      session: undefined,
+      continue: false,
+      yolo: false,
+      auto: false,
+      plan: false,
+      model: undefined,
+      outputFormat: undefined,
+      prompt: undefined,
+      skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
+    };
 
-    await runShell(
-      {
-        session: undefined,
-        continue: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-        agent: undefined,
-        agentFiles: [],
+    it.each([
+      { card: true, statusService: true, statusExport: true },
+      // Card off, status service on: the status service still launches.
+      { card: false, statusService: true, statusExport: true },
+      // Card on, status service off: the card still launches.
+      { card: true, statusService: false, statusExport: true },
+      { card: false, statusService: false, statusExport: true },
+      // The in-process status export varies independently of both companions.
+      { card: true, statusService: true, statusExport: false },
+    ])(
+      'launches each companion from its own toggle (card=$card statusService=$statusService statusExport=$statusExport)',
+      async ({ card, statusService, statusExport }) => {
+        mocks.loadTuiConfig.mockResolvedValue({
+          theme: 'dark',
+          editorCommand: null,
+          notifications: { enabled: true, condition: 'unfocused' },
+          moa: { card, statusService, statusExport },
+        });
+        mocks.tuiStart.mockResolvedValue(undefined);
+
+        await runShell(cliOptions, '1.2.3-test');
+
+        expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledTimes(1);
+        expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledWith(card);
+        expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledTimes(1);
+        expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledWith(statusService);
+        expect(mocks.startStatusExport).toHaveBeenCalledTimes(1);
+        expect(mocks.startStatusExport).toHaveBeenCalledWith(expect.anything(), statusExport);
       },
-      '1.2.3-test',
     );
 
-    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledTimes(1);
-    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledWith(true);
-    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledTimes(1);
-    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledWith(true);
-  });
+    it('skips the card, status service, and status export when runShell is migrate-only', async () => {
+      mocks.loadTuiConfig.mockResolvedValue({
+        theme: 'dark',
+        editorCommand: null,
+        notifications: { enabled: true, condition: 'unfocused' },
+        moa: { card: true, statusService: true, statusExport: true },
+      });
+      mocks.detectPendingMigration.mockResolvedValue(null);
+      mocks.tuiStart.mockResolvedValue(undefined);
 
-  it('does not launch the moa-card and omkc-status companions when moa.card is false', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: false, statusExport: true },
+      await runShell(cliOptions, '1.2.3-test', { migrateOnly: true });
+
+      expect(mocks.maybeLaunchMoaCard).not.toHaveBeenCalled();
+      expect(mocks.maybeLaunchOmkcStatus).not.toHaveBeenCalled();
+      expect(mocks.startStatusExport).not.toHaveBeenCalled();
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(
-      {
-        session: undefined,
-        continue: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-        agent: undefined,
-        agentFiles: [],
-      },
-      '1.2.3-test',
-    );
-
-    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledTimes(1);
-    expect(mocks.maybeLaunchMoaCard).toHaveBeenCalledWith(false);
-    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledTimes(1);
-    expect(mocks.maybeLaunchOmkcStatus).toHaveBeenCalledWith(false);
-  });
-
-  it('skips both companion launches when runShell is migrate-only', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
-    });
-    mocks.detectPendingMigration.mockResolvedValue(null);
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(
-      {
-        session: undefined,
-        continue: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-        agent: undefined,
-        agentFiles: [],
-      },
-      '1.2.3-test',
-      { migrateOnly: true },
-    );
-
-    expect(mocks.maybeLaunchMoaCard).not.toHaveBeenCalled();
-    expect(mocks.maybeLaunchOmkcStatus).not.toHaveBeenCalled();
   });
 
   it('forwards skillsDirs from CLI options to the harness', async () => {
@@ -360,7 +333,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
 
@@ -391,7 +364,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
     mocks.createKimiDeviceId.mockImplementationOnce((homeDir, options) => {
@@ -429,7 +402,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
     mocks.harnessCreatesDeviceIdOnConstruction = true;
@@ -479,7 +452,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
     let currentSessionId = 'ses-startup';
@@ -521,7 +494,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
 
@@ -573,7 +546,7 @@ describe('runShell', () => {
         theme: 'auto',
         editorCommand: 'vim',
         notifications: { enabled: true, condition: 'always' },
-        moa: { card: true, statusExport: true },
+        moa: { card: true, statusService: true, statusExport: true },
       }),
     );
     mocks.detectTerminalTheme.mockResolvedValue('light');
@@ -613,7 +586,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.harnessGetConfigDiagnostics.mockResolvedValue({
       warnings: ['Ignored invalid config in config.toml: loop_control.'],
@@ -648,7 +621,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
 
@@ -700,7 +673,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
 
@@ -749,7 +722,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockRejectedValue(new Error('boom'));
 
@@ -783,7 +756,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
@@ -840,7 +813,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.tuiStart.mockResolvedValue(undefined);
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
@@ -890,7 +863,7 @@ describe('runShell', () => {
       theme: 'dark',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
-      moa: { card: true, statusExport: true },
+      moa: { card: true, statusService: true, statusExport: true },
     });
     mocks.detectPendingMigration.mockResolvedValue({ totalSessions: 1 });
     mocks.harnessGetConfig.mockRejectedValue(

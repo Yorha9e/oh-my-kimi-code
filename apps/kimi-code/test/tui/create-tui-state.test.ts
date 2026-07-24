@@ -27,7 +27,7 @@ function fakeInitialAppState(): AppState {
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
-    moa: { card: true, statusExport: true },
+    moa: { card: true, statusService: true, statusExport: true },
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,

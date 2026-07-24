@@ -353,6 +353,9 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
 | `[upgrade].auto_install` | `boolean` | `true` | Whether new versions are installed automatically |
+| `[moa].card` | `boolean` | `true` | Whether the optional moa-card floating-card GUI is launched on interactive startup |
+| `[moa].status_service` | `boolean` | `true` | Whether the optional omkc-status read-only status service is launched on interactive startup; independent of `card` |
+| `[moa].status_export` | `boolean` | `true` | Whether the CLI serves engine status events over SSE on `127.0.0.1:39631+` for the status service and other consumers |
 
 ```toml
 # ~/.kimi-code/tui.toml
@@ -368,6 +371,11 @@ notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
 auto_install = true
+
+[moa]
+card = true # launches the moa-card GUI companion
+status_service = true # launches the omkc-status companion service
+status_export = true # serves engine status events over SSE on 127.0.0.1:39631+
 ```
 
 Changes apply on the next start, or immediately with `/reload-tui` (which reloads only `tui.toml`); `/reload` reloads both `config.toml` and `tui.toml`.
