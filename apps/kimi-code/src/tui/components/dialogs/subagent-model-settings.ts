@@ -7,10 +7,10 @@
  * step that hands the changed rows of the ACTIVE layer to the command layer for
  * persistence. Tab / Shift+Tab switch layers (their drafts stay independent);
  * the Slots section offers a `+ Add slot…` row that opens an inline name input.
- * A bound slot row can also be deleted outright: ← arms an inline `✕ Delete`
- * zone on the row, Enter asks for confirmation, and a second Enter hands the
- * removal to the command layer (`onDelete`) and drops the row once persisted.
- * The component never talks to the SDK itself.
+ * A bound slot row can also be deleted outright: D enters the inline delete
+ * confirmation on the row, Enter executes it, and Esc (or any movement key)
+ * cancels. Type rows keep D as a clear/restore-binding-draft toggle. The
+ * component never talks to the SDK itself.
  */
 
 import {
@@ -137,10 +137,9 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   private readonly slotInput = new Input();
   private addingSlot = false;
   private slotInputError: string | undefined;
-  /** Slot row whose inline Delete zone is armed (←); `confirming` shows the
-   * Enter/Esc prompt on that row. */
-  private deleteState: { readonly row: SubagentModelRow; confirming: boolean } | undefined;
-  /** One-shot message shown when ← cannot delete the focused slot row. */
+  /** Slot row awaiting delete confirmation (D); Enter executes, Esc/cancel cancels. */
+  private deleteConfirmRow: SubagentModelRow | undefined;
+  /** One-shot message shown when D cannot delete the focused slot row. */
   private deleteError: string | undefined;
 
   constructor(opts: SubagentModelSettingsOptions) {
@@ -162,35 +161,21 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       return;
     }
     this.deleteError = undefined;
-    if (this.deleteState?.confirming === true) {
+    if (this.deleteConfirmRow !== undefined) {
       this.handleDeleteConfirmInput(data);
       return;
     }
     if (matchesKey(data, Key.escape)) {
-      // Esc disarms the Delete zone first; only a bare Esc closes the panel.
-      if (this.deleteState !== undefined) {
-        this.deleteState = undefined;
-        return;
-      }
       this.opts.onCancel();
       return;
     }
     if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift('tab'))) {
-      this.deleteState = undefined;
       this.activeLayer = this.activeLayer === 'workspace' ? 'global' : 'workspace';
-      return;
-    }
-    if (matchesKey(data, Key.left)) {
-      this.enterDeleteZone();
       return;
     }
     const activate =
       matchesKey(data, Key.enter) || matchesKey(data, Key.space) || printableChar(data) === ' ';
     if (activate) {
-      if (this.deleteState !== undefined) {
-        this.deleteState = { row: this.deleteState.row, confirming: true };
-        return;
-      }
       const item = this.active.list.selected();
       if (item === undefined) return;
       if (item.kind === 'apply') {
@@ -205,12 +190,16 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       this.openBindingPicker(this.active, item.row);
       return;
     }
-    // Any other key (↑↓, D, …) disarms the Delete zone and behaves as usual.
-    this.deleteState = undefined;
     const decoded = printableChar(data);
     if (decoded === 'D' || decoded === 'd') {
       const item = this.active.list.selected();
-      if (item !== undefined && item.kind === 'row') this.toggleClearDraft(this.active, item.row);
+      if (item !== undefined && item.kind === 'row') {
+        if (item.row.kind === 'slot') {
+          this.enterDeleteConfirm(item.row);
+        } else {
+          this.toggleClearDraft(this.active, item.row);
+        }
+      }
       return;
     }
     this.active.list.handleKey(data);
@@ -226,7 +215,7 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       this.renderTitle(),
       currentTheme.fg(
         'textMuted',
-        ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · ← remove slot · Esc cancel',
+        ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · Esc cancel',
       ),
       '',
       renderTabStrip({
@@ -350,11 +339,9 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   private toggleClearDraft(layer: SubagentModelLayerState, row: SubagentModelRow): void {
     const key = rowKey(row);
     if (layer.draft.has(key)) {
-      // D again undoes the staged change: a drafted clear returns to the
-      // persisted binding, a drafted bind on a never-bound row returns to
-      // unbound, and a drafted bind over a persisted binding becomes a clear.
-      // New (unpersisted) slots only ever draft a binding, so D drops it back
-      // to `not bound · new` instead of staging a no-op clear.
+      // D again undoes a staged type change: a drafted clear returns to the
+      // persisted binding, while a draft on an originally unbound type returns
+      // to unbound. A drafted bind over a persisted binding becomes a clear.
       if (layer.draft.get(key) === undefined || row.original === undefined) {
         layer.draft.delete(key);
         return;
@@ -366,18 +353,15 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     layer.draft.set(key, undefined);
   }
 
-  /** ← arms the inline Delete zone on the focused slot row. Only rows with a
-   * binding persisted in the active layer are deletable — a slot that is only
+  /** D on a slot row enters the delete confirmation directly. Only rows with a
+   * binding persisted in the active layer are deletable - a slot that is only
    * bound on the other layer (or not bound at all) reports why it cannot be. */
-  private enterDeleteZone(): void {
-    const item = this.active.list.selected();
-    if (item === undefined || item.kind !== 'row' || item.row.kind !== 'slot') return;
-    const row = item.row;
+  private enterDeleteConfirm(row: SubagentModelRow): void {
     if (row.original === undefined) {
       this.deleteError = this.notDeletableMessage(row);
       return;
     }
-    this.deleteState = { row, confirming: false };
+    this.deleteConfirmRow = row;
   }
 
   private notDeletableMessage(row: SubagentModelRow): string {
@@ -388,17 +372,17 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     return `Slot "${row.name}" has no binding on the ${this.activeLayer} layer; nothing to delete.`;
   }
 
-  /** Enter confirms the armed deletion; Esc cancels it outright; any other key
+  /** Enter confirms the deletion; Esc cancels it outright; any other key
    * cancels it and then performs its usual action (e.g. ↑↓ moves away). */
   private handleDeleteConfirmInput(data: string): void {
-    const state = this.deleteState;
-    if (state === undefined) return;
+    const row = this.deleteConfirmRow;
+    if (row === undefined) return;
     if (matchesKey(data, Key.enter)) {
-      this.deleteState = undefined;
-      this.executeDelete(state.row);
+      this.deleteConfirmRow = undefined;
+      this.executeDelete(row);
       return;
     }
-    this.deleteState = undefined;
+    this.deleteConfirmRow = undefined;
     if (matchesKey(data, Key.escape)) return;
     this.handleInput(data);
   }
@@ -465,8 +449,7 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     const label = selected
       ? currentTheme.boldFg('primary', row.name)
       : currentTheme.fg('text', row.name);
-    const deleteState = this.deleteState?.row === row ? this.deleteState : undefined;
-    if (deleteState?.confirming === true) {
+    if (this.deleteConfirmRow === row) {
       const prompt = currentTheme.boldFg(
         'warning',
         `Delete slot "${row.name}"? Enter confirm · Esc cancel`,
@@ -483,9 +466,7 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
     let detail = layer.draft.has(rowKey(row)) ? `${status} · modified` : status;
     const globalRef = this.globalReference(row);
     if (globalRef !== undefined) detail += ` · global: ${globalRef}`;
-    const zone =
-      deleteState !== undefined ? `  ${currentTheme.boldFg('error', '✕ Delete')}` : '';
-    return `${prefix}${label}  ${currentTheme.fg('textMuted', detail)}${zone}`;
+    return `${prefix}${label}  ${currentTheme.fg('textMuted', detail)}`;
   }
 
   /** Workspace rows reference the persisted global binding for the same name. */

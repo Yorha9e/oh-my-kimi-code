@@ -14,7 +14,6 @@ const ESC = String.fromCodePoint(27);
 const ENTER = '\r';
 const DOWN = `${ESC}[B`;
 const UP = `${ESC}[A`;
-const LEFT = `${ESC}[D`;
 const TAB = '\t';
 const SHIFT_TAB = `${ESC}[Z`;
 
@@ -103,7 +102,7 @@ describe('SubagentModelSettingsComponent', () => {
 
     expect(out).toContain(' Subagent models (workspace)');
     expect(out).toContain(
-      ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · ← remove slot · Esc cancel',
+      ' Tab toggle layer · ↑↓ navigate · Enter select · D delete · Esc cancel',
     );
     expect(out).toContain(' Types');
     expect(out).toContain('coder  kimi-k2, thinking high');
@@ -462,7 +461,7 @@ describe('SubagentModelSettingsComponent', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it('arms the inline Delete zone on a bound slot row with ←', () => {
+  it('enters the delete confirmation on a bound slot row with D', () => {
     const workspace: SubagentModelLayerData = {
       bindings: {},
       slots: { review: { model: 'kimi-k2' } },
@@ -471,24 +470,43 @@ describe('SubagentModelSettingsComponent', () => {
 
     moveDown(panel, 6); // onto the `review` slot row
     expect(text(panel)).toContain('  ❯ review');
-    panel.handleInput(LEFT);
+    panel.handleInput('D');
 
     const out = text(panel);
-    expect(out).toContain('✕ Delete');
-    expect(out).not.toContain('Delete slot "review"?');
+    expect(out).toContain('Delete slot "review"? Enter confirm · Esc cancel');
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it('ignores ← on type rows', () => {
-    const { panel } = makeHarness();
+  it('enters the delete confirmation with lowercase d', () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: {},
+      slots: { review: { model: 'kimi-k2' } },
+    };
+    const { panel, onDelete } = makeHarness({ workspace });
 
-    // The cursor starts on the first built-in type row (`coder`).
-    panel.handleInput(LEFT);
+    moveDown(panel, 6);
+    panel.handleInput('d');
 
-    expect(text(panel)).not.toContain('✕ Delete');
+    expect(text(panel)).toContain('Delete slot "review"? Enter confirm · Esc cancel');
+    expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it('asks for confirmation on Enter and deletes the slot on a second Enter', async () => {
+  it('does not enter delete confirmation on type rows with D', () => {
+    const workspace: SubagentModelLayerData = {
+      bindings: { coder: { model: 'kimi-k2' } },
+      slots: {},
+    };
+    const { panel } = makeHarness({ workspace });
+
+    // The cursor starts on the first built-in type row (`coder`).
+    panel.handleInput('D');
+
+    expect(text(panel)).not.toContain('Delete slot');
+    // D on a type row clears the binding draft instead.
+    expect(text(panel)).toContain('coder  not bound · modified');
+  });
+
+  it('deletes the slot on D then Enter', async () => {
     const workspace: SubagentModelLayerData = {
       bindings: {},
       slots: { review: { model: 'kimi-k2' } },
@@ -496,8 +514,7 @@ describe('SubagentModelSettingsComponent', () => {
     const { panel, remount, onDelete } = makeHarness({ workspace });
 
     moveDown(panel, 6);
-    panel.handleInput(LEFT);
-    panel.handleInput(ENTER);
+    panel.handleInput('D');
     expect(text(panel)).toContain('Delete slot "review"? Enter confirm · Esc cancel');
     expect(onDelete).not.toHaveBeenCalled();
 
@@ -527,8 +544,7 @@ describe('SubagentModelSettingsComponent', () => {
 
     panel.handleInput(TAB); // global layer
     moveDown(panel, 6); // onto the global `review` row
-    panel.handleInput(LEFT);
-    panel.handleInput(ENTER);
+    panel.handleInput('D');
     panel.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -551,8 +567,7 @@ describe('SubagentModelSettingsComponent', () => {
     onDelete.mockReturnValue(false);
 
     moveDown(panel, 6);
-    panel.handleInput(LEFT);
-    panel.handleInput(ENTER);
+    panel.handleInput('D');
     panel.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -570,15 +585,13 @@ describe('SubagentModelSettingsComponent', () => {
     const { panel, onDelete } = makeHarness({ workspace });
 
     moveDown(panel, 6);
-    panel.handleInput(LEFT);
-    panel.handleInput(ENTER);
+    panel.handleInput('D');
     expect(text(panel)).toContain('Delete slot "review"?');
 
     panel.handleInput(ESC);
 
     const out = text(panel);
     expect(out).not.toContain('Delete slot "review"?');
-    expect(out).not.toContain('✕ Delete');
     expect(out).toContain('review  kimi-k2');
     expect(onDelete).not.toHaveBeenCalled();
   });
@@ -591,8 +604,7 @@ describe('SubagentModelSettingsComponent', () => {
     const { panel, onDelete } = makeHarness({ workspace });
 
     moveDown(panel, 6);
-    panel.handleInput(LEFT);
-    panel.handleInput(ENTER);
+    panel.handleInput('D');
     expect(text(panel)).toContain('Delete slot "review"?');
 
     panel.handleInput(DOWN);
@@ -604,7 +616,7 @@ describe('SubagentModelSettingsComponent', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it('disarms the Delete zone on Esc without closing the panel', () => {
+  it('cancels the delete confirmation on Esc without closing the panel', () => {
     const workspace: SubagentModelLayerData = {
       bindings: {},
       slots: { review: { model: 'kimi-k2' } },
@@ -612,11 +624,11 @@ describe('SubagentModelSettingsComponent', () => {
     const { panel, onCancel } = makeHarness({ workspace });
 
     moveDown(panel, 6);
-    panel.handleInput(LEFT);
-    expect(text(panel)).toContain('✕ Delete');
+    panel.handleInput('D');
+    expect(text(panel)).toContain('Delete slot "review"?');
 
     panel.handleInput(ESC);
-    expect(text(panel)).not.toContain('✕ Delete');
+    expect(text(panel)).not.toContain('Delete slot "review"?');
     expect(onCancel).not.toHaveBeenCalled();
 
     panel.handleInput(ESC);
@@ -635,14 +647,14 @@ describe('SubagentModelSettingsComponent', () => {
     openAddSlot(panel);
     type(panel, 'review');
     panel.handleInput(ENTER);
-    // The cursor is on the new row; ← tries to arm the Delete zone.
-    panel.handleInput(LEFT);
+    // The cursor is on the new row; D tries to delete it.
+    panel.handleInput('D');
 
     const out = text(panel);
     expect(out).toContain(
       'Slot "review" is only bound on the global layer. Switch layers to delete it.',
     );
-    expect(out).not.toContain('✕ Delete');
+    expect(out).not.toContain('Delete slot "review"?');
     expect(onDelete).not.toHaveBeenCalled();
   });
 
@@ -652,7 +664,7 @@ describe('SubagentModelSettingsComponent', () => {
     openAddSlot(panel);
     type(panel, 'fast');
     panel.handleInput(ENTER);
-    panel.handleInput(LEFT);
+    panel.handleInput('D');
 
     expect(text(panel)).toContain(
       'Slot "fast" has no binding on the workspace layer; nothing to delete.',
