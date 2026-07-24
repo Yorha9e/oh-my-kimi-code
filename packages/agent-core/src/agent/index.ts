@@ -102,6 +102,12 @@ export interface AgentOptions {
   readonly replay?: ReplayBuilderOptions;
   readonly additionalDirs?: readonly string[];
   readonly systemPromptContextProvider?: (() => Promise<PreparedSystemPromptContext>) | undefined;
+  /**
+   * Brand home dir (OMKC_HOME / KIMI_CODE_HOME, default ~/.omkc). Threaded to
+   * the tool layer so the `Agent` tool can discover user sub-agent profiles
+   * under `<home>/agents/*.md` and list them alongside the built-in types.
+   */
+  readonly kimiHomeDir?: string;
 }
 
 export class Agent {
@@ -114,6 +120,8 @@ export class Agent {
 
   readonly kimiConfig?: KimiConfig;
   readonly homedir?: string;
+  /** Brand home dir, threaded to the tool layer for user sub-agent discovery. */
+  readonly kimiHomeDir?: string;
   readonly mediaOriginalsDir?: string;
   readonly rpc?: Partial<SDKAgentRPC>;
   readonly toolServices?: ToolServices;
@@ -194,6 +202,7 @@ export class Agent {
     this.imageLimits = options.imageLimits ?? new ImageLimits();
     this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
     this.systemPromptContextProvider = options.systemPromptContextProvider;
+    this.kimiHomeDir = options.kimiHomeDir;
 
     this.llmRequestLogger = new LlmRequestLogger(this.log);
     this.llmRequestRecorder = new LlmRequestRecorder(this);

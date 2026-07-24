@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_AGENT_PROFILES,
+  getSubagentProfiles,
   loadAgentProfilesFromDir,
   loadAgentProfilesFromSources,
   resolveAgentProfiles,
+  resetUserAgentProfileCacheForTest,
   type SystemPromptContext,
 } from '../../src/profile';
 import { SessionSkillRegistry, type SkillDefinition } from '../../src/skill';
@@ -339,6 +341,112 @@ describe('default agent profiles', () => {
     expect(first).toContain('/workspace/one');
     expect(second).toContain('/workspace/two');
     expect(second).not.toContain('/workspace/one');
+  });
+});
+
+describe('user subagent profiles (home dir)', () => {
+  let home: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'kimi-user-agents-'));
+    resetUserAgentProfileCacheForTest();
+  });
+
+  afterEach(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  async function writeAgent(file: string, content: string): Promise<void> {
+    await mkdir(join(home, 'agents'), { recursive: true });
+    await writeFile(join(home, 'agents', file), content, 'utf8');
+  }
+
+  it('loads a legal profile and merges it with the built-in subagents', async () => {
+    await writeAgent(
+      'debater.md',
+      '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\ntools:\n  - Bash\n  - Read\n---\nYou are a debater. Argue both sides.\n',
+    );
+    const profiles = getSubagentProfiles(home);
+    const debater = profiles['debater'];
+    expect(debater).toBeDefined();
+    expect(debater?.name).toBe('debater');
+    expect(debater?.description).toBe('A debate agent');
+    expect(debater?.whenToUse).toBe('When you need a debate');
+    expect(debater?.tools).toEqual(['Bash', 'Read']);
+    // Built-in subagents remain available alongside the user profile.
+    expect(profiles['coder']?.name).toBe('coder');
+    expect(profiles['explore']?.name).toBe('explore');
+  });
+
+  it('appends the body after the coder subagent framing in the rendered prompt', async () => {
+    await writeAgent(
+      'sentry.md',
+      '---\nname: sentry\ndescription: Watcher agent\n---\nYou watch for regressions and report them loudly.\n',
+    );
+    const profile = getSubagentProfiles(home)['sentry'];
+    expect(profile).toBeDefined();
+    const prompt = profile?.systemPrompt(promptContext) ?? '';
+    // The coder framing preamble is retained, not replaced.
+    expect(prompt).toContain('You are now running as a subagent.');
+    // The file body is appended into the role section.
+    expect(prompt).toContain('You watch for regressions and report them loudly.');
+  });
+
+  it('falls back to the file name and first body line when frontmatter fields are missing', async () => {
+    await writeAgent('minimal.md', '---\n---\nYou are a minimal agent that does one thing.\n');
+    const profile = getSubagentProfiles(home)['minimal'];
+    expect(profile).toBeDefined();
+    expect(profile?.name).toBe('minimal');
+    expect(profile?.description).toBe('You are a minimal agent that does one thing.');
+    // No tools declared -> inherits the coder tool set.
+    expect(profile?.tools).toEqual(DEFAULT_AGENT_PROFILES['coder']?.tools);
+  });
+
+  it('skips a profile whose name is not lowercase kebab-case', async () => {
+    await writeAgent('bad.md', '---\nname: Bad Name\n---\nbody\n');
+    const profiles = getSubagentProfiles(home);
+    expect(profiles['Bad Name']).toBeUndefined();
+    // The invalid explicit name is rejected; the file-name fallback is not used.
+    expect(profiles['bad']).toBeUndefined();
+  });
+
+  it('skips a profile with malformed frontmatter', async () => {
+    // Missing closing fence -> parseFrontmatter throws, file is skipped.
+    await writeAgent('broken.md', '---\nname: broken\nthis is not: [valid yaml');
+    const profiles = getSubagentProfiles(home);
+    expect(profiles['broken']).toBeUndefined();
+  });
+
+  it('skips a user profile that shadows a built-in subagent name', async () => {
+    await writeAgent(
+      'coder.md',
+      '---\nname: coder\ndescription: imposter\n---\nI am not the real coder.\n',
+    );
+    const profiles = getSubagentProfiles(home);
+    // The built-in coder stays intact (not overridden by the user file).
+    expect(profiles['coder']?.description).toBe(
+      DEFAULT_AGENT_PROFILES['agent']?.subagents?.['coder']?.description,
+    );
+    expect(profiles['coder']?.description).not.toBe('imposter');
+  });
+
+  it('caches loaded profiles for the lifetime of the home dir', async () => {
+    await writeAgent('cached.md', '---\nname: cached\ndescription: first\n---\nbody\n');
+    expect(getSubagentProfiles(home)['cached']?.description).toBe('first');
+    // A file added after the first read is not picked up (cached).
+    await writeAgent('late.md', '---\nname: late\ndescription: second\n---\nbody\n');
+    expect(getSubagentProfiles(home)['late']).toBeUndefined();
+    // After resetting the cache, the late file shows up.
+    resetUserAgentProfileCacheForTest();
+    expect(getSubagentProfiles(home)['late']?.description).toBe('second');
+  });
+
+  it('returns only built-ins when the agents directory does not exist', () => {
+    const profiles = getSubagentProfiles(home);
+    expect(profiles['coder']).toBeDefined();
+    expect(Object.keys(profiles).sort()).toEqual(
+      Object.keys(DEFAULT_AGENT_PROFILES['agent']?.subagents ?? {}).sort(),
+    );
   });
 });
 

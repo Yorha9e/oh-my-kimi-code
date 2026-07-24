@@ -14,6 +14,39 @@ Kimi Code CLI 内置三种子 Agent，开箱即用，分别面向不同任务形
 
 `coder` 子 Agent 与主 Agent 共享大部分工具集：可以在后台执行 Shell 命令、维护待办列表、进入 Plan 模式、调用 Agent Skills，也可以在任务自然拆解时继续派发自己的嵌套子 Agent。如果它结束自己的轮次时仍有后台任务在运行，那么只有在这些后台任务全部落定后，这次运行才会回报完成——主 Agent 拿到结果时，背后的工作也已经真正完成。
 
+## 自定义子 Agent
+
+除了内置子 Agent，你还可以在自己的 home 目录下用 Markdown 文件定义子 Agent profile，主 Agent 的 `Agent` / `AgentSwarm` 工具就能按名字委派它，`/subagent-model` 也能为它绑定模型。
+
+文件放在 home 目录的 `agents/` 子目录下（与你用户级 `AGENTS.md` 同一位置）。home 目录按 `OMKC_HOME` -> `KIMI_CODE_HOME` -> `~/.omkc` 解析。大多数用户没有这个目录，没有也不影响启动。
+
+每个 `.md` 文件定义一个子 Agent：顶部的 YAML frontmatter 声明元数据，正文是角色提示词。
+
+```markdown
+---
+name: debater
+description: 多视角辩论，给出结构化结论
+when_to_use: 需要从对立观点审视一个方案时
+tools:
+  - Bash
+  - Read
+  - Grep
+---
+
+你是一个辩论者。从正反两方面审视问题，最后给出结构化的结论与建议。
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `name` | 否 | 小写 kebab-case 标识（`[a-z0-9][a-z0-9-]*`）。缺省取文件名（去掉 `.md`）；非法名字会被跳过并告警 |
+| `description` | 否 | 一句话用途，主 Agent 挑选子 Agent 时会看到。缺省取正文第一行 |
+| `when_to_use` | 否 | 何时应派发该子 Agent |
+| `tools` | 否 | 工具白名单（如 `Bash`、`Read`、`mcp__github__*`）。缺省继承内置 `coder` 的工具集 |
+
+自定义子 Agent 以内置 `coder` 为基底：保留 coder 的"你是子代理"通用前导，正文追加在其角色提示词之后。与内置子 Agent 同名的自定义 profile 会被跳过（不会覆盖内置）。单个文件解析失败只跳过该文件并告警，不影响其他文件或会话启动。加载结果在进程内缓存，修改文件后需重启进程生效。
+
+更完整的项目级 / 主 Agent 自定义（含 `override`、`--agent` 等）见下文[自定义 Agent](#自定义-agent)。
+
 ## 调用方式
 
 子 Agent 由主 Agent 自动调度——根据任务复杂度、上下文消耗和子任务的独立性，在适当时机派发，无需用户手动指定。

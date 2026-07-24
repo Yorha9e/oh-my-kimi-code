@@ -45,6 +45,7 @@ import type { EnabledPluginSessionStart, PluginCommandDef } from '../plugin';
 import {
   DEFAULT_AGENT_PROFILES,
   DEFAULT_INIT_PROMPT,
+  getSubagentProfiles,
   loadAgentsMd,
   prepareSystemPromptContext,
   type ResolvedAgentProfile,
@@ -1051,6 +1052,7 @@ export class Session {
       experimentalFlags: this.experimentalFlags,
       imageLimits: this.imageLimits,
       additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
+      kimiHomeDir: this.options.kimiHomeDir,
       systemPromptContextProvider: () =>
         prepareSystemPromptContext(
           this.systemContextKaos(agent.kaos.getcwd()),
@@ -1171,7 +1173,7 @@ export class Session {
       const parentProfileName = parentAgent?.config.profileName;
       return (
         DEFAULT_AGENT_PROFILES[parentProfileName ?? 'agent']?.subagents?.[profileName] ??
-        DEFAULT_AGENT_PROFILES['agent']?.subagents?.[profileName]
+        getSubagentProfiles(this.options.kimiHomeDir)[profileName]
       );
     }
     return DEFAULT_AGENT_PROFILES[profileName];

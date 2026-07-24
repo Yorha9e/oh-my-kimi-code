@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +23,7 @@ import { ProviderManager } from '../../src/session/provider-manager';
 import type { SessionSubagentHost } from '../../src/session/subagent-host';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
 import { AgentTool } from '../../src/tools/builtin/collaboration/agent';
+import { getSubagentProfiles, resetUserAgentProfileCacheForTest } from '../../src/profile';
 import { testKaos } from '../fixtures/test-kaos';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import { createBackgroundManager } from './background/helpers';
@@ -819,6 +820,33 @@ describe('createSubagentBindingCallbacks', () => {
       thinkingEffort: undefined,
       inherit: undefined,
     });
+  });
+});
+
+describe('Agent tool subagent type list (user profiles)', () => {
+  it('lists user-defined subagent profiles alongside built-ins in the description', () => {
+    const home = mkdtempSync(join(tmpdir(), 'kimi-user-agents-tool-'));
+    mkdirSync(join(home, 'agents'), { recursive: true });
+    writeFileSync(
+      join(home, 'agents', 'debater.md'),
+      '---\nname: debater\ndescription: A debate agent for arguing both sides\n---\nYou are a debater.\n',
+      'utf8',
+    );
+    resetUserAgentProfileCacheForTest();
+    try {
+      const subagents = getSubagentProfiles(home);
+      const tool = new AgentTool(
+        {} as unknown as SessionSubagentHost,
+        createBackgroundManager().manager,
+        subagents,
+      );
+      expect(tool.description).toContain('debater');
+      expect(tool.description).toContain('A debate agent for arguing both sides');
+      // Built-in types stay listed alongside the user profile.
+      expect(tool.description).toContain('coder');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

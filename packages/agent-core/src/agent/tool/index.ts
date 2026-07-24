@@ -14,7 +14,7 @@ import { createSubagentBindingCallbacks, createSubagentBindingResolver } from '.
 import { mcpResultToExecutableOutput } from '../../mcp/output';
 import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '../../mcp/types';
-import { DEFAULT_AGENT_PROFILES } from '../../profile';
+import { getSubagentProfiles } from '../../profile';
 import { resolveSubagentTimeoutMs } from '../../session/subagent-host';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import { fingerprint } from '../llm-request-logger';
@@ -757,7 +757,7 @@ export class ToolManager {
           new b.AgentTool(
             this.agent.subagentHost,
             background,
-            DEFAULT_AGENT_PROFILES['agent']?.subagents,
+            getSubagentProfiles(this.agent.kimiHomeDir),
             {
               allowBackground,
               log: this.agent.log,

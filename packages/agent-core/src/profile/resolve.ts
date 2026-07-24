@@ -112,6 +112,7 @@ function toResolvedProfile(merged: MergedAgentProfile): ResolvedAgentProfile {
     systemPrompt: createSystemPromptRenderer(merged),
     tools: [...merged.tools],
     whenToUse: merged.whenToUse,
+    promptVars: { ...merged.promptVars },
   };
 }
 

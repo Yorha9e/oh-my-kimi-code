@@ -61,4 +61,10 @@ export interface ResolvedAgentProfile {
   modelAlias?: string;
   thinkingEffort?: string;
   subagents?: Record<string, ResolvedAgentProfile>;
+  /**
+   * Merged prompt vars (template substitutions) the system-prompt renderer
+   * closes over. Exposed so callers can read already-resolved values such as
+   * `roleAdditional` without re-parsing the source profile.
+   */
+  promptVars?: Record<string, string>;
 }

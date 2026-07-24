@@ -13,6 +13,7 @@ import { InMemoryAgentRecordPersistence } from '../agent/records';
 import { isAbortError } from '../loop/errors';
 import {
   DEFAULT_AGENT_PROFILES,
+  getSubagentProfiles,
   prepareSystemPromptContext,
   type ResolvedAgentProfile,
 } from '../profile';
@@ -391,7 +392,7 @@ export class SessionSubagentHost {
   private resolveProfile(parent: Agent, profileName: string): ResolvedAgentProfile {
     const profile =
       DEFAULT_AGENT_PROFILES[parent.config.profileName ?? 'agent']?.subagents?.[profileName] ??
-      DEFAULT_AGENT_PROFILES['agent']?.subagents?.[profileName];
+      getSubagentProfiles(this.session.options?.kimiHomeDir)[profileName];
     if (profile === undefined) {
       throw new Error(`Subagent profile "${profileName}" was not found`);
     }

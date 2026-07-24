@@ -14,6 +14,39 @@ Kimi Code CLI includes three built-in sub-agents, ready to use out of the box, e
 
 A `coder` sub-agent shares most of the main Agent's tool set: it can run shell commands in the background, maintain todo lists, enter Plan mode, invoke Agent Skills, and dispatch its own nested sub-agents when a task decomposes naturally. If it finishes its turn while background tasks are still running, its run only reports completion after those tasks settle, so the parent receives the result after the underlying work has actually finished.
 
+## Custom Sub-Agents
+
+Beyond the built-in sub-agents, you can define your own sub-agent profiles as Markdown files in your home directory. The main Agent's `Agent` / `AgentSwarm` tools can then dispatch them by name, and `/subagent-model` can bind a model to them.
+
+Place files under the `agents/` subdirectory of your home directory (the same place as your user-level `AGENTS.md`). The home directory resolves via `OMKC_HOME` -> `KIMI_CODE_HOME` -> `~/.omkc`. Most users do not have this directory; its absence does not affect startup.
+
+Each `.md` file defines one sub-agent: a YAML frontmatter block declares metadata, and the body is the role prompt.
+
+```markdown
+---
+name: debater
+description: Multi-perspective debate yielding a structured conclusion
+when_to_use: When a plan needs to be examined from opposing viewpoints
+tools:
+  - Bash
+  - Read
+  - Grep
+---
+
+You are a debater. Examine the question from both sides, then give a structured conclusion and recommendation.
+```
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `name` | no | Lowercase kebab-case identifier (`[a-z0-9][a-z0-9-]*`). Defaults to the file name (without `.md`); invalid names are skipped with a warning |
+| `description` | no | One-line purpose, shown to the main Agent when picking a sub-agent. Defaults to the first body line |
+| `when_to_use` | no | When this sub-agent should be dispatched |
+| `tools` | no | Tool allowlist (e.g. `Bash`, `Read`, `mcp__github__*`). Omit to inherit the built-in `coder` tool set |
+
+A custom sub-agent is based on the built-in `coder`: it keeps coder's "you are a subagent" framing and appends the file body after it. A custom profile whose name matches a built-in sub-agent is skipped (built-ins are not overridden). A single file that fails to parse is skipped with a warning and does not affect other files or session startup. Profiles are cached in-process; restart the process to pick up changes.
+
+For the fuller project-level / main-Agent customization (including `override`, `--agent`, and more), see [Custom Agents](#custom-agents) below.
+
 ## How to Invoke
 
 Sub-agents are scheduled automatically by the main Agent — based on task complexity, context consumption, and sub-task independence, they are dispatched at the right moment without the user having to specify one.
