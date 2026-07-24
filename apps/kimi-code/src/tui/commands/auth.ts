@@ -11,7 +11,7 @@ import {
 import { log } from '@moonshot-ai/kimi-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
-import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
+import { DEFAULT_OAUTH_PROVIDER_NAME, MANAGED_PROVIDER_DISPLAY_NAME } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { LoginProgressSpinnerHandle } from '../types';
 import {
@@ -195,7 +195,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   if (hasManagedRemnant) {
     options.push({
       value: DEFAULT_OAUTH_PROVIDER_NAME,
-      label: PRODUCT_NAME,
+      label: MANAGED_PROVIDER_DISPLAY_NAME,
       description: 'OAuth login',
     });
   }
@@ -237,6 +237,6 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   }
 
   host.track('logout', { provider: target });
-  const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;
+  const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? MANAGED_PROVIDER_DISPLAY_NAME : target;
   host.showStatus(`Logged out from ${label}.`);
 }

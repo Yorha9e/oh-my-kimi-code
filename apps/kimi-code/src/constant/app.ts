@@ -59,6 +59,10 @@ export const KIMI_CODE_BANNER_STATE_FILE_NAME = 'state.json';
 // Managed Kimi auth provider key shared with OAuth/SDK config.
 export const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:kimi-code';
 
+// Display name for the managed OAuth provider. It is Kimi Code's own model
+// service and keeps that name regardless of this distribution's branding.
+export const MANAGED_PROVIDER_DISPLAY_NAME = 'Kimi Code';
+
 // SDK/core error code that tells the TUI to show a login-required startup
 // notice. Derived from sdk's ErrorCodes so a future rename in core
 // auto-propagates instead of silently breaking the startup recovery path.

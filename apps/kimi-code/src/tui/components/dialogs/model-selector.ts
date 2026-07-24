@@ -9,7 +9,7 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
+import { DEFAULT_OAUTH_PROVIDER_NAME, MANAGED_PROVIDER_DISPLAY_NAME } from '#/constant/app';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
@@ -45,7 +45,7 @@ export function modelDisplayName(alias: string, model: ModelAlias | undefined): 
 export function providerDisplayName(provider: string): string {
   // The managed OAuth provider is Kimi Code's own model service — display it
   // as such regardless of this distribution's product branding.
-  if (provider === DEFAULT_OAUTH_PROVIDER_NAME) return 'Kimi Code';
+  if (provider === DEFAULT_OAUTH_PROVIDER_NAME) return MANAGED_PROVIDER_DISPLAY_NAME;
   if (provider.startsWith('managed:')) return provider.slice('managed:'.length);
   return provider;
 }
