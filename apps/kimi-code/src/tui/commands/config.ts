@@ -818,7 +818,16 @@ async function showSubagentModelSettings(host: SlashCommandHost): Promise<void> 
     host.showError(`Failed to load subagent model bindings: ${formatErrorMessage(error)}`);
     return;
   }
-  mountSubagentModelSettingsPanel(host, session, workspace, global);
+  // Best-effort: list user + builtin subagent profiles for the type dropdown.
+  // On failure the panel falls back to BUILTIN_SUBAGENT_TYPES.
+  let subagentProfiles: readonly string[] | undefined;
+  try {
+    const profiles = await session.listSubagentProfiles();
+    subagentProfiles = profiles.map((p) => p.name);
+  } catch {
+    // Ignore - the panel uses its built-in fallback.
+  }
+  mountSubagentModelSettingsPanel(host, session, workspace, global, subagentProfiles);
 }
 
 function mountSubagentModelSettingsPanel(
@@ -826,11 +835,13 @@ function mountSubagentModelSettingsPanel(
   session: Session,
   workspace: SubagentModelLayerData,
   global: SubagentModelLayerData,
+  subagentProfiles?: readonly string[],
 ): void {
   const panel = new SubagentModelSettingsComponent({
     workspace,
     global,
     availableModels: host.state.appState.availableModels,
+    subagentProfiles,
     mountPicker: (picker) => {
       host.mountEditorReplacement(picker);
     },

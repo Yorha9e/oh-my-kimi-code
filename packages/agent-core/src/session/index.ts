@@ -6,7 +6,7 @@ import type { SessionWarning } from '@moonshot-ai/protocol';
 import { ErrorCodes, KimiError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
 import type { Logger, SessionLogHandle } from '#/logging/types';
-import type { KimiConfig, SDKSessionRPC } from '#/rpc';
+import type { KimiConfig, ListSubagentProfileEntry, SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
@@ -46,6 +46,7 @@ import {
   DEFAULT_AGENT_PROFILES,
   DEFAULT_INIT_PROMPT,
   getSubagentProfiles,
+  getUserSubagentProfileNames,
   loadAgentsMd,
   prepareSystemPromptContext,
   type ResolvedAgentProfile,
@@ -336,6 +337,19 @@ export class Session {
   async getSubagentBindings(): Promise<Readonly<Record<string, SubagentBinding>>> {
     const cwd = this.toolKaos.getcwd();
     return readSubagentBindings(this.systemContextKaos(cwd), cwd);
+  }
+
+  /** Merged built-in + user sub-agent profiles (from `<home>/agents/*.md`). */
+  async listSubagentProfiles(): Promise<readonly ListSubagentProfileEntry[]> {
+    const home = this.options.kimiHomeDir;
+    const profiles = getSubagentProfiles(home);
+    const userNames = new Set(getUserSubagentProfileNames(home));
+    return Object.entries(profiles).map(([name, profile]) => ({
+      name,
+      description: profile.description,
+      whenToUse: profile.whenToUse,
+      source: userNames.has(name) ? ('user' as const) : ('builtin' as const),
+    }));
   }
 
   /**

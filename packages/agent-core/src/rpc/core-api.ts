@@ -410,6 +410,15 @@ export interface AddAdditionalDirResult {
 
 export type GetSubagentBindingsResult = Readonly<Record<string, SubagentBinding>>;
 
+export interface ListSubagentProfileEntry {
+  readonly name: string;
+  readonly description?: string;
+  readonly whenToUse?: string;
+  readonly source: 'builtin' | 'user';
+}
+
+export type ListSubagentProfilesResult = readonly ListSubagentProfileEntry[];
+
 export interface SetSubagentBindingPayload {
   readonly agentType: string;
   /** Omit/undefined to clear the binding for this subagent type. */
@@ -564,6 +573,7 @@ export interface SessionAPI extends AgentAPIWithId {
   handlePrintMainTurnCompleted: (payload: EmptyPayload) => 'finish' | 'continue';
   addAdditionalDir: (payload: AddAdditionalDirPayload) => AddAdditionalDirResult;
   getSubagentBindings: (payload: EmptyPayload) => GetSubagentBindingsResult;
+  listSubagentProfiles: (payload: EmptyPayload) => ListSubagentProfilesResult;
   setSubagentBinding: (payload: SetSubagentBindingPayload) => SetSubagentBindingResult;
   getSubagentSlotBindings: (payload: EmptyPayload) => GetSubagentSlotBindingsResult;
   setSubagentSlotBinding: (payload: SetSubagentSlotBindingPayload) => SetSubagentSlotBindingResult;

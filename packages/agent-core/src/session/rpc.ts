@@ -21,6 +21,7 @@ import type {
   GetSubagentBindingsResult,
   GetSubagentSlotBindingsResult,
   ImportContextPayload,
+  ListSubagentProfilesResult,
   McpServerInfo,
   McpStartupMetrics,
   PromptPayload,
@@ -134,6 +135,10 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   getSubagentBindings(): Promise<GetSubagentBindingsResult> {
     return this.session.getSubagentBindings();
+  }
+
+  listSubagentProfiles(): Promise<ListSubagentProfilesResult> {
+    return this.session.listSubagentProfiles();
   }
 
   setSubagentBinding(payload: SetSubagentBindingPayload): Promise<SetSubagentBindingResult> {

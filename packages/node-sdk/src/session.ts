@@ -22,6 +22,7 @@ import type {
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
+  ListSubagentProfilesResult,
   McpServerInfo,
   McpStartupMetrics,
   PermissionMode,
@@ -194,6 +195,11 @@ export class Session {
   async getSubagentBindings(): Promise<GetSubagentBindingsResult> {
     this.ensureOpen();
     return this.rpc.getSubagentBindings({ sessionId: this.id });
+  }
+
+  async listSubagentProfiles(): Promise<ListSubagentProfilesResult> {
+    this.ensureOpen();
+    return this.rpc.listSubagentProfiles({ sessionId: this.id });
   }
 
   async setSubagentBinding(

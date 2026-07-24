@@ -114,6 +114,7 @@ import type {
   InstallPluginPayload,
   ImportContextPayload,
   ListSessionsPayload,
+  ListSubagentProfilesResult,
   ListWorkspaceSkillsPayload,
   McpServerInfo,
   McpStartupMetrics,
@@ -1060,6 +1061,12 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     sessionId,
   }: SessionScopedPayload<EmptyPayload>): Promise<GetSubagentBindingsResult> {
     return this.requireSession(sessionId).getSubagentBindings();
+  }
+
+  listSubagentProfiles({
+    sessionId,
+  }: SessionScopedPayload<EmptyPayload>): Promise<ListSubagentProfilesResult> {
+    return this.requireSession(sessionId).listSubagentProfiles();
   }
 
   setSubagentBinding({

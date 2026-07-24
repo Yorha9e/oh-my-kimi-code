@@ -64,6 +64,9 @@ export interface SubagentModelSettingsOptions {
   readonly workspace: SubagentModelLayerData;
   readonly global: SubagentModelLayerData;
   readonly availableModels: Readonly<Record<string, SubagentBindingModelLike>>;
+  /** Subagent profile names from `listSubagentProfiles` RPC. When omitted the
+   * panel falls back to `BUILTIN_SUBAGENT_TYPES` (the pre-RPC behavior). */
+  readonly subagentProfiles?: readonly string[];
   /** Mount a child picker into the editor-replacement slot. */
   readonly mountPicker: (picker: ChoicePickerComponent) => void;
   /** Re-mount this panel after a child picker settles. */
@@ -103,10 +106,10 @@ class SubagentModelLayerState {
   readonly draft = new Map<string, SubagentBinding | undefined>();
   list: SearchableList<SubagentModelItem>;
 
-  constructor(data: SubagentModelLayerData) {
+  constructor(data: SubagentModelLayerData, profileNames: readonly string[]) {
     this.bindings = data.bindings;
     this.slots = { ...data.slots };
-    this.items = buildItems(data);
+    this.items = buildItems(data, profileNames);
     this.list = makeList(this.items, 0);
   }
 
@@ -145,9 +148,10 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   constructor(opts: SubagentModelSettingsOptions) {
     super();
     this.opts = opts;
+    const profileNames = opts.subagentProfiles ?? BUILTIN_SUBAGENT_TYPES;
     this.layers = {
-      workspace: new SubagentModelLayerState(opts.workspace),
-      global: new SubagentModelLayerState(opts.global),
+      workspace: new SubagentModelLayerState(opts.workspace, profileNames),
+      global: new SubagentModelLayerState(opts.global, profileNames),
     };
   }
 
@@ -534,9 +538,12 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   }
 }
 
-function buildItems(data: SubagentModelLayerData): SubagentModelItem[] {
+function buildItems(
+  data: SubagentModelLayerData,
+  profileNames: readonly string[],
+): SubagentModelItem[] {
   const typeNames = [
-    ...new Set([...BUILTIN_SUBAGENT_TYPES, ...Object.keys(data.bindings)]),
+    ...new Set([...profileNames, ...Object.keys(data.bindings)]),
   ].toSorted();
   const items: SubagentModelItem[] = typeNames.map((name) => ({
     kind: 'row',

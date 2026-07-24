@@ -4,7 +4,7 @@
  * Wiring: real in-process core and filesystem storage; no model boundary is invoked.
  * Run: pnpm exec vitest run packages/node-sdk/test/session-context.test.ts
  */
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { LocalKaos, type Environment, type Kaos } from '@moonshot-ai/kaos';
@@ -81,6 +81,37 @@ describe('Session context', () => {
 
       await session.setGlobalSubagentBinding('coder', undefined);
       await expect(session.getGlobalSubagentBindings()).resolves.toEqual({});
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('lists built-in and user subagent profiles through the public Session API', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-profiles-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-profiles-work-');
+    await writeTestConfig(homeDir, 200_000);
+    await mkdir(join(homeDir, 'agents'), { recursive: true });
+    await writeFile(
+      join(homeDir, 'agents', 'debater.md'),
+      '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\n---\nArgue both sides.\n',
+      'utf8',
+    );
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_profiles', workDir });
+      const profiles = await session.listSubagentProfiles();
+      const byName = new Map(profiles.map((p) => [p.name, p]));
+
+      // Built-in profiles are tagged 'builtin'.
+      expect(byName.get('coder')?.source).toBe('builtin');
+      expect(byName.get('explore')?.source).toBe('builtin');
+
+      // User profiles appear and are tagged 'user'.
+      const debater = byName.get('debater');
+      expect(debater?.source).toBe('user');
+      expect(debater?.description).toBe('A debate agent');
+      expect(debater?.whenToUse).toBe('When you need a debate');
     } finally {
       await harness.close();
     }

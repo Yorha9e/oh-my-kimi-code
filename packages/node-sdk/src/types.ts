@@ -214,6 +214,15 @@ export interface SetGlobalSubagentSlotBindingResult {
   readonly configPath: string;
 }
 
+export interface ListSubagentProfileEntry {
+  readonly name: string;
+  readonly description?: string;
+  readonly whenToUse?: string;
+  readonly source: 'builtin' | 'user';
+}
+
+export type ListSubagentProfilesResult = readonly ListSubagentProfileEntry[];
+
 export interface ForkSessionInput {
   readonly id: string;
   readonly forkId?: string;

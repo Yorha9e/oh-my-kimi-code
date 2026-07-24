@@ -46,6 +46,22 @@ export function getSubagentProfiles(brandHome?: string): Record<string, Resolved
   return { ...builtins, ...userProfiles };
 }
 
+/**
+ * Return the names of user-defined sub-agent profiles discovered under
+ * `<home>/agents/*.md` (excluding built-ins). Shares the same cache as
+ * {@link getSubagentProfiles} so the two calls stay consistent for a given
+ * home dir. Used to tag `source: 'user'` in the RPC listing.
+ */
+export function getUserSubagentProfileNames(brandHome?: string): string[] {
+  const home = resolveKimiHome(brandHome);
+  let userProfiles = cache.get(home);
+  if (userProfiles === undefined) {
+    userProfiles = loadUserSubagentProfiles(home);
+    cache.set(home, userProfiles);
+  }
+  return Object.keys(userProfiles);
+}
+
 /** @internal - vitest only: drops the cache so tests can reuse a temp dir. */
 export function resetUserAgentProfileCacheForTest(): void {
   cache.clear();

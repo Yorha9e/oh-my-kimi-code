@@ -36,6 +36,7 @@ interface HarnessOverrides {
   readonly workspace?: SubagentModelLayerData;
   readonly global?: SubagentModelLayerData;
   readonly availableModels?: Readonly<Record<string, { supportEfforts?: readonly string[] }>>;
+  readonly subagentProfiles?: readonly string[];
 }
 
 const EMPTY_LAYER: SubagentModelLayerData = { bindings: {}, slots: {} };
@@ -52,6 +53,7 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
     workspace: overrides.workspace ?? EMPTY_LAYER,
     global: overrides.global ?? EMPTY_LAYER,
     availableModels: overrides.availableModels ?? { 'kimi-k2': { supportEfforts: ['low', 'high'] } },
+    subagentProfiles: overrides.subagentProfiles,
     mountPicker,
     remount,
     onApply,
@@ -670,5 +672,39 @@ describe('SubagentModelSettingsComponent', () => {
       'Slot "fast" has no binding on the workspace layer; nothing to delete.',
     );
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('renders user-defined profile types when subagentProfiles is provided', () => {
+    const { panel } = makeHarness({
+      subagentProfiles: [
+        'coder',
+        'critic',
+        'explore',
+        'orchestrator',
+        'plan',
+        'synthesizer',
+        'my-reviewer',
+      ],
+    });
+    const out = text(panel);
+    // Built-in types are still present.
+    expect(out).toContain('coder');
+    expect(out).toContain('explore');
+    // The user-defined type appears as an unbound type row.
+    expect(out).toContain('my-reviewer  not bound');
+  });
+
+  it('falls back to built-in types when subagentProfiles is omitted', () => {
+    const { panel } = makeHarness();
+    const out = text(panel);
+    // The six built-in types are present.
+    expect(out).toContain('coder');
+    expect(out).toContain('critic');
+    expect(out).toContain('explore');
+    expect(out).toContain('orchestrator');
+    expect(out).toContain('plan');
+    expect(out).toContain('synthesizer');
+    // No user-defined types leak in.
+    expect(out).not.toContain('my-reviewer');
   });
 });

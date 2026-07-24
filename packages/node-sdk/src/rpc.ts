@@ -44,6 +44,7 @@ import type {
   KimiConfig,
   KimiConfigPatch,
   ListSessionsOptions,
+  ListSubagentProfilesResult,
   McpServerInfo,
   McpStartupMetrics,
   McpTestResult,
@@ -392,6 +393,11 @@ export abstract class SDKRpcClientBase {
   async getSubagentBindings(input: SessionIdRpcInput): Promise<GetSubagentBindingsResult> {
     const rpc = await this.getRpc();
     return rpc.getSubagentBindings({ sessionId: input.sessionId });
+  }
+
+  async listSubagentProfiles(input: SessionIdRpcInput): Promise<ListSubagentProfilesResult> {
+    const rpc = await this.getRpc();
+    return rpc.listSubagentProfiles({ sessionId: input.sessionId });
   }
 
   async setSubagentBinding(input: SetSubagentBindingInput): Promise<SetSubagentBindingResult> {

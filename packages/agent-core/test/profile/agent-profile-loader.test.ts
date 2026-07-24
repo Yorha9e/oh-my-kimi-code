@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_AGENT_PROFILES,
   getSubagentProfiles,
+  getUserSubagentProfileNames,
   loadAgentProfilesFromDir,
   loadAgentProfilesFromSources,
   resolveAgentProfiles,
@@ -447,6 +448,40 @@ describe('user subagent profiles (home dir)', () => {
     expect(Object.keys(profiles).sort()).toEqual(
       Object.keys(DEFAULT_AGENT_PROFILES['agent']?.subagents ?? {}).sort(),
     );
+  });
+
+  it('getUserSubagentProfileNames returns only user profile names', async () => {
+    await writeAgent(
+      'debater.md',
+      '---\nname: debater\ndescription: A debate agent\n---\nbody\n',
+    );
+    await writeAgent(
+      'reviewer.md',
+      '---\nname: reviewer\ndescription: A review agent\n---\nbody\n',
+    );
+    const names = getUserSubagentProfileNames(home);
+    expect(names).toEqual(expect.arrayContaining(['debater', 'reviewer']));
+    // Built-in names are NOT included.
+    expect(names).not.toContain('coder');
+    expect(names).not.toContain('explore');
+  });
+
+  it('getUserSubagentProfileNames returns an empty array when no agents dir exists', () => {
+    expect(getUserSubagentProfileNames(home)).toEqual([]);
+  });
+
+  it('getUserSubagentProfileNames excludes profiles that shadow built-ins', async () => {
+    await writeAgent(
+      'coder.md',
+      '---\nname: coder\ndescription: imposter\n---\nbody\n',
+    );
+    await writeAgent(
+      'unique.md',
+      '---\nname: unique\ndescription: A unique agent\n---\nbody\n',
+    );
+    const names = getUserSubagentProfileNames(home);
+    expect(names).toContain('unique');
+    expect(names).not.toContain('coder');
   });
 });
 

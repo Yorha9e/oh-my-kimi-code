@@ -4,12 +4,16 @@ import { join } from 'pathe';
 
 import { testKaos } from '../fixtures/test-kaos';
 import { APIStatusError, type Message, type ToolCall } from '@moonshot-ai/kosong';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent, AgentOptions } from '../../src/agent';
 import { AGENT_WIRE_PROTOCOL_VERSION } from '../../src/agent/records';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
-import type { ResolvedAgentProfile } from '../../src/profile';
+import {
+  DEFAULT_AGENT_PROFILES,
+  resetUserAgentProfileCacheForTest,
+  type ResolvedAgentProfile,
+} from '../../src/profile';
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { collectGitContext } from '../../src/session/git-context';
@@ -1859,6 +1863,70 @@ describe('Session.createAgent', () => {
 
     const sub = await session.createAgent({ type: 'sub' }, { parentAgentId: main.id });
     expect(sub.agent.mcp).toBe(session.mcp);
+  });
+});
+
+describe('Session.listSubagentProfiles', () => {
+  let kimiHome: string;
+
+  beforeEach(async () => {
+    kimiHome = await mkdtemp(join(tmpdir(), 'kimi-list-profiles-'));
+    resetUserAgentProfileCacheForTest();
+  });
+
+  afterEach(async () => {
+    await rm(kimiHome, { recursive: true, force: true });
+  });
+
+  async function writeAgent(file: string, content: string): Promise<void> {
+    await mkdir(join(kimiHome, 'agents'), { recursive: true });
+    await writeFile(join(kimiHome, 'agents', file), content, 'utf8');
+  }
+
+  it('lists built-in and user profiles with correct source tags', async () => {
+    await writeAgent(
+      'debater.md',
+      '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\n---\nArgue both sides.\n',
+    );
+
+    const session = new Session({
+      kaos: createFakeKaos({}),
+      homedir: '/tmp/kimi-session',
+      kimiHomeDir: kimiHome,
+      rpc: createSessionRpc(),
+      initializeMainAgent: false,
+    });
+
+    const profiles = await session.listSubagentProfiles();
+    const byName = new Map(profiles.map((p) => [p.name, p]));
+
+    // Built-in profiles are tagged 'builtin'.
+    const coder = byName.get('coder');
+    expect(coder).toBeDefined();
+    expect(coder?.source).toBe('builtin');
+
+    // User profiles appear and are tagged 'user'.
+    const debater = byName.get('debater');
+    expect(debater).toBeDefined();
+    expect(debater?.source).toBe('user');
+    expect(debater?.description).toBe('A debate agent');
+    expect(debater?.whenToUse).toBe('When you need a debate');
+  });
+
+  it('returns only built-in profiles when no agents dir exists', async () => {
+    const session = new Session({
+      kaos: createFakeKaos({}),
+      homedir: '/tmp/kimi-session',
+      kimiHomeDir: kimiHome,
+      rpc: createSessionRpc(),
+      initializeMainAgent: false,
+    });
+
+    const profiles = await session.listSubagentProfiles();
+    expect(profiles.every((p) => p.source === 'builtin')).toBe(true);
+    expect(profiles.map((p) => p.name).sort()).toEqual(
+      Object.keys(DEFAULT_AGENT_PROFILES['agent']?.subagents ?? {}).sort(),
+    );
   });
 });
 
