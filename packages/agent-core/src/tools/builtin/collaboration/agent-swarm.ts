@@ -63,7 +63,7 @@ export const AgentSwarmToolInputSchema = z
       .min(1)
       .optional()
       .describe(
-        'Named binding slot pre-configured by the user for this workspace (.kimi-code/local.toml under [subagent-slot.<name>]), applied to every new item-based spawn in this batch. Set ONLY when the task or preset explicitly names a slot — a slot selects a user-configured model/effort. Never invent slot names, and never use this to choose a model yourself.',
+        'Named binding slot pre-configured by the user for this workspace (.kimi-code/local.toml under [subagent-slot.<name>]); applied to every subagent spawned from items in this batch. Set ONLY when the user, the task, or a preset explicitly names a slot — pass the name through verbatim. Never invent slot names.',
       ),
   })
   .strict();
