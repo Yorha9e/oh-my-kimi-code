@@ -1278,6 +1278,188 @@ describe('SessionSubagentHost', () => {
     expect(handle.modelAlias).toBe(parent.agent.config.modelAlias);
   });
 
+  it('applies a per-run model override on resume over the sticky config (experiment on)', async () => {
+    const twoModelConfig = {
+      providers: {},
+      models: {
+        'subagent-model': {
+          provider: 'test-provider',
+          model: 'subagent-model',
+          maxContextSize: 1_000_000,
+        },
+        'slot-model': {
+          provider: 'test-provider',
+          model: 'slot-model',
+          maxContextSize: 1_000_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'high'],
+        },
+      },
+    };
+    const parent = testAgent({
+      initialConfig: twoModelConfig,
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': true,
+      }),
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent({ initialConfig: twoModelConfig });
+    child.configure({ tools: ['Read'] });
+    // The child was originally spawned on a different model; the resume
+    // carries a binding-slot override (e.g. the original model was
+    // rate-limited) that must win over the sticky config.
+    child.agent.config.update({ modelAlias: 'subagent-model' });
+    child.agent.useProfile(
+      profile({ name: 'explore', tools: ['Read'], systemPrompt: 'explore prompt' }),
+    );
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    const summary =
+      'Resumed on the slot model with the prior context fully preserved, carried the task through to completion, and returned a full and detailed technical summary so the parent agent can continue without repeating prior work. '.repeat(2);
+    child.mockNextResponse({ type: 'text', text: summary });
+
+    const session = fakeSession(parent.agent, child.agent, {
+      'agent-0': {
+        homedir: '/tmp/kimi-session/agents/agent-0',
+        type: 'sub',
+        parentAgentId: 'main',
+      },
+    });
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+      modelAlias: 'slot-model',
+      thinkingEffort: 'high',
+    });
+    await handle.completion;
+
+    // The override beats the sticky config and is persisted into the child
+    // config, so later resumes stay on the new model.
+    expect(child.agent.config.modelAlias).toBe('slot-model');
+    expect(child.agent.config.thinkingEffort).toBe('high');
+    expect(handle.modelAlias).toBe('slot-model');
+    expect(handle.thinkingEffort).toBe('high');
+
+    // A follow-up resume without an override stays sticky on the new model.
+    child.mockNextResponse({ type: 'text', text: summary });
+    const second = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent_2',
+      prompt: 'Continue again',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+    await second.completion;
+    expect(second.modelAlias).toBe('slot-model');
+    expect(child.agent.config.modelAlias).toBe('slot-model');
+  });
+
+  it('ignores a resume model override when the experiment is off', async () => {
+    // The community edition flips the flag default to on, so pin it off here.
+    const parent = testAgent({
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': false,
+      }),
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent();
+    child.configure({ tools: ['Read'] });
+    child.agent.config.update({ modelAlias: 'stale-model-from-initial-spawn' });
+    child.agent.useProfile(
+      profile({ name: 'explore', tools: ['Read'], systemPrompt: 'explore prompt' }),
+    );
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
+    });
+    const originalEffort = child.agent.config.thinkingEffort;
+
+    const session = fakeSession(parent.agent, child.agent, {
+      'agent-0': {
+        homedir: '/tmp/kimi-session/agents/agent-0',
+        type: 'sub',
+        parentAgentId: 'main',
+      },
+    });
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+      modelAlias: 'override-model',
+      thinkingEffort: 'high',
+    });
+    await handle.completion;
+
+    // Flag off: the pre-change realign behavior — the override is ignored
+    // entirely (model and effort alike).
+    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    expect(handle.modelAlias).toBe(parent.agent.config.modelAlias);
+    expect(child.agent.config.thinkingEffort).toBe(originalEffort);
+    expect(handle.thinkingEffort).toBe(originalEffort);
+  });
+
+  it('fails to resume when the model override alias is unresolvable (experiment on)', async () => {
+    const twoModelConfig = {
+      providers: {},
+      models: {
+        'subagent-model': {
+          provider: 'test-provider',
+          model: 'subagent-model',
+          maxContextSize: 1_000_000,
+        },
+      },
+    };
+    const parent = testAgent({
+      initialConfig: twoModelConfig,
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+        'subagent-model-selection': true,
+      }),
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent({ initialConfig: twoModelConfig });
+    child.configure({ tools: ['Read'] });
+    child.agent.config.update({ modelAlias: 'subagent-model' });
+    child.agent.useProfile(
+      profile({ name: 'explore', tools: ['Read'], systemPrompt: 'explore prompt' }),
+    );
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+
+    const session = fakeSession(parent.agent, child.agent, {
+      'agent-0': {
+        homedir: '/tmp/kimi-session/agents/agent-0',
+        type: 'sub',
+        parentAgentId: 'main',
+      },
+    });
+    const host = new SessionSubagentHost(session, 'main');
+
+    await expect(
+      host.resume('agent-0', {
+        parentToolCallId: 'call_agent',
+        prompt: 'Continue from context',
+        description: 'Continue work',
+        runInBackground: false,
+        signal,
+        modelAlias: 'gone-model',
+      }),
+    ).rejects.toThrow(SUBAGENT_MODEL_UNAVAILABLE_MESSAGE);
+  });
+
   it('passes an explicit model alias and thinking effort to a spawned child', async () => {
     const twoModelConfig = {
       providers: {},

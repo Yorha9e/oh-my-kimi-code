@@ -81,7 +81,7 @@ export const AgentToolInputSchema = z.preprocess(
       .string()
       .optional()
       .describe(
-        'Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected.',
+        'Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected. May be combined with binding_slot to switch the resumed agent to that slot\'s model — use it to recover progress when the original model is rate-limited (429) or refused by safety policy.',
       ),
     run_in_background: z
       .boolean()
@@ -93,7 +93,7 @@ export const AgentToolInputSchema = z.preprocess(
       .string()
       .optional()
       .describe(
-        'Named binding slot pre-configured by the user for this workspace (.kimi-code/local.toml under [subagent-slot.<name>]). Set ONLY when the user, the task, or a preset explicitly names a slot — pass the name through verbatim. Never invent slot names.',
+        'Named binding slot pre-configured by the user for this workspace (.kimi-code/local.toml under [subagent-slot.<name>]). Set ONLY when the user, the task, or a preset explicitly names a slot — pass the name through verbatim. Never invent slot names. On resume, the slot overrides the resumed agent\'s model.',
       ),
   }),
 );
@@ -174,18 +174,23 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
   private readonly isModelAliasKnown?: IsModelAliasKnownCallback;
 
   /**
-   * Effective workspace binding for a spawn. A requested `bindingSlot`
+   * Effective workspace binding for a run. Spawn: a requested `bindingSlot`
    * resolves first (instance-level); an unconfigured or broken slot falls
    * through to the type binding. Type bindings read the stored binding;
    * when absent, asking is enabled, and an interactive ask callback exists,
    * ask the user once and persist the answer. When a stored binding
    * references a model alias missing from the user's models config,
    * interactively re-ask (repairing the binding) or — where asking is
-   * unavailable — fall back with an explicit `warning`. Returns `undefined`
-   * for resume, when the experiment is disabled, or when no binding applies
-   * (plain inheritance).
+   * unavailable — fall back with an explicit `warning`. Resume: only a
+   * requested `bindingSlot` applies, as a one-off model override for the
+   * resumed run (slot override > the child's sticky config, persisted into
+   * the child config); type bindings and interactive asks are spawn-only,
+   * and an unconfigured or broken slot keeps the child's original model
+   * with an explicit `warning`. Returns `undefined` when the experiment is
+   * disabled or when no binding applies (plain inheritance / plain sticky
+   * resume).
    */
-  private async resolveSpawnBinding(
+  private async resolveBinding(
     profileName: string,
     operation: 'spawn' | 'resume',
     allowAsk: boolean,
@@ -199,7 +204,10 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       }
     | undefined
   > {
-    if (operation !== 'spawn' || !this.isModelSelectionEnabled()) return undefined;
+    if (!this.isModelSelectionEnabled()) return undefined;
+    if (operation === 'resume') {
+      return this.resolveResumeSlotBinding(bindingSlot);
+    }
     let warning: string | undefined;
 
     // Named binding slot requested: instance-level binding outranks the type
@@ -303,6 +311,65 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     return { modelAlias: binding.model, thinkingEffort: binding.thinkingEffort, warning };
   }
 
+  /**
+   * Binding-slot model override for a resume: recovering a subagent whose
+   * model was rate-limited or refused by switching it to a slot's model.
+   * Read-only — resume never asks to configure a slot, and type bindings do
+   * not apply (the child keeps its sticky model). An unconfigured slot, a
+   * slot without a model binding, or one referencing an unknown alias keeps
+   * the child's original model and says so with an explicit `warning`.
+   */
+  private async resolveResumeSlotBinding(
+    bindingSlot?: string,
+  ): Promise<
+    | {
+        readonly modelAlias?: string;
+        readonly thinkingEffort?: string;
+        readonly bindingSlot?: string;
+        readonly warning?: string;
+      }
+    | undefined
+  > {
+    if (bindingSlot === undefined) return undefined;
+    const slotBinding = await this.readSlotBinding?.(bindingSlot);
+    if (slotBinding === undefined) {
+      return {
+        warning:
+          `warning: binding slot "${bindingSlot}" is not configured in this workspace; ` +
+          `the resumed subagent keeps its original model. Configure it in ` +
+          `.kimi-code/local.toml under [subagent-slot.${bindingSlot}].`,
+      };
+    }
+    if (
+      slotBinding.inherit === true ||
+      (slotBinding.model === undefined && slotBinding.thinkingEffort === undefined)
+    ) {
+      return {
+        warning:
+          `warning: binding slot "${bindingSlot}" has no model binding; ` +
+          `the resumed subagent keeps its original model. Set one with ` +
+          `/subagent-model set slot ${bindingSlot} or in .kimi-code/local.toml.`,
+      };
+    }
+    if (
+      slotBinding.model !== undefined &&
+      this.isModelAliasKnown !== undefined &&
+      !this.isModelAliasKnown(slotBinding.model)
+    ) {
+      return {
+        warning:
+          `warning: binding slot "${bindingSlot}" references unknown model alias ` +
+          `"${slotBinding.model}"; the resumed subagent keeps its original model. Update it in ` +
+          `.kimi-code/local.toml.`,
+      };
+    }
+    return {
+      modelAlias: slotBinding.model,
+      thinkingEffort: slotBinding.thinkingEffort,
+      bindingSlot,
+    };
+  }
+
   async resolveExecution(args: AgentToolInput): Promise<ToolExecution> {
     let profileName = args.subagent_type?.length ? args.subagent_type : 'coder';
     const resumeAgentId = args.resume?.trim();
@@ -312,7 +379,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     }
     // Read-only binding lookup for the approval label; the interactive
     // first-use ask happens later in execute().
-    const binding = await this.resolveSpawnBinding(profileName, operation, false, args.binding_slot);
+    const binding = await this.resolveBinding(profileName, operation, false, args.binding_slot);
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
       description: `${prefix} ${profileName} agent: ${args.description}`,
@@ -369,8 +436,10 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
 
       const operation = resumeAgentId !== undefined && resumeAgentId.length > 0 ? 'resume' : 'spawn';
       // Workspace model binding (experiment-gated): applied mechanically at
-      // spawn; the first unbound spawn may ask the user once interactively.
-      const binding = await this.resolveSpawnBinding(
+      // spawn, where the first unbound spawn may ask the user once
+      // interactively; on resume, a requested binding_slot acts as a one-off
+      // model override over the child's sticky config (persisted into it).
+      const binding = await this.resolveBinding(
         requestedProfileName ?? 'coder',
         operation,
         true,
@@ -536,7 +605,7 @@ function formatBackgroundAgentResult(
     allowBackground
       ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
       : 'next_step: The completion arrives automatically in a later turn.',
-    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
+    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up. If its model is rate-limited (429) or refused by safety policy, add binding_slot="<slot>" to resume it on that slot's model without losing context.`,
   ].join('\n');
 }
 
@@ -567,7 +636,7 @@ function formatForegroundAgentFailure(
   ];
   if (timedOut) {
     lines.push(
-      `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost.`,
+      `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost. If it was rate-limited (429) or refused by safety policy, add binding_slot="<slot>" to resume it on that slot's model.`,
     );
   }
   return lines.join('\n');

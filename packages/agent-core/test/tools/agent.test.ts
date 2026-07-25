@@ -1287,6 +1287,157 @@ describe('AgentTool', () => {
       expect.objectContaining({ modelAlias: undefined, thinkingEffort: undefined }),
     );
   });
+
+  it('applies a binding slot as a model override on resume', async () => {
+    const host = mockSubagentHost({
+      spawn: vi.fn(),
+      resume: vi.fn().mockResolvedValue({
+        agentId: 'agent-existing',
+        profileName: 'explore',
+        resumed: true,
+        modelAlias: 'slot/model-a',
+        thinkingEffort: 'high',
+        completion: Promise.resolve({ result: 'resumed result' }),
+      }),
+    });
+    const readBinding = vi.fn(async () => ({ model: 'type/model-b' }));
+    const readSlotBinding = vi.fn(async () => ({ model: 'slot/model-a', thinkingEffort: 'high' }));
+    const tool = agentTool(host, createBackgroundManager().manager, undefined, {
+      modelSelectionEnabled: true,
+      readBinding,
+      readSlotBinding,
+      isModelAliasKnown: () => true,
+    });
+
+    const result = await executeTool(
+      tool,
+      context({
+        prompt: 'Continue',
+        description: 'Continue work',
+        resume: 'agent-existing',
+        binding_slot: 'debater_a',
+      }),
+    );
+
+    // The slot binding applies as a per-run override; type bindings are
+    // spawn-only and are never consulted on resume.
+    expect(readSlotBinding).toHaveBeenCalledWith('debater_a');
+    expect(readBinding).not.toHaveBeenCalled();
+    expect(host.resume).toHaveBeenCalledWith(
+      'agent-existing',
+      expect.objectContaining({ modelAlias: 'slot/model-a', thinkingEffort: 'high' }),
+    );
+    expect(result.output).toContain('binding_slot: debater_a');
+    expect(result.output).toContain('model: slot/model-a');
+    expect(result.output).toContain('thinking_effort: high');
+  });
+
+  it('keeps the original model with a warning when the resume slot is unconfigured', async () => {
+    const host = mockSubagentHost({
+      spawn: vi.fn(),
+      resume: vi.fn().mockResolvedValue({
+        agentId: 'agent-existing',
+        profileName: 'explore',
+        resumed: true,
+        completion: Promise.resolve({ result: 'resumed result' }),
+      }),
+    });
+    const askBinding = vi.fn(async () => ({ model: 'slot/model-a' }));
+    const tool = agentTool(host, createBackgroundManager().manager, undefined, {
+      modelSelectionEnabled: true,
+      readSlotBinding: async () => undefined,
+      askBinding,
+    });
+
+    const result = await executeTool(
+      tool,
+      context({
+        prompt: 'Continue',
+        description: 'Continue work',
+        resume: 'agent-existing',
+        binding_slot: 'debater_a',
+      }),
+    );
+
+    // Resume never asks to configure a slot: keep the sticky model and say
+    // why the requested switch did not happen.
+    expect(askBinding).not.toHaveBeenCalled();
+    expect(host.resume).toHaveBeenCalledWith(
+      'agent-existing',
+      expect.objectContaining({ modelAlias: undefined, thinkingEffort: undefined }),
+    );
+    expect(result.output).toContain('warning:');
+    expect(result.output).toContain('binding slot "debater_a" is not configured');
+    expect(result.output).toContain('keeps its original model');
+  });
+
+  it('keeps the original model with a warning when the resume slot alias is unknown', async () => {
+    const host = mockSubagentHost({
+      spawn: vi.fn(),
+      resume: vi.fn().mockResolvedValue({
+        agentId: 'agent-existing',
+        profileName: 'explore',
+        resumed: true,
+        completion: Promise.resolve({ result: 'resumed result' }),
+      }),
+    });
+    const tool = agentTool(host, createBackgroundManager().manager, undefined, {
+      modelSelectionEnabled: true,
+      readSlotBinding: async () => ({ model: 'gone/model-x' }),
+      isModelAliasKnown: (alias) => alias !== 'gone/model-x',
+    });
+
+    const result = await executeTool(
+      tool,
+      context({
+        prompt: 'Continue',
+        description: 'Continue work',
+        resume: 'agent-existing',
+        binding_slot: 'debater_a',
+      }),
+    );
+
+    expect(host.resume).toHaveBeenCalledWith(
+      'agent-existing',
+      expect.objectContaining({ modelAlias: undefined, thinkingEffort: undefined }),
+    );
+    expect(result.output).toContain('warning:');
+    expect(result.output).toContain('binding slot "debater_a" references unknown model alias');
+    expect(result.output).toContain('gone/model-x');
+  });
+
+  it('ignores binding slots on resume when the experiment is disabled', async () => {
+    const host = mockSubagentHost({
+      spawn: vi.fn(),
+      resume: vi.fn().mockResolvedValue({
+        agentId: 'agent-existing',
+        profileName: 'explore',
+        resumed: true,
+        completion: Promise.resolve({ result: 'resumed result' }),
+      }),
+    });
+    const readSlotBinding = vi.fn(async () => ({ model: 'slot/model-a' }));
+    const tool = agentTool(host, createBackgroundManager().manager, undefined, {
+      modelSelectionEnabled: false,
+      readSlotBinding,
+    });
+
+    await executeTool(
+      tool,
+      context({
+        prompt: 'Continue',
+        description: 'Continue work',
+        resume: 'agent-existing',
+        binding_slot: 'debater_a',
+      }),
+    );
+
+    expect(readSlotBinding).not.toHaveBeenCalled();
+    expect(host.resume).toHaveBeenCalledWith(
+      'agent-existing',
+      expect.objectContaining({ modelAlias: undefined, thinkingEffort: undefined }),
+    );
+  });
 });
 
 function profile(input: {

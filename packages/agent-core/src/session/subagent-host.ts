@@ -116,12 +116,17 @@ export interface RunSubagentOptions {
   readonly prompt: string;
   readonly description: string;
   /**
-   * Spawn-time model override (from workspace binding or profile binding).
-   * Spawn precedence: this value > profile binding > inherit the parent.
-   * Resume/retry ignore this: the child always keeps its configured model.
+   * Per-run model override (from a binding slot, workspace binding or
+   * profile binding). Spawn precedence: this value > workspace type binding
+   * > profile binding > inherit the parent. Resume honors it only under the
+   * subagent-model-selection experiment, as a slot override for recovering
+   * from a rate-limited or refused model (precedence: this value > the
+   * child's sticky config); with the experiment off, resume ignores it and
+   * realigns the child to the parent. Retry always ignores it: the child
+   * keeps its configured model.
    */
   readonly modelAlias?: string;
-  /** Spawn-time thinking-effort override; same semantics as `modelAlias`. */
+  /** Per-run thinking-effort override; same semantics as `modelAlias`. */
   readonly thinkingEffort?: string;
   readonly swarmIndex?: number;
   readonly runInBackground: boolean;
@@ -241,16 +246,19 @@ export class SessionSubagentHost {
     const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
     const { child, profileName } = await this.ensureIdleSubagent(agentId, parent);
     // Sticky resume is part of the subagent-model-selection experiment: with
-    // the flag on, a resumed child always keeps its configured model/effort
-    // (no mid-conversation switches); with it off, resume realigns the child
-    // to the parent's current model exactly as before.
+    // the flag on, a resumed child keeps its configured model/effort unless
+    // the run carries an explicit per-run override (binding-slot recovery
+    // from a rate-limited or refused model — override > sticky config); with
+    // it off, resume realigns the child to the parent's current model
+    // exactly as before and ignores the override.
     const sticky = parent.experimentalFlags.enabled('subagent-model-selection');
     const modelAlias = sticky
-      ? this.resolveChildModel(parent, child.config.modelAlias)
+      ? this.resolveChildModel(parent, options.modelAlias ?? child.config.modelAlias)
       : parent.config.modelAlias;
-    // Effort is never touched on resume (same as the pre-change behavior);
-    // the child keeps whatever it was configured with at spawn.
-    const thinkingEffort = child.config.thinkingEffort;
+    // Effort follows the same precedence; without an override the child keeps
+    // whatever it was configured with (the pre-change behavior).
+    const thinkingEffort =
+      (sticky ? options.thinkingEffort : undefined) ?? child.config.thinkingEffort;
     const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
       this.emitSubagentSpawned(parent, agentId, profileName, runOptions, {
         modelAlias,
@@ -271,7 +279,8 @@ export class SessionSubagentHost {
     options.signal.throwIfAborted();
     const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
     const { child, profileName } = await this.ensureIdleSubagent(agentId, parent);
-    // Sticky semantics, same as resume().
+    // Sticky semantics, same as resume() — except retry never takes a
+    // per-run model override: the child always keeps its configured model.
     const sticky = parent.experimentalFlags.enabled('subagent-model-selection');
     const modelAlias = sticky
       ? this.resolveChildModel(parent, child.config.modelAlias)
