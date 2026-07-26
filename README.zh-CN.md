@@ -17,13 +17,14 @@
 
 ## 特性
 
-1. **子代理模型绑定全家桶（默认开启）** — 按子代理类型（`coder` / `explore` / `plan` 等）或命名槽位（slot）绑定模型与思考强度。绑定是用户配置而非 LLM 决策，在 spawn 时机械生效。工作区层（`.kimi-code/local.toml`）与全局层两级存储；中断恢复的子代理保持原绑定（sticky resume）；`AgentSwarm` 支持槽位；绑定显示带模型能力标识。详见 [SUBAGENT-MODEL-BINDING.md](SUBAGENT-MODEL-BINDING.md)。
-2. **MOA 多代理辩论 profiles** — 内置 `orchestrator` / `critic` / `synthesizer` 等角色化子代理配置（`packages/agent-core` 的 MOA profiles），让多代理协作以结构化辩论的形式展开。
-3. **桌面悬浮卡片 moa-card** — `omkc` 交互启动时自动拉起（`tui.toml` 的 `[moa] card` 开关，默认开），实时显示 MOA 辩论进度与各 agent 状态。
-4. **内嵌状态导出** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起，只绑环回、零写盘），供外部工具订阅 agent 状态；开关为 `tui.toml` 的 `[moa] status_export`（默认开）。
-5. **omkc-status 独立状态服务（伴生项目）** — 只读监听会话持久化文件，折叠出 agent 状态，对外提供 HTTP `/state` 与 SSE `/events`（39627 端口）。不依赖 CLI 进程存活，也不向会话目录写入任何东西。
-6. **kosong Anthropic 兼容端点加固** — `max_tokens` 保守兜底 + 400 错误自动解析并重试，兼容更多第三方 Anthropic 风格端点（已提上游 [PR #2066](https://github.com/MoonshotAI/kimi-code/pull/2066)）。
-7. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
+1. **子代理模型绑定全家桶（默认开启）** — 按子代理类型（`coder` / `explore` / `plan` 等）或命名槽位（slot）绑定模型与思考强度。绑定是用户配置而非 LLM 决策，在 spawn 时机械生效。工作区层（`.kimi-code/local.toml`）与全局层两级存储；中断恢复的子代理保持原绑定（sticky resume），也可用 `binding_slot` 在 resume 时换模型续跑；`AgentSwarm` 支持槽位；绑定显示带模型能力标识。详见 [SUBAGENT-MODEL-BINDING.md](SUBAGENT-MODEL-BINDING.md)。
+2. **自定义子代理 profile** — 在 `~/.omkc/agents/*.md` 用 frontmatter + 正文定义自己的子代理类型（用途描述、工具集、角色 prompt），主代理可直接派遣，可与槽位机制组合实现「同角色多模型」。教程见下文「自定义子代理 profile」。
+3. **MOA 多代理辩论 profiles** — 内置 `orchestrator` / `critic` / `synthesizer` 等角色化子代理配置（`packages/agent-core` 的 MOA profiles），让多代理协作以结构化辩论的形式展开。
+4. **桌面悬浮卡片 moa-card** — `omkc` 交互启动时自动拉起（`tui.toml` 的 `[moa] card` 开关，默认开），实时显示 MOA 辩论进度与各 agent 状态。
+5. **内嵌状态导出** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起，只绑环回、零写盘），供外部工具订阅 agent 状态；开关为 `tui.toml` 的 `[moa] status_export`（默认开）。
+6. **omkc-status 独立状态服务（伴生项目）** — 只读监听会话持久化文件，折叠出 agent 状态，对外提供 HTTP `/state` 与 SSE `/events`（39627 端口）。不依赖 CLI 进程存活，也不向会话目录写入任何东西。
+7. **kosong Anthropic 兼容端点加固** — `max_tokens` 保守兜底 + 400 错误自动解析并重试，兼容更多第三方 Anthropic 风格端点（已提上游 [PR #2066](https://github.com/MoonshotAI/kimi-code/pull/2066)）。
+8. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
 
 ## 安装
 
@@ -173,6 +174,52 @@ git pull --ff-only && pnpm install && pnpm -C apps/kimi-code run build
 - **refresh_token 轮换**：两边的凭据源自同一份 OAuth 文件，共用同一个 `refresh_token`。任一方触发 token 刷新后，另一方持有的旧 token 可能失效，届时需要在失效的一方重新 `/login`。
 - **项目级 `.kimi-code/` 目录仍然共享**：工作区配置（含子代理绑定所在的 `.kimi-code/local.toml`）放在项目目录里，官方与社区版读取同一份。这是有意为之——绑定配置在两个版本间通用。
 - **home 目录互不影响**：`~/.kimi-code` 与 `~/.omkc` 迁移后即分家，此后各自的会话、配置修改互不可见。
+
+## 自定义子代理 profile
+
+除了内置的 `coder` / `explore` / `plan` 等类型，你可以用 Markdown 文件定义自己的子代理类型——适合沉淀常用角色（辩手、审稿人、特定技术栈专家等），并给它们绑定不同的模型。
+
+### 1. 创建 profile 文件
+
+在 `~/.omkc/agents/` 下新建一个 `.md` 文件，例如 `~/.omkc/agents/debater.md`：
+
+```markdown
+---
+name: debater
+description: 多视角辩论者，从对立观点审视方案并给出结构化结论
+when_to_use: 需要对一个方案、设计或结论做正反多视角审视时
+tools:
+  - Bash
+  - Read
+  - Grep
+---
+
+你是一个辩论者。围绕给定主题，从指派给你的立场出发审视问题，
+指出论证中的漏洞、被忽略的假设和潜在风险，最后给出结构化的结论与建议。
+```
+
+frontmatter 字段（全部可选）：
+
+| 字段 | 缺省行为 |
+| --- | --- |
+| `name` | 取文件名（不含 `.md`）；只允许小写字母/数字/连字符 |
+| `description` | 取正文第一行 |
+| `when_to_use` | 无；写给主代理看的派遣指引，填了能显著提高被选中的准确率 |
+| `tools` | 继承 `coder` 的完整工具集；给了就按列表收敛（如只读角色不给编辑工具） |
+
+正文会接在内置 `coder` 的「你是子代理」前导之后，成为该 profile 的角色 prompt——所以正文只需要写角色本身，不用解释子代理机制。
+
+### 2. 使用
+
+- **主代理自动派遣**：新开会话后，主代理的 `Agent`/`AgentSwarm` 工具类型列表里就有 `debater`，它会按 `description`/`when_to_use` 自行选择，你也可以在对话里点名（"派一个 debater 审视这个方案"）。
+- **绑定模型**：`/subagent-model set debater` 交互选择，或在 `.kimi-code/local.toml` 写 `[subagent.debater]`；`/settings` 的 Subagent models 面板下拉同样可见（用户 profile 带标记）。
+- **批量同角色多模型**：profile 只定义一份，用命名槽位区分模型——比如 MOA 辩论里 5 个辩手共享同一个 `debater` profile，各绑一个 slot，避免 5 份重复描述占用上下文。
+
+### 3. 注意
+
+- 只有 home 一级（`~/.omkc/agents/`），没有项目级覆盖；与内置类型同名的文件会被跳过并告警。
+- 单文件解析失败只会跳过该文件并告警，不影响启动。
+- 子代理跑到一半模型被限流/拒绝时，可以用 `Agent(resume=<id>, binding_slot=<另一个槽位>)` 换模型续跑，上下文不丢；换过的模型会固化，后续 resume 沿用。
 
 ## 常用命令对照
 

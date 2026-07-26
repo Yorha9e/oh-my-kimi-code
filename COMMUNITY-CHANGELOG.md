@@ -2,6 +2,13 @@
 
 本文件记录 [oh-my-kimi-code](https://github.com/Yorha9e/oh-my-kimi-code) 社区版（呼出命令 `omkc`）相对上游 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 新增的变更。按版本倒序排列。
 
+## 0.29.1-omkc.5
+
+_2026-07-25 · resume 换模型续跑。_
+
+- **resume 支持 `binding_slot` 覆盖模型**：`Agent(resume=<id>, binding_slot=<槽位>)` 用槽位绑定的模型唤回子代理——原模型被限流（429）或安全策略拒绝时，换模型续跑不丢上下文。覆盖固化到子代理配置，后续 resume/retry 沿用新模型；槽位未配置或别名未知时回退原模型并给出显式警告。实验 flag 关闭时行为不变，`retry` 与 swarm 批量 resume 不受影响。
+- **README 新增「自定义子代理 profile」教程**：profile 文件格式、frontmatter 字段、模型绑定、「同角色多模型」槽位组合与 resume 换模型的完整用法。
+
 ## 0.29.1-omkc.4
 
 _2026-07-24 · 自定义子代理 profile 与显示修复。_
