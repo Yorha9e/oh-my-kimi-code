@@ -9,7 +9,7 @@ to a local **server** over REST + WebSocket. Vue 3 + Vite + TypeScript.
 
 ```bash
 # Against a REAL server (the server must be running and reachable)
-WEB_PORT=5197 KIMI_SERVER_URL=http://192.168.97.91:58627 pnpm -C apps/kimi-web run dev
+WEB_PORT=5197 KIMI_SERVER_URL=http://127.0.0.1:58627 pnpm -C apps/kimi-web run dev
 #   …or from the repo root:  pnpm dev:web   (uses the defaults below)
 
 # checks
