@@ -2,6 +2,12 @@
 
 本文件记录 [oh-my-kimi-code](https://github.com/Yorha9e/oh-my-kimi-code) 社区版（呼出命令 `omkc`）相对上游 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 新增的变更。按版本倒序排列。
 
+## 0.29.1-omkc.6
+
+_2026-07-27 · 状态导出端口重试的监听器泄漏修复。_
+
+- **修复 TUI 频繁出现 `MaxListenersExceededWarning`**：内嵌状态导出服务在端口被占时逐个递增重试，旧实现每次失败都在共享 Server 上残留一个 `listening` 监听器，重试超过 10 次即触发 Node 的监听器上限警告。现在失败路径会正确摘除挂起的回调，并补了回归测试。
+
 ## 0.29.1-omkc.5
 
 _2026-07-25 · resume 换模型续跑。_
