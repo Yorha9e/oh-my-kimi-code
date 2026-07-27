@@ -302,6 +302,47 @@ describe('status SSE server', () => {
     }
   });
 
+  it('does not leak listening listeners across EADDRINUSE retries', async () => {
+    // Occupy a run of consecutive ports so the fallback retries several times.
+    const blockers: ReturnType<typeof createServer>[] = [];
+    const first = createServer();
+    await new Promise<void>((resolve) => {
+      first.listen(0, '127.0.0.1', () => {
+        resolve();
+      });
+    });
+    blockers.push(first);
+    const firstAddress = first.address();
+    const basePort = typeof firstAddress === 'object' && firstAddress !== null ? firstAddress.port : 0;
+    expect(basePort).toBeGreaterThan(0);
+    for (let offset = 1; offset <= 4; offset++) {
+      const blocker = createServer();
+      await new Promise<void>((resolve, reject) => {
+        blocker.once('error', reject);
+        blocker.listen(basePort + offset, '127.0.0.1', () => {
+          resolve();
+        });
+      });
+      blockers.push(blocker);
+    }
+
+    try {
+      const { source } = createStubSource();
+      const handle = await startTestServer(source, basePort, 10);
+      expect(handle.port).toBe(basePort + 5);
+      // Each failed listen attempt must clean up its 'listening'/'error'
+      // listeners. Node itself keeps one internal 'listening' listener
+      // (setupConnectionsTracking); anything beyond it would accumulate into
+      // MaxListenersExceededWarning after 10 retries.
+      expect(handle.server.listenerCount('listening')).toBe(1);
+      expect(handle.server.listenerCount('error')).toBe(0);
+    } finally {
+      for (const blocker of blockers) {
+        blocker.close();
+      }
+    }
+  });
+
   it('rejects when every candidate port is taken', async () => {
     const blocker = createServer();
     await new Promise<void>((resolve) => {

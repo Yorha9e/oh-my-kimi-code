@@ -267,14 +267,20 @@ async function listenWithFallback(
     const port = basePort === 0 ? 0 : basePort + offset;
     try {
       await new Promise<void>((resolve, reject) => {
+        // A failed listen (EADDRINUSE) leaves the once('listening') callback
+        // attached; without removing it, each retry accumulates a stale
+        // listener and trips MaxListenersExceededWarning after 10 attempts.
+        const onListening = (): void => {
+          server.removeListener('error', onError);
+          resolve();
+        };
         const onError = (error: Error): void => {
+          server.removeListener('listening', onListening);
           reject(error);
         };
         server.once('error', onError);
-        server.listen(port, LOOPBACK_HOST, () => {
-          server.removeListener('error', onError);
-          resolve();
-        });
+        server.once('listening', onListening);
+        server.listen(port, LOOPBACK_HOST);
       });
       const address = server.address();
       return typeof address === 'object' && address !== null ? address.port : port;
