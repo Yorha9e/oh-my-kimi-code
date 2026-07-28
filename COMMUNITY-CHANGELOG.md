@@ -2,6 +2,12 @@
 
 本文件记录 [oh-my-kimi-code](https://github.com/Yorha9e/oh-my-kimi-code) 社区版（呼出命令 `omkc`）相对上游 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 新增的变更。按版本倒序排列。
 
+## 0.29.1-omkc.7
+
+_2026-07-28 · 内置 create-subagent-profile 技能。_
+
+- **新增内置技能 `create-subagent-profile`**：让主代理知道如何创建自定义子代理 profile——何时该建（可复用角色 / 同角色多模型 / 沉淀工作方式）、`<home>/agents/*.md` 的格式与 frontmatter 缺省行为、命名与内置同名的避让规则、"一个 profile + 多个 slot"的同角色多模型模式，以及创建后的模型绑定与验证步骤。遇到"帮我定义一个 XX agent"类需求时会自动触发。
+
 ## 0.29.1-omkc.6
 
 _2026-07-27 · 状态导出端口重试的监听器泄漏修复。_
