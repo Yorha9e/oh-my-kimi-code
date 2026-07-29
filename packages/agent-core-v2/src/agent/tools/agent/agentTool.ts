@@ -267,6 +267,7 @@ export class SubagentTool implements ISubagentTool {
         this.flags,
         { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
         args.model ?? profile.modelPreference,
+        profile.name,
       );
       let created: IAgentScopeHandle;
       try {
@@ -281,7 +282,7 @@ export class SubagentTool implements ISubagentTool {
           labels: subagentLabels(this.callerAgentId),
         });
       } catch (error) {
-        throw wrapSubagentModelError(error, binding.model, own.modelAlias);
+        throw wrapSubagentModelError(error, binding.model, own.modelAlias, binding.source, profile.name);
       }
       created.accessor.get(IAgentPermissionModeService).setMode(this.permissionMode.mode);
       created.accessor

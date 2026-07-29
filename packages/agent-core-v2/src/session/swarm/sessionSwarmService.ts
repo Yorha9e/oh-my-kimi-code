@@ -169,7 +169,7 @@ export class SessionSwarmService implements ISessionSwarmService {
         labels: subagentLabels(callerAgentId, { swarmItem: options.swarmItem }),
       });
     } catch (error) {
-      throw wrapSubagentModelError(error, binding.model, callerData.modelAlias);
+      throw wrapSubagentModelError(error, binding.model, callerData.modelAlias, options.binding?.source, options.profileName);
     }
     child.accessor
       .get(IAgentPermissionModeService)

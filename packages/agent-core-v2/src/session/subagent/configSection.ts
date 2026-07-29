@@ -28,6 +28,13 @@
  * `wrapSubagentModelError`. Self-registered at module load via
  * `registerConfigSection`, so the `config` domain never imports this
  * domain's types.
+ *
+ * Per-type model binding (`[agent_types.<type>]` on disk) lets users pin a
+ * model (and optional thinking) to a specific subagent type. When no explicit
+ * model choice is made, `resolveSubagentBinding` checks the per-type entry
+ * before the secondary model and the caller's model; an explicit `primary` or
+ * `secondary` request skips the per-type lookup. The section takes effect
+ * without any experimental flag - it is gated only by its own presence.
  */
 
 import { z } from 'zod';
@@ -51,6 +58,13 @@ import {
   type IConfigService,
 } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
+import {
+  camelToSnake,
+  cloneRecord,
+  isPlainObject,
+  setDefined,
+  transformPlainObject,
+} from '#/app/config/toml';
 
 import { SECONDARY_MODEL_FLAG_ID } from './flag';
 
@@ -88,6 +102,65 @@ registerConfigSection(SUBAGENT_SECTION, SubagentConfigSchema, {
   stripEnv: stripSubagentEnv,
 });
 
+// `agentTypes` - per-type subagent model binding ([agent_types.<type>] on
+// disk). Each entry may set `model` (a [models] entry id) and `thinking` (an
+// effort level). When no explicit model choice is made,
+// resolveSubagentBinding checks the per-type entry before the secondary model
+// and the caller's model. The record keys are user-defined subagent type
+// names (e.g. `code_reviewer`) and must be preserved verbatim; only the inner
+// field names (`model`, `thinking`) go through snake_case ↔ camelCase
+// conversion. Mirrors the `[models]` section's record-preserving transforms.
+export const AGENT_TYPES_SECTION = 'agentTypes';
+
+export const AgentTypeBindingSchema = z.object({
+  model: z.string().min(1).optional(),
+  thinking: z.string().optional(),
+});
+
+export type AgentTypeBinding = z.infer<typeof AgentTypeBindingSchema>;
+
+export const AgentTypesConfigSchema = z.record(z.string(), AgentTypeBindingSchema);
+
+export type AgentTypesConfig = z.infer<typeof AgentTypesConfigSchema>;
+
+// Preserve record keys (subagent type names) while converting each entry's
+// inner field names via the standard snake→camel transform.
+export const agentTypesFromToml = (rawSnake: unknown): unknown => {
+  if (!isPlainObject(rawSnake)) return rawSnake;
+  const out: Record<string, unknown> = {};
+  for (const [typeName, entry] of Object.entries(rawSnake)) {
+    out[typeName] = isPlainObject(entry) ? transformPlainObject(entry) : entry;
+  }
+  return out;
+};
+
+// Preserve record keys while converting each entry's inner field names back
+// to snake_case, merging over the raw on-disk sub-record to preserve unknown
+// keys through a round-trip.
+export const agentTypesToToml = (value: unknown, rawSnake: unknown): unknown => {
+  if (!isPlainObject(value)) return value;
+  const rawSub = cloneRecord(rawSnake);
+  const out: Record<string, unknown> = {};
+  for (const [typeName, entry] of Object.entries(value)) {
+    if (!isPlainObject(entry)) {
+      out[typeName] = entry;
+      continue;
+    }
+    const merged = cloneRecord(rawSub[typeName]);
+    for (const [key, field] of Object.entries(entry)) {
+      setDefined(merged, camelToSnake(key), field);
+    }
+    out[typeName] = merged;
+  }
+  return out;
+};
+
+registerConfigSection(AGENT_TYPES_SECTION, AgentTypesConfigSchema, {
+  defaultValue: {},
+  fromToml: agentTypesFromToml,
+  toToml: agentTypesToToml,
+});
+
 /**
  * Resolve the effective per-run subagent timeout. Governs foreground and
  * background subagents (and AgentSwarm) through the task manager's per-task
@@ -102,6 +175,16 @@ export function resolveSubagentTimeoutMs(config: IConfigService): number {
 
 export type SubagentModelChoice = AgentModelPreference;
 
+/** Where a resolved subagent model binding came from. */
+export type SubagentBindingSource = 'agent_types' | 'secondary' | 'own';
+
+/** A resolved subagent model binding, with provenance for error attribution. */
+export interface SubagentBinding {
+  readonly model: string;
+  readonly thinking?: string;
+  readonly source?: SubagentBindingSource;
+}
+
 export function resolveSecondaryModel(
   config: IConfigService,
   flags: IFlagService,
@@ -115,18 +198,37 @@ export function resolveSubagentBinding(
   flags: IFlagService,
   own: { modelAlias: string; thinkingLevel: string },
   requested?: SubagentModelChoice,
-): { model: string; thinking?: string } {
+  profileType?: string,
+): SubagentBinding {
+  // Explicit 'primary': always the caller's model, skipping all config.
+  if (requested === 'primary') {
+    return { model: own.modelAlias, thinking: own.thinkingLevel, source: 'own' };
+  }
+
+  // No explicit choice: check the per-type binding first.
+  if (requested === undefined && profileType !== undefined) {
+    const agentTypes = config.get<AgentTypesConfig | undefined>(AGENT_TYPES_SECTION);
+    const perType = agentTypes?.[profileType];
+    if (perType?.model !== undefined) {
+      return { model: perType.model, thinking: perType.thinking, source: 'agent_types' };
+    }
+  }
+
+  // Explicit 'secondary' or undefined fallback: the global secondary model.
   const secondary = resolveSecondaryModel(config, flags);
-  if (requested !== 'primary' && secondary?.model !== undefined) {
+  if (secondary?.model !== undefined) {
     return {
       model:
         secondaryModelPatch(secondary) === undefined
           ? secondary.model
           : SECONDARY_DERIVED_MODEL_ID,
       thinking: secondary.defaultEffort,
+      source: 'secondary',
     };
   }
-  return { model: own.modelAlias, thinking: own.thinkingLevel };
+
+  // Final fallback: the caller's model.
+  return { model: own.modelAlias, thinking: own.thinkingLevel, source: 'own' };
 }
 
 export function buildSubagentModelDescriptions(
@@ -147,10 +249,31 @@ export function wrapSubagentModelError(
   error: unknown,
   boundModel: string,
   callerModelAlias: string,
+  source?: SubagentBindingSource,
+  profileType?: string,
 ): unknown {
   if (boundModel === callerModelAlias) return error;
   if (!isError2(error) || error.code !== ErrorCodes.CONFIG_INVALID) return error;
   if (error.details?.['model'] !== boundModel) return error;
+
+  if (source === 'agent_types' && profileType !== undefined) {
+    return new Error2(
+      error.code,
+      `${error.message} (model "${boundModel}" comes from [agent_types.${profileType}].model — check that it names a valid [models] entry)`,
+      {
+        cause: error,
+        name: error.name,
+        details: {
+          ...error.details,
+          boundModel,
+          agentTypeConfig: {
+            section: `agentTypes.${profileType}.model`,
+          },
+        },
+      },
+    );
+  }
+
   const displayModel =
     boundModel === SECONDARY_DERIVED_MODEL_ID
       ? `the derived entry "${SECONDARY_DERIVED_MODEL_ID}"`

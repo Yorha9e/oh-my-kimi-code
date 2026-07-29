@@ -2097,7 +2097,7 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          binding: { model: 'mock-model', thinking: 'off' },
+          binding: { model: 'mock-model', thinking: 'off', source: 'own' },
         },
         {
           kind: 'spawn',
@@ -2111,7 +2111,7 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          binding: { model: 'mock-model', thinking: 'off' },
+          binding: { model: 'mock-model', thinking: 'off', source: 'own' },
         },
       ],
     });
@@ -2171,11 +2171,11 @@ describe('AgentSwarm tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            binding: { model: SECONDARY_DERIVED_MODEL_ID, thinking: 'low' },
+            binding: { model: SECONDARY_DERIVED_MODEL_ID, thinking: 'low', source: 'secondary' },
           }),
           expect.objectContaining({
             kind: 'spawn',
-            binding: { model: SECONDARY_DERIVED_MODEL_ID, thinking: 'low' },
+            binding: { model: SECONDARY_DERIVED_MODEL_ID, thinking: 'low', source: 'secondary' },
           }),
         ],
       }),
@@ -2225,8 +2225,8 @@ describe('AgentSwarm tool execution contract', () => {
     expect(runSwarm).toHaveBeenCalledWith(
       expect.objectContaining({
         tasks: [
-          expect.objectContaining({ binding: { model: 'mock-model', thinking: 'off' } }),
-          expect.objectContaining({ binding: { model: 'mock-model', thinking: 'off' } }),
+          expect.objectContaining({ binding: { model: 'mock-model', thinking: 'off', source: 'own' } }),
+          expect.objectContaining({ binding: { model: 'mock-model', thinking: 'off', source: 'own' } }),
         ],
       }),
     );
@@ -2279,11 +2279,11 @@ describe('AgentSwarm tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            binding: { model: 'mock-model', thinking: 'off' },
+            binding: { model: 'mock-model', thinking: 'off', source: 'own' },
           }),
           expect.objectContaining({
             kind: 'spawn',
-            binding: { model: 'mock-model', thinking: 'off' },
+            binding: { model: 'mock-model', thinking: 'off', source: 'own' },
           }),
         ],
       }),
@@ -2402,7 +2402,7 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          binding: { model: 'mock-model', thinking: 'off' },
+          binding: { model: 'mock-model', thinking: 'off', source: 'own' },
         },
       ],
     });

@@ -1430,10 +1430,12 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(noModel.config, secondaryModelFlags(), own)).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      source: 'own',
     });
     expect(resolveSubagentBinding(noModel.config, secondaryModelFlags(), own, 'secondary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      source: 'own',
     });
     noModel.disposables.dispose();
 
@@ -1443,10 +1445,12 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(withModel.config, secondaryModelFlags(), own)).toEqual({
       model: 'provider/secondary',
       thinking: undefined,
+      source: 'secondary',
     });
     expect(resolveSubagentBinding(withModel.config, secondaryModelFlags(), own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      source: 'own',
     });
     withModel.disposables.dispose();
 
@@ -1459,11 +1463,13 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(withEffort.config, secondaryModelFlags(), own)).toEqual({
       model: SECONDARY_DERIVED_MODEL_ID,
       thinking: 'low',
+      source: 'secondary',
     });
     // default_effort only applies together with the secondary model.
     expect(resolveSubagentBinding(withEffort.config, secondaryModelFlags(), own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      source: 'own',
     });
     withEffort.disposables.dispose();
 
@@ -1474,6 +1480,7 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(withFactPatch.config, secondaryModelFlags(), own)).toEqual({
       model: SECONDARY_DERIVED_MODEL_ID,
       thinking: undefined,
+      source: 'secondary',
     });
     withFactPatch.disposables.dispose();
   });
@@ -1488,6 +1495,7 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, secondaryModelFlags(false), own)).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      source: 'own',
     });
 
     disposables.dispose();
