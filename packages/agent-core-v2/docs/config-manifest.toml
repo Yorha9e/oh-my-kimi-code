@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (23 sections · 3 overlay(s))
+# Index (23 sections · 4 overlay(s))
 #   agentTypes               src\session\subagent\configSection.ts
 #   background               src\agent\task\configSection.ts
 #   cron                     src\app\cron\configSection.ts
@@ -33,6 +33,7 @@
 #   thinking                 src\app\kosongConfig\configSection.ts
 #   tools                    src\agent\toolPolicy\configSection.ts
 #   (overlay) servicesCredentialEnvOverlay  src\app\auth\configSection.ts
+#   (overlay) agentTypesOverlay  src\app\kosongConfig\agentTypesOverlay.ts
 #   (overlay) kimiModelEnvOverlay  src\app\kosongConfig\envOverlay.ts
 #   (overlay) secondaryModelOverlay  src\app\kosongConfig\secondaryModelOverlay.ts
 
@@ -47,6 +48,16 @@
 
 # one [agent_types."<name>"] table per entry:
 # [agent_types."<name>"]
+  # max_context_size: integer
+  # max_input_size: integer
+  # max_output_size: integer
+  # capabilities: string[]
+  # display_name: string
+  # reasoning_key: string
+  # adaptive_thinking: boolean
+  # support_efforts: string[]
+  # default_effort: string
+  # off_effort: string
   # model: string
   # thinking: string
 

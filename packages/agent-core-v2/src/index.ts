@@ -109,6 +109,7 @@ export * from '#/kosong/protocol/protocolBase';
 export * from '#/kosong/protocol/protocolTrait';
 import '#/app/kosongConfig/envOverlay';
 import '#/app/kosongConfig/secondaryModelOverlay';
+import '#/app/kosongConfig/agentTypesOverlay';
 export * from '#/kosong/model/completionBudget';
 export * from '#/kosong/model/hostRequestHeaders';
 export * from '#/kosong/model/model';
@@ -136,6 +137,17 @@ export {
   secondaryModelOverlay,
   secondaryModelPatch,
 } from '#/app/kosongConfig/secondaryModelOverlay';
+// The per-type derived-entry overlay: the edge (kap-server's `GET /models`
+// route) hides the reserved ids from pickers, and tests drive the overlay
+// directly - re-export from the package root.
+export {
+  agentTypesOverlay,
+} from '#/app/kosongConfig/agentTypesOverlay';
+export {
+  agentTypeDerivedModelId,
+  isAgentTypeDerivedModelId,
+  agentTypePatch,
+} from '#/session/subagent/configSection';
 export * from '#/app/kosongConfig/kosongConfig';
 export * from '#/app/kosongConfig/kosongConfigService';
 export * from '#/kosong/model/modelOAuth';

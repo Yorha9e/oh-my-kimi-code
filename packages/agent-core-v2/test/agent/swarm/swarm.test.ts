@@ -5,7 +5,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { DEFAULT_SUBAGENT_TIMEOUT_MS } from '#/session/subagent/configSection';
+import { DEFAULT_SUBAGENT_TIMEOUT_MS, AGENT_TYPES_SECTION, agentTypeDerivedModelId } from '#/session/subagent/configSection';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSwarmService, type SessionSwarmRunResult, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
@@ -93,10 +93,14 @@ function stubConfig(section?: {
   timeoutMs?: number;
   model?: string;
   defaultEffort?: string;
+  agentTypes?: Record<string, { model?: string; thinking?: string; maxOutputSize?: number; defaultEffort?: string }>;
 }): IConfigService {
   return {
     _serviceBrand: undefined,
-    get: () => section,
+    get: (domain: string) => {
+      if (domain === AGENT_TYPES_SECTION) return section?.agentTypes;
+      return section;
+    },
   } as unknown as IConfigService;
 }
 
@@ -820,6 +824,29 @@ describe('AgentSwarmTool', () => {
         tasks: [
           expect.objectContaining({ binding: { model: SECONDARY_DERIVED_MODEL_ID, thinking: 'low', source: 'secondary' } }),
           expect.objectContaining({ binding: { model: SECONDARY_DERIVED_MODEL_ID, thinking: 'low', source: 'secondary' } }),
+        ],
+      }),
+    );
+  });
+
+  it('resolves spawn task bindings from a per-type patch entry (derived id)', async () => {
+    const host = mockSwarmHost();
+    const tool = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), stubConfig({ agentTypes: { coder: { model: 'provider/coder', maxOutputSize: 8192, thinking: 'medium' } } }), stubFlag(true), stubSwarmCatalog(), stubCallerProfile({ modelAlias: 'main-model', thinkingLevel: 'high' }));
+
+    await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts', 'src/b.ts'],
+      }),
+    );
+
+    expect(host.swarmService.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasks: [
+          expect.objectContaining({ binding: { model: agentTypeDerivedModelId('coder'), thinking: 'medium', source: 'agent_types' } }),
+          expect.objectContaining({ binding: { model: agentTypeDerivedModelId('coder'), thinking: 'medium', source: 'agent_types' } }),
         ],
       }),
     );

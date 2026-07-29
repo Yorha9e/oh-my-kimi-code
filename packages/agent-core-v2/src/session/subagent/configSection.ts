@@ -35,6 +35,18 @@
  * before the secondary model and the caller's model; an explicit `primary` or
  * `secondary` request skips the per-type lookup. The section takes effect
  * without any experimental flag - it is gated only by its own presence.
+ *
+ * In addition to `model`/`thinking`, an entry may carry any `ModelOverride`
+ * field as a patch (max_output_size, default_effort, support_efforts, ...). A
+ * patch-bearing entry synthesizes a derived registry entry
+ * (`__agent_type_<type>__`) via `agentTypesOverlay` - a copy of the pointed
+ * `[models]` entry with the patch merged into its `overrides` - so users need
+ * not duplicate a full model definition just to tweak a few parameters. A
+ * pointer-only entry (no patch fields) binds the pointed entry directly,
+ * byte-identical to the pre-patch behavior. The binding-layer `thinking`
+ * always takes priority over a patch `default_effort`: it is the explicit
+ * spawn-time level, while `default_effort` only affects the derived entry's
+ * natural-resolution fallback.
  */
 
 import { z } from 'zod';
@@ -43,6 +55,7 @@ import { Error2, ErrorCodes, isError2 } from '#/errors';
 import type { AgentModelPreference } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { IFlagService } from '#/app/flag/flag';
 import {
+  ModelOverrideSchema,
   SECONDARY_MODEL_ENV,
   SECONDARY_MODEL_SECTION,
 } from '#/app/kosongConfig/configSection';
@@ -51,6 +64,7 @@ import {
   secondaryModelPatch,
 } from '#/app/kosongConfig/secondaryModelOverlay';
 import { type SecondaryModelConfig } from '#/app/kosongConfig/configSection';
+import type { ModelOverride } from '#/kosong/model/model';
 import {
   type EnvBindings,
   envBindings,
@@ -103,18 +117,22 @@ registerConfigSection(SUBAGENT_SECTION, SubagentConfigSchema, {
 });
 
 // `agentTypes` - per-type subagent model binding ([agent_types.<type>] on
-// disk). Each entry may set `model` (a [models] entry id) and `thinking` (an
-// effort level). When no explicit model choice is made,
-// resolveSubagentBinding checks the per-type entry before the secondary model
-// and the caller's model. The record keys are user-defined subagent type
+// disk). Each entry may set `model` (a [models] entry id), `thinking` (a
+// binding-layer effort level), and any `ModelOverride` field as a patch.
+// When no explicit model choice is made, resolveSubagentBinding checks the
+// per-type entry before the secondary model and the caller's model. An entry
+// with patch fields synthesizes a derived registry entry
+// (`__agent_type_<type>__`) via `agentTypesOverlay`; a pointer-only entry
+// (just `model`/`thinking`) binds the pointed entry directly - byte-identical
+// to the pre-patch behavior. The record keys are user-defined subagent type
 // names (e.g. `code_reviewer`) and must be preserved verbatim; only the inner
-// field names (`model`, `thinking`) go through snake_case ↔ camelCase
-// conversion. Mirrors the `[models]` section's record-preserving transforms.
+// field names go through snake_case ↔ camelCase conversion. Mirrors the
+// `[models]` section's record-preserving transforms.
 export const AGENT_TYPES_SECTION = 'agentTypes';
 
-export const AgentTypeBindingSchema = z.object({
+export const AgentTypeBindingSchema = ModelOverrideSchema.extend({
   model: z.string().min(1).optional(),
-  thinking: z.string().optional(),
+  thinking: z.string().optional(), // binding-layer thinking, not a ModelOverride field
 });
 
 export type AgentTypeBinding = z.infer<typeof AgentTypeBindingSchema>;
@@ -122,6 +140,36 @@ export type AgentTypeBinding = z.infer<typeof AgentTypeBindingSchema>;
 export const AgentTypesConfigSchema = z.record(z.string(), AgentTypeBindingSchema);
 
 export type AgentTypesConfig = z.infer<typeof AgentTypesConfigSchema>;
+
+// Derived-id convention for per-type patch entries: `__agent_type_<type>__`.
+// The id is reserved (never user-configured on disk); `agentTypesOverlay`
+// synthesizes it into the effective `models` view and strips it on write.
+export const AGENT_TYPE_DERIVED_PREFIX = '__agent_type_';
+export const AGENT_TYPE_DERIVED_SUFFIX = '__';
+
+export function agentTypeDerivedModelId(type: string): string {
+  return `${AGENT_TYPE_DERIVED_PREFIX}${type}${AGENT_TYPE_DERIVED_SUFFIX}`;
+}
+
+export function isAgentTypeDerivedModelId(id: string): boolean {
+  return (
+    id.startsWith(AGENT_TYPE_DERIVED_PREFIX) && id.endsWith(AGENT_TYPE_DERIVED_SUFFIX)
+  );
+}
+
+/**
+ * The patch half of a per-type binding: every field except `model` and
+ * `thinking`. Returns `undefined` when no patch field is set - the signal
+ * that the subagent binds the pointed entry directly and no derived entry is
+ * synthesized. Mirrors `secondaryModelPatch` (which omits only `model`).
+ */
+export function agentTypePatch(
+  binding: AgentTypeBinding | undefined,
+): ModelOverride | undefined {
+  if (binding === undefined) return undefined;
+  const { model: _model, thinking: _thinking, ...patch } = binding;
+  return Object.keys(patch).length > 0 ? (patch as ModelOverride) : undefined;
+}
 
 // Preserve record keys (subagent type names) while converting each entry's
 // inner field names via the standard snake→camel transform.
@@ -210,7 +258,24 @@ export function resolveSubagentBinding(
     const agentTypes = config.get<AgentTypesConfig | undefined>(AGENT_TYPES_SECTION);
     const perType = agentTypes?.[profileType];
     if (perType?.model !== undefined) {
-      return { model: perType.model, thinking: perType.thinking, source: 'agent_types' };
+      const patch = agentTypePatch(perType);
+      // A patch-bearing entry binds the synthesized derived entry
+      // (`__agent_type_<type>__`); a pointer-only entry binds the pointed
+      // entry directly - identical to the pre-patch behavior. The binding-
+      // layer `thinking` always wins over a patch `default_effort`: it is
+      // the explicit spawn-time level, while `default_effort` only affects
+      // the derived entry's natural-resolution fallback.
+      //
+      // Mirror `agentTypesOverlay`'s chain guard: the overlay refuses to
+      // synthesize a derived entry whose base is itself a derived id, so a
+      // patch-bearing entry pointing at `__agent_type_*__` binds the pointed
+      // (already-derived) entry directly instead of producing a dangling id.
+      const synthesize = patch !== undefined && !isAgentTypeDerivedModelId(perType.model);
+      return {
+        model: synthesize ? agentTypeDerivedModelId(profileType) : perType.model,
+        thinking: perType.thinking,
+        source: 'agent_types',
+      };
     }
   }
 
@@ -257,9 +322,12 @@ export function wrapSubagentModelError(
   if (error.details?.['model'] !== boundModel) return error;
 
   if (source === 'agent_types' && profileType !== undefined) {
+    const displayModel = isAgentTypeDerivedModelId(boundModel)
+      ? `the derived entry "${boundModel}" (synthesized from [agent_types.${profileType}])`
+      : `"${boundModel}"`;
     return new Error2(
       error.code,
-      `${error.message} (model "${boundModel}" comes from [agent_types.${profileType}].model — check that it names a valid [models] entry)`,
+      `${error.message} (model ${displayModel} comes from [agent_types.${profileType}].model — check that it names a valid [models] entry)`,
       {
         cause: error,
         name: error.name,

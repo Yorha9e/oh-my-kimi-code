@@ -55,6 +55,7 @@ import {
   isError2,
   ModelsDevImportErrors,
   SECONDARY_DERIVED_MODEL_ID,
+  isAgentTypeDerivedModelId,
   type ModelRecord,
   type ModelsSection,
   type ProviderConfig,
@@ -236,7 +237,13 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       // default-model pointer to it out of config.toml).
       reply.send(
         okEnvelope(
-          { items: items.filter((item) => item.model !== SECONDARY_DERIVED_MODEL_ID) },
+          {
+            items: items.filter(
+              (item) =>
+                item.model !== SECONDARY_DERIVED_MODEL_ID &&
+                !isAgentTypeDerivedModelId(item.model),
+            ),
+          },
           req.id,
         ),
       );

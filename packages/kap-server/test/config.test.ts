@@ -129,4 +129,21 @@ describe('server-v2 /api/v1/config', () => {
     expect(afterModels['k2-test']).toBeDefined();
     expect(afterModels['__secondary__']).toBeUndefined();
   });
+
+  it('GET hides synthesized __agent_type_*__ derived entries from models', async () => {
+    await boot('[models.k2-test]\nprovider = "example"\nmodel = "example-model"\n');
+    // `max_output_size` is a patch field, so the overlay synthesizes the
+    // `__agent_type_coder__` derived entry into the effective `models` view.
+    const cfg = await patchConfig({
+      agent_types: { coder: { model: 'k2-test', max_output_size: 4096 } },
+    });
+    const models = cfg.models as Record<string, unknown>;
+    expect(models['k2-test']).toBeDefined();
+    expect(models['__agent_type_coder__']).toBeUndefined();
+
+    const after = await getConfig();
+    const afterModels = after.models as Record<string, unknown>;
+    expect(afterModels['k2-test']).toBeDefined();
+    expect(afterModels['__agent_type_coder__']).toBeUndefined();
+  });
 });
