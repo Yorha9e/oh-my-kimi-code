@@ -52,6 +52,20 @@ describe('parseAgentFileText', () => {
     expect(def.source).toBe('project');
   });
 
+  it('accepts when_to_use as a legacy alias', () => {
+    const def = parse(
+      '---\nname: debater\ndescription: d\nwhen_to_use: legacy field\n---\n\nbody\n',
+    );
+    expect(def.whenToUse).toBe('legacy field');
+  });
+
+  it('prefers whenToUse over the when_to_use alias', () => {
+    const def = parse(
+      '---\nname: debater\ndescription: d\nwhenToUse: canonical\nwhen_to_use: legacy\n---\n\nbody\n',
+    );
+    expect(def.whenToUse).toBe('canonical');
+  });
+
   it('leaves optional fields undefined when omitted', () => {
     const def = parse('---\nname: solo\ndescription: d\n---\n\nbody\n');
 

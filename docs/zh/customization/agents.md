@@ -26,7 +26,7 @@ Kimi Code CLI 内置三种子 Agent，开箱即用，分别面向不同任务形
 ---
 name: debater
 description: 多视角辩论，给出结构化结论
-when_to_use: 需要从对立观点审视一个方案时
+whenToUse: 需要从对立观点审视一个方案时
 tools:
   - Bash
   - Read
@@ -40,7 +40,7 @@ tools:
 | --- | --- | --- |
 | `name` | 否 | 小写 kebab-case 标识（`[a-z0-9][a-z0-9-]*`）。缺省取文件名（去掉 `.md`）；非法名字会被跳过并告警 |
 | `description` | 否 | 一句话用途，主 Agent 挑选子 Agent 时会看到。缺省取正文第一行 |
-| `when_to_use` | 否 | 何时应派发该子 Agent |
+| `whenToUse` | 否 | 何时应派发该子 Agent |
 | `tools` | 否 | 工具白名单（如 `Bash`、`Read`、`mcp__github__*`）。缺省继承内置 `coder` 的工具集 |
 
 自定义子 Agent 以内置 `coder` 为基底：保留 coder 的"你是子代理"通用前导，正文追加在其角色提示词之后。与内置子 Agent 同名的自定义 profile 会被跳过（不会覆盖内置）。单个文件解析失败只跳过该文件并告警，不影响其他文件或会话启动。加载结果在进程内缓存，修改文件后需重启进程生效。

@@ -26,7 +26,7 @@ Each `.md` file defines one sub-agent: a YAML frontmatter block declares metadat
 ---
 name: debater
 description: Multi-perspective debate yielding a structured conclusion
-when_to_use: When a plan needs to be examined from opposing viewpoints
+whenToUse: When a plan needs to be examined from opposing viewpoints
 tools:
   - Bash
   - Read
@@ -40,7 +40,7 @@ You are a debater. Examine the question from both sides, then give a structured 
 | --- | --- | --- |
 | `name` | no | Lowercase kebab-case identifier (`[a-z0-9][a-z0-9-]*`). Defaults to the file name (without `.md`); invalid names are skipped with a warning |
 | `description` | no | One-line purpose, shown to the main Agent when picking a sub-agent. Defaults to the first body line |
-| `when_to_use` | no | When this sub-agent should be dispatched |
+| `whenToUse` | no | When this sub-agent should be dispatched |
 | `tools` | no | Tool allowlist (e.g. `Bash`, `Read`, `mcp__github__*`). Omit to inherit the built-in `coder` tool set |
 
 A custom sub-agent is based on the built-in `coder`: it keeps coder's "you are a subagent" framing and appends the file body after it. A custom profile whose name matches a built-in sub-agent is skipped (built-ins are not overridden). A single file that fails to parse is skipped with a warning and does not affect other files or session startup. Profiles are cached in-process; restart the process to pick up changes.

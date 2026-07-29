@@ -9,7 +9,7 @@ omkc lets the user define their own subagent types as Markdown files. Once a
 file exists, every new session sees it: the main agent's `Agent`/`AgentSwarm`
 tools list it as a `subagent_type`, and it can be bound to a model like any
 builtin type. Your job in this skill is to write that file well — the profile's
-`description` / `when_to_use` are the ONLY signals the main agent has when
+`description` / `whenToUse` are the ONLY signals the main agent has when
 deciding to dispatch it, so they matter more than the prompt body.
 
 Profiles are **home-only** — there is no project-level override. Resolve the
@@ -33,7 +33,7 @@ optional; the body is the role prompt.
 ---
 name: debater
 description: Multi-perspective debater — attacks a plan from opposing views and returns a structured verdict
-when_to_use: When a design, plan, or conclusion needs adversarial review from both sides before it is trusted
+whenToUse: When a design, plan, or conclusion needs adversarial review from both sides before it is trusted
 tools:
   - Bash
   - Read
@@ -49,7 +49,7 @@ Close with a structured verdict. Argue with evidence, never restate the topic.
 | --- | --- |
 | `name` | File name without `.md`; lowercase letters/digits/hyphens only (`^[a-z0-9][a-z0-9-]*$`) |
 | `description` | First line of the body |
-| `when_to_use` | Empty; fill it — it is the dispatch guidance the main agent reads |
+| `whenToUse` | Empty; fill it — it is the dispatch guidance the main agent reads |
 | `tools` | Inherits the full `coder` tool set; give a list to restrict (e.g. a read-only role drops edit tools) |
 
 The body is appended after the builtin coder preamble ("you are a subagent,

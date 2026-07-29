@@ -101,7 +101,10 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
   return {
     name,
     description,
-    whenToUse: nonEmptyString(frontmatter['whenToUse']),
+    // `when_to_use` is accepted as a legacy alias (OMKC v1 user-profile format).
+    whenToUse:
+      nonEmptyString(frontmatter['whenToUse']) ??
+      nonEmptyString(frontmatter['when_to_use']),
     override,
     tools,
     disallowedTools,
