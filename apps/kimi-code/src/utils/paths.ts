@@ -18,6 +18,7 @@ import {
   KIMI_CODE_HOME_ENV,
   KIMI_CODE_INPUT_HISTORY_DIR_NAME,
   KIMI_CODE_LOG_DIR_NAME,
+  KIMI_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
   KIMI_CODE_UPDATE_DOWNLOADS_DIR_NAME,
   KIMI_CODE_UPDATE_INSTALL_LOCK_FILE_NAME,
   KIMI_CODE_UPDATE_INSTALL_STATE_FILE_NAME,
@@ -89,6 +90,17 @@ export function getUpdateInstallLockFile(): string {
  */
 export function getUpdateDownloadsDir(): string {
   return join(getDataDir(), KIMI_CODE_UPDATE_DIR_NAME, KIMI_CODE_UPDATE_DOWNLOADS_DIR_NAME);
+}
+
+/**
+ * Return the plugin update notice state file: `<dataDir>/updates/plugin-notices.json`.
+ */
+export function getPluginUpdateNoticeStateFile(): string {
+  return join(
+    getDataDir(),
+    KIMI_CODE_UPDATE_DIR_NAME,
+    KIMI_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
+  );
 }
 
 /**

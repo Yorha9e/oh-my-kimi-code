@@ -9,7 +9,12 @@ import type {
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import type { MoaPreferences, NotificationsConfig, UpgradePreferences } from './config';
+import type {
+  MoaPreferences,
+  NotificationsConfig,
+  StatusLineConfig,
+  UpgradePreferences,
+} from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
 
@@ -53,6 +58,8 @@ export interface AppState {
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;
   moa: MoaPreferences;
+  /** Footer status line customization from tui.toml; absent means the default layout. */
+  statusLine?: StatusLineConfig;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;

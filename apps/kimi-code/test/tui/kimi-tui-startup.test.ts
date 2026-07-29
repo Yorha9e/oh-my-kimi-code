@@ -96,6 +96,7 @@ function makeStartupInput(
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       moa: { card: true, statusService: true, statusExport: true },
+      statusLine: { items: null, command: null },
       ...tuiConfig,
     },
     version: '0.0.0-test',

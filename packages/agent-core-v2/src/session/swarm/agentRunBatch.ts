@@ -13,6 +13,7 @@ import { type TokenUsage } from '#/kosong/contract/usage';
 import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';
+import type { SubagentBinding } from '#/session/subagent/configSection';
 import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 
 
@@ -31,6 +32,7 @@ export interface AgentRunAttemptOptions {
 export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
   readonly profileName: string;
   readonly swarmItem?: string;
+  readonly binding?: SubagentBinding;
 }
 
 export type AgentRunAttemptHandle = {
@@ -301,6 +303,7 @@ export class AgentRunBatch<T> {
         const spawnOptions: AgentSpawnAttemptOptions = {
           profileName: task.profileName,
           swarmItem: task.swarmItem,
+          binding: task.binding,
           ...runOptions,
         };
         handle = await this.launcher.spawn(spawnOptions);
@@ -648,5 +651,4 @@ export function resolveSwarmMaxConcurrency(
   }
   return value;
 }
-
 

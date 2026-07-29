@@ -4,9 +4,11 @@ import { join } from 'node:path';
 
 import {
   createKimiHarness,
+  createKimiHarnessV2,
   flushDiagnosticLogsSync,
   log,
   type KimiHarness,
+  type KimiHarnessOptions,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
 import {
@@ -28,6 +30,7 @@ import { combineStartupNotice } from '#/tui/utils/startup';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
+import { isKimiV2Enabled } from './experimental-v2';
 import { maybeLaunchMoaCard } from './moa-card';
 import { maybeLaunchOmkcStatus } from './omkc-status';
 import type { CLIOptions } from './options';
@@ -72,7 +75,7 @@ export async function runShell(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createKimiHarness({
+  const harnessOptions: KimiHarnessOptions = {
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
     skillDirs: opts.skillsDirs,
@@ -88,7 +91,13 @@ export async function runShell(
       });
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
-  });
+  };
+  // Experimental agent-core-v2 route (same master switch as `kimi -p`): the
+  // harness is the SDK's v2-backed client, so the whole TUI runs on the
+  // agent-core-v2 engine.
+  const harness = isKimiV2Enabled()
+    ? createKimiHarnessV2(harnessOptions)
+    : createKimiHarness(harnessOptions);
 
   // Like the moa-card companion, the status export is a migration-irrelevant
   // extra; skip it when runShell is reused for `--migrate` only.
