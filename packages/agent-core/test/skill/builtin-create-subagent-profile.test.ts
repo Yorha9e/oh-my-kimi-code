@@ -17,7 +17,7 @@ describe('builtin skill: create-subagent-profile', () => {
   it('documents the agents dir, frontmatter fields, and the slot pattern', () => {
     const content = CREATE_SUBAGENT_PROFILE_SKILL.content;
     expect(content).toContain('agents/');
-    expect(content).toContain('when_to_use');
+    expect(content).toContain('whenToUse');
     expect(content).toContain('binding_slot');
     expect(content).toContain('OMKC_HOME');
   });
