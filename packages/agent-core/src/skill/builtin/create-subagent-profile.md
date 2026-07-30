@@ -51,6 +51,8 @@ Close with a structured verdict. Argue with evidence, never restate the topic.
 | `description` | First line of the body |
 | `whenToUse` | Empty; fill it — it is the dispatch guidance the main agent reads |
 | `tools` | Inherits the full `coder` tool set; give a list to restrict (e.g. a read-only role drops edit tools) |
+| `slot` | None; declares a named model slot (`[subagent-slot.<name>]`) the profile follows on spawn — OMKC extension, see below |
+| `model_preference` | None; upstream field (`primary` / `secondary`) still supported — see below |
 
 The body is appended after the builtin coder preamble ("you are a subagent,
 the caller is the main agent…"), so **only write the role itself** — never
@@ -77,12 +79,41 @@ The profile inherits the caller's model by default. To pin one:
 - the Subagent models panel under `/settings` (user profiles are listed and
   tagged).
 
+To make a profile follow a named slot automatically (without passing
+`binding_slot` on every dispatch), declare it in the frontmatter — this is the
+recommended pattern for a fixed role↔slot pairing:
+
+```markdown
+---
+name: debater
+description: Multi-perspective debater
+slot: debater
+---
+```
+
+with a matching `[subagent-slot.debater]` entry in `.kimi-code/local.toml`
+(workspace level; the global `~/.omkc/local.toml` is the fallback layer).
+Spawn resolves top-down: explicit per-dispatch override → `[subagent.<name>]`
+type binding → the profile's declared `slot` binding → inherit the main
+agent. A level that is absent, set to `inherit = true`, or points at a model
+alias that no longer exists is skipped silently (with a log warning).
+
 For "same role, several models" (e.g. a panel of debaters on different
 models), do NOT duplicate the profile with different names — create ONE
 profile and give each instance a named slot (`[subagent-slot.<name>]` in
-`.kimi-code/local.toml`), then dispatch with `subagent_type` + `binding_slot`.
-Duplicate profiles waste main-context tokens on repeated descriptions; slots
-exist exactly to avoid that.
+`.kimi-code/local.toml`), then dispatch with `subagent_type` + `binding_slot`
+(or pin one slot permanently via the `slot` frontmatter above). Duplicate
+profiles waste main-context tokens on repeated descriptions; slots exist
+exactly to avoid that.
+
+Upstream compatibility: the upstream kimi-code field
+`model_preference: primary` / `model_preference: secondary` is still parsed
+and behaves exactly as before (a `secondary` preference spawns the profile on
+the configured secondary model). `slot` and `model_preference` coexist: the
+stored slot binding applies when present, otherwise the preference/inherit
+path runs. Converting between them is just frontmatter plus TOML — add
+`slot: <name>` and a `[subagent-slot.<name>]` entry to move a profile onto a
+slot; remove both to fall back to `model_preference` or parent inheritance.
 
 ## Verify
 

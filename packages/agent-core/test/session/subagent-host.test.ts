@@ -1552,6 +1552,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
     host.setBindingResolver({
       readTypeBinding: async () => ({ model: 'subagent-model', thinkingEffort: 'high' }),
+      readSlotBinding: async () => undefined,
       isAliasKnown: () => true,
     });
 
@@ -1598,7 +1599,11 @@ describe('SessionSubagentHost', () => {
     });
     const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
     const readTypeBinding = vi.fn(async () => ({ model: 'subagent-model' }));
-    host.setBindingResolver({ readTypeBinding, isAliasKnown: () => true });
+    host.setBindingResolver({
+      readTypeBinding,
+      readSlotBinding: async () => undefined,
+      isAliasKnown: () => true,
+    });
 
     const handle = await host.spawn({
       profileName: 'coder',
@@ -1632,6 +1637,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
     host.setBindingResolver({
       readTypeBinding: async () => ({ model: 'gone-model' }),
+      readSlotBinding: async () => undefined,
       isAliasKnown: () => false,
     });
 
@@ -1647,6 +1653,160 @@ describe('SessionSubagentHost', () => {
 
     expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
     expect(handle.modelAlias).toBe(parent.agent.config.modelAlias);
+  });
+
+  describe('profile slot binding (OMKC)', () => {
+    const twoModelConfig = {
+      providers: {},
+      models: {
+        'subagent-model': {
+          provider: 'test-provider',
+          model: 'subagent-model',
+          maxContextSize: 1_000_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'high'],
+        },
+        'slot-model': {
+          provider: 'test-provider',
+          model: 'slot-model',
+          maxContextSize: 1_000_000,
+        },
+      },
+    };
+    const LONG_SUMMARY =
+      'Completed the delegated work on the slot-bound model and returned a technically complete handoff summary so the parent agent can continue without repeating the work. '.repeat(3);
+
+    async function spawnWithSlottedProfile(options: {
+      readonly resolver: Parameters<SessionSubagentHost['setBindingResolver']>[0];
+      readonly modelSelectionEnabled?: boolean;
+      readonly spawnModelAlias?: string;
+      readonly useDefaultConfig?: boolean;
+    }) {
+      const initialConfig = options.useDefaultConfig === true ? undefined : twoModelConfig;
+      // The flag defaults to ON in the community edition, so the off-case
+      // must disable it explicitly.
+      const parent = testAgent({
+        initialConfig,
+        experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS, {
+          'subagent-model-selection': options.modelSelectionEnabled !== false,
+        }),
+      });
+      parent.configure();
+
+      const child = testAgent({ type: 'sub', initialConfig });
+      child.configure({ tools: ['Read'] });
+      child.mockNextResponse({ type: 'text', text: LONG_SUMMARY });
+
+      const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+      host.setBindingResolver(options.resolver);
+      vi.spyOn(
+        host as unknown as {
+          resolveProfile: (parent: Agent, name: string) => ResolvedAgentProfile;
+        },
+        'resolveProfile',
+      ).mockReturnValue(
+        profile({
+          name: 'coder',
+          tools: ['Read'],
+          systemPrompt: 'coder prompt',
+          slot: 'debater',
+        }),
+      );
+
+      const handle = await host.spawn({
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Implement the fix',
+        description: 'Fix bug',
+        runInBackground: false,
+        signal,
+        ...(options.spawnModelAlias === undefined ? {} : { modelAlias: options.spawnModelAlias }),
+      });
+      await handle.completion;
+      return { parent, child, handle };
+    }
+
+    it('binds the stored binding for a profile-declared slot (experiment on)', async () => {
+      const readSlotBinding = vi.fn(async () => ({
+        model: 'subagent-model',
+        thinkingEffort: 'high',
+      }));
+      const { child, handle } = await spawnWithSlottedProfile({
+        resolver: {
+          readTypeBinding: async () => undefined,
+          readSlotBinding,
+          isAliasKnown: () => true,
+        },
+      });
+
+      expect(readSlotBinding).toHaveBeenCalledWith('debater');
+      expect(child.agent.config.modelAlias).toBe('subagent-model');
+      expect(child.agent.config.thinkingEffort).toBe('high');
+      expect(handle.modelAlias).toBe('subagent-model');
+      expect(handle.thinkingEffort).toBe('high');
+    });
+
+    it('prefers the stored type binding over the profile slot', async () => {
+      const readSlotBinding = vi.fn(async () => ({ model: 'slot-model' }));
+      const { child, handle } = await spawnWithSlottedProfile({
+        resolver: {
+          readTypeBinding: async () => ({ model: 'subagent-model' }),
+          readSlotBinding,
+          isAliasKnown: () => true,
+        },
+      });
+
+      expect(readSlotBinding).not.toHaveBeenCalled();
+      expect(child.agent.config.modelAlias).toBe('subagent-model');
+      expect(handle.modelAlias).toBe('subagent-model');
+    });
+
+    it('ignores a slot binding whose alias is unknown and inherits the parent', async () => {
+      const readSlotBinding = vi.fn(async () => ({ model: 'gone-model' }));
+      const { parent, child, handle } = await spawnWithSlottedProfile({
+        resolver: {
+          readTypeBinding: async () => undefined,
+          readSlotBinding,
+          isAliasKnown: () => false,
+        },
+        useDefaultConfig: true,
+      });
+
+      expect(readSlotBinding).toHaveBeenCalledWith('debater');
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+      expect(handle.modelAlias).toBe(parent.agent.config.modelAlias);
+    });
+
+    it('does not consult the slot for an explicit per-run override', async () => {
+      const readSlotBinding = vi.fn(async () => ({ model: 'slot-model' }));
+      const { handle } = await spawnWithSlottedProfile({
+        resolver: {
+          readTypeBinding: async () => undefined,
+          readSlotBinding,
+          isAliasKnown: () => true,
+        },
+        spawnModelAlias: 'subagent-model',
+      });
+
+      expect(readSlotBinding).not.toHaveBeenCalled();
+      expect(handle.modelAlias).toBe('subagent-model');
+    });
+
+    it('does not consult the slot when the experiment is off', async () => {
+      const readSlotBinding = vi.fn(async () => ({ model: 'subagent-model' }));
+      const { parent, child } = await spawnWithSlottedProfile({
+        resolver: {
+          readTypeBinding: async () => undefined,
+          readSlotBinding,
+          isAliasKnown: () => true,
+        },
+        modelSelectionEnabled: false,
+        useDefaultConfig: true,
+      });
+
+      expect(readSlotBinding).not.toHaveBeenCalled();
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    });
   });
 
   describe('secondary model binding', () => {
@@ -2461,6 +2621,7 @@ function profile(input: {
   readonly description?: string | undefined;
   readonly subagents?: Record<string, ResolvedAgentProfile> | undefined;
   readonly modelPreference?: 'primary' | 'secondary';
+  readonly slot?: string;
 }): ResolvedAgentProfile {
   return {
     name: input.name,
@@ -2469,6 +2630,7 @@ function profile(input: {
     tools: [...input.tools],
     subagents: input.subagents,
     modelPreference: input.modelPreference,
+    slot: input.slot,
   };
 }
 

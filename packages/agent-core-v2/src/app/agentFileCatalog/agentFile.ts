@@ -92,6 +92,13 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
   const subagents =
     rawSubagents?.length === 1 && rawSubagents[0] === '*' ? undefined : rawSubagents;
   const modelPreference = parseModelPreference(frontmatter['model_preference'], options.path);
+  const slotField = frontmatter['slot'];
+  if (slotField !== undefined && slotField !== null && typeof slotField !== 'string') {
+    throw new AgentFileParseError(
+      `Frontmatter field "slot" in ${options.path} must be a non-empty string`,
+    );
+  }
+  const slot = nonEmptyString(slotField);
 
   const prompt = parsed.body.trim();
   if (prompt.length === 0) {
@@ -110,6 +117,7 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
     disallowedTools,
     subagents,
     modelPreference,
+    slot,
     prompt,
     path: options.path,
     source: options.source,

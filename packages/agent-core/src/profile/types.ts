@@ -85,4 +85,11 @@ export interface ResolvedAgentProfile {
    */
   promptVars?: Record<string, string>;
   modelPreference?: AgentModelPreference;
+  /**
+   * Named binding slot declared in the agent-file frontmatter (OMKC
+   * extension): the shared spawn path binds the child to the stored
+   * `[subagent-slot.<slot>]` binding when no per-run override or type
+   * binding applies. Builtin profiles leave it unset.
+   */
+  slot?: string;
 }

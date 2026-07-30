@@ -150,6 +150,16 @@ describe('parseAgentFileText', () => {
     );
   });
 
+  it('parses the OMKC slot field and leaves it undefined when omitted', () => {
+    const withSlot = parse(agentFileText({ description: 'd', slot: 'debater' }));
+    expect(withSlot.slot).toBe('debater');
+    expect(parse(agentFileText({ description: 'd' })).slot).toBeUndefined();
+  });
+
+  it('rejects a non-string slot field', () => {
+    expect(() => parse('---\ndescription: d\nslot: [debater]\n---\n\nbody\n')).toThrow(/slot/);
+  });
+
   it('ignores unknown frontmatter fields', () => {
     const definition = parse(agentFileText({ description: 'd', future_field: 'x' }));
     expect(definition.name).toBe('reviewer');
@@ -246,6 +256,30 @@ describe('agentProfileFromFile', () => {
     expect(restricted.tools).toEqual(defaultTools);
     expect(restricted.disallowedTools).toEqual(['Bash', 'mcp__github__*']);
   });
+
+  it('carries the OMKC slot declaration onto the resolved profile', () => {
+    const slotted = agentProfileFromFile(
+      parseAgentFileText({
+        path: '/agents/debater.md',
+        source: 'project',
+        text: agentFileText({ description: 'd', slot: 'debater' }),
+      }),
+      defaultTools,
+      basePrompt,
+    );
+    expect(slotted.slot).toBe('debater');
+
+    const plain = agentProfileFromFile(
+      parseAgentFileText({
+        path: '/agents/plain.md',
+        source: 'project',
+        text: agentFileText({ description: 'd' }),
+      }),
+      defaultTools,
+      basePrompt,
+    );
+    expect(plain.slot).toBeUndefined();
+  });
 });
 
 describe('SessionAgentProfileCatalog', () => {
@@ -298,6 +332,28 @@ describe('SessionAgentProfileCatalog', () => {
     // The builtins are always present.
     expect(c.get('coder')).toBeDefined();
     expect(c.getDefault().name).toBe('agent');
+  });
+
+  it('round-trips the OMKC slot declaration through the session snapshot', async () => {
+    const { workDir, brandHome, osHome } = await makeLayout();
+    await writeAgent(
+      join(brandHome, 'agents'),
+      'debater.md',
+      agentFileText({ description: 'Debates proposals.', slot: 'debater' }),
+    );
+
+    const c = catalog({ workDir, brandHomeDir: brandHome, osHomeDir: osHome });
+    await c.ready;
+    expect(c.get('debater')?.slot).toBe('debater');
+
+    const snapshot = c.snapshot();
+    expect(snapshot).toBeDefined();
+
+    // A resumed session rebuilds profiles from the snapshot alone (the files
+    // may be gone), so the slot must survive the serialization round-trip.
+    const restored = catalog({ workDir, brandHomeDir: brandHome, osHomeDir: osHome });
+    restored.restoreSnapshot(snapshot!);
+    expect(restored.get('debater')?.slot).toBe('debater');
   });
 
   it('lets the project source shadow the user source on the same name', async () => {

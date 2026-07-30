@@ -160,6 +160,11 @@ export interface SpawnSubagentOptions extends RunSubagentOptions {
  */
 export interface SubagentBindingResolver {
   readonly readTypeBinding: (profileName: string) => Promise<SubagentBinding | undefined>;
+  /**
+   * Named slot binding (`[subagent-slot.<slot>]`) for profiles that declare
+   * `slot` in their frontmatter; workspace-first with a global fallback.
+   */
+  readonly readSlotBinding: (slot: string) => Promise<SubagentBinding | undefined>;
   readonly isAliasKnown: (alias: string) => boolean;
 }
 
@@ -208,25 +213,34 @@ export class SessionSubagentHost {
     const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
     const profile = this.resolveProfile(parent, options.profileName);
     // Model/effort precedence: per-run override (slot or explicit) > workspace
-    // type binding > profile binding > inherit the parent agent. Bindings are
-    // part of the subagent-model-selection experiment and are ignored when it
-    // is off. The workspace read lives here — the shared spawn path — so
-    // AgentSwarm batches resolve the same stored bindings the Agent tool does.
+    // type binding > profile slot binding > profile binding > inherit the
+    // parent agent. Bindings are part of the subagent-model-selection
+    // experiment and are ignored when it is off. The workspace read lives
+    // here — the shared spawn path — so AgentSwarm batches resolve the same
+    // stored bindings the Agent tool does.
     const modelSelectionEnabled = parent.experimentalFlags.enabled('subagent-model-selection');
     const workspaceBinding = await this.readWorkspaceTypeBinding(
       parent,
       options,
       modelSelectionEnabled,
     );
+    // The profile's declared slot is consulted only when the type binding did
+    // not apply: a stored `[subagent.<type>]` entry shadows `[subagent-slot.*]`.
+    const slotBinding =
+      options.modelAlias === undefined && workspaceBinding === undefined
+        ? await this.readProfileSlotBinding(parent, profile, modelSelectionEnabled)
+        : undefined;
     const modelAlias = this.resolveChildModel(
       parent,
       options.modelAlias ??
         workspaceBinding?.model ??
+        slotBinding?.model ??
         (modelSelectionEnabled ? profile.modelAlias : undefined),
     );
     const thinkingEffort =
       options.thinkingEffort ??
       workspaceBinding?.thinkingEffort ??
+      slotBinding?.thinkingEffort ??
       (modelSelectionEnabled ? profile.thinkingEffort : undefined) ??
       parent.config.thinkingEffort;
     const { id, agent } = await this.session.createAgent(
@@ -241,15 +255,18 @@ export class SessionSubagentHost {
       try {
         await this.configureChild(parent, agent, profile, options.modelChoice, {
           // Explicit OMKC sources only (per-run override > workspace binding
-          // > profile binding); pure parent inheritance is left to the
-          // secondary-model spawn binding resolved inside configureChild.
+          // > slot binding > profile binding); pure parent inheritance is
+          // left to the secondary-model spawn binding resolved inside
+          // configureChild.
           modelAlias:
             options.modelAlias ??
             workspaceBinding?.model ??
+            slotBinding?.model ??
             (modelSelectionEnabled ? profile.modelAlias : undefined),
           thinkingEffort:
             options.thinkingEffort ??
             workspaceBinding?.thinkingEffort ??
+            slotBinding?.thinkingEffort ??
             (modelSelectionEnabled ? profile.thinkingEffort : undefined),
         });
         return await this.runPromptTurn(parent, id, agent, profile.name, runOptions);
@@ -474,6 +491,35 @@ export class SessionSubagentHost {
     if (binding.model !== undefined && !this.bindingResolver.isAliasKnown(binding.model)) {
       parent.log?.warn('ignoring workspace binding with unknown model alias', {
         profileName: options.profileName,
+        modelAlias: binding.model,
+      });
+      return undefined;
+    }
+    return binding;
+  }
+
+  /**
+   * Stored binding for the profile's declared slot (frontmatter `slot`,
+   * `[subagent-slot.<slot>]`): the spawn level between the workspace type
+   * binding and the profile/parent inheritance chain. Same skip policy as
+   * `readWorkspaceTypeBinding` — a missing binding, an explicit
+   * `inherit: true`, or a stored alias that no longer resolves drops the
+   * whole level with a log warning; the host cannot ask, interactive repair
+   * stays at the tool layer.
+   */
+  private async readProfileSlotBinding(
+    parent: Agent,
+    profile: ResolvedAgentProfile,
+    modelSelectionEnabled: boolean,
+  ): Promise<SubagentBinding | undefined> {
+    if (!modelSelectionEnabled) return undefined;
+    if (profile.slot === undefined) return undefined;
+    if (this.bindingResolver === undefined) return undefined;
+    const binding = await this.bindingResolver.readSlotBinding(profile.slot);
+    if (binding === undefined || binding.inherit === true) return undefined;
+    if (binding.model !== undefined && !this.bindingResolver.isAliasKnown(binding.model)) {
+      parent.log?.warn('ignoring slot binding with unknown model alias', {
+        slot: profile.slot,
         modelAlias: binding.model,
       });
       return undefined;

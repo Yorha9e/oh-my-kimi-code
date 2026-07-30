@@ -78,6 +78,12 @@ export interface AgentProfile {
   readonly disallowedTools?: readonly string[];
   readonly subagents?: readonly string[];
   readonly modelPreference?: AgentModelPreference;
+  /**
+   * Named binding slot declared in the agent-file frontmatter (OMKC
+   * extension). Parsed and carried for now; the v2 spawn path resolves it
+   * against `[subagent-slot.<slot>]` in a later iteration.
+   */
+  readonly slot?: string;
   systemPrompt(context: AgentProfileContext): string;
   readonly promptPrefix?: (ctx: AgentProfilePromptPrefixContext) => Promise<string>;
   readonly summaryPolicy?: AgentProfileSummaryPolicy;

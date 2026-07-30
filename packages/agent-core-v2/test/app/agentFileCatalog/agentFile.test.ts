@@ -95,6 +95,18 @@ describe('parseAgentFileText', () => {
     ).toThrow(/"model_preference"/);
   });
 
+  it('parses the OMKC slot field and leaves it undefined when omitted', () => {
+    const withSlot = parse('---\nname: solo\ndescription: d\nslot: debater\n---\n\nbody\n');
+    expect(withSlot.slot).toBe('debater');
+    expect(parse('---\nname: solo\ndescription: d\n---\n\nbody\n').slot).toBeUndefined();
+  });
+
+  it('rejects a non-string slot field', () => {
+    expect(() => parse('---\nname: solo\ndescription: d\nslot: [debater]\n---\n\nbody\n')).toThrow(
+      /slot/,
+    );
+  });
+
   it('rejects missing frontmatter', () => {
     expect(() => parse('no frontmatter here')).toThrow(AgentFileParseError);
   });
@@ -312,6 +324,12 @@ describe('agentProfileFromFile', () => {
     const profile = agentProfileFromFile({ ...base, modelPreference: 'secondary' }, basePrompt);
 
     expect(profile.modelPreference).toBe('secondary');
+  });
+
+  it('passes the OMKC slot declaration through', () => {
+    const profile = agentProfileFromFile({ ...base, slot: 'debater' }, basePrompt);
+
+    expect(profile.slot).toBe('debater');
   });
 
   it('treats an explicit file as an override intent', () => {

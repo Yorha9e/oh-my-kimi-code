@@ -62,9 +62,10 @@ const INHERIT_LABEL = 'Keep inheriting from the main agent';
 
 /**
  * Read-only binding resolver for the shared spawn path
- * (`SessionSubagentHost.spawn`): stored type bindings plus alias validation,
- * without any interactive capability. Type bindings resolve workspace-first
- * with a global fallback, exactly like the Agent tool callbacks.
+ * (`SessionSubagentHost.spawn`): stored type bindings, named slot bindings
+ * declared by profile frontmatter, plus alias validation, without any
+ * interactive capability. Both binding kinds resolve workspace-first with a
+ * global fallback, exactly like the Agent tool callbacks.
  */
 export function createSubagentBindingResolver(
   agent: Agent,
@@ -72,10 +73,12 @@ export function createSubagentBindingResolver(
   workDir: string,
 ): {
   readTypeBinding: (profileName: string) => Promise<SubagentBinding | undefined>;
+  readSlotBinding: (slot: string) => Promise<SubagentBinding | undefined>;
   isAliasKnown: IsModelAliasKnownCallback;
 } {
   return {
     readTypeBinding: (profileName) => readWorkspaceThenGlobalBinding(kaos, workDir, profileName),
+    readSlotBinding: (slot) => readWorkspaceThenGlobalSlotBinding(kaos, workDir, slot),
     isAliasKnown: (alias) => {
       const models = agent.kimiConfig?.models;
       if (models === undefined) return true;

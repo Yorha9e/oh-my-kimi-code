@@ -25,6 +25,12 @@ export interface AgentFileDefinition {
   readonly disallowedTools?: readonly string[];
   readonly subagents?: readonly string[];
   readonly modelPreference?: AgentModelPreference;
+  /**
+   * OMKC extension: named binding slot (`[subagent-slot.<name>]`) the profile
+   * declares for spawn-time model binding. Parsed and carried on the profile;
+   * v2 spawn resolution lands in a later iteration.
+   */
+  readonly slot?: string;
   readonly prompt: string;
   readonly path: string;
   readonly source: AgentFileSource;

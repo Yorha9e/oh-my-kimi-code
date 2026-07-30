@@ -37,6 +37,7 @@ export function agentProfileFromFile(
     disallowedTools: definition.disallowedTools,
     subagents: definition.subagents,
     modelPreference: definition.modelPreference,
+    slot: definition.slot,
     systemPrompt: (context) =>
       renderPromptTemplate(definition.prompt, context, { skillActive }, basePrompt),
   };
