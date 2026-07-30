@@ -11,6 +11,15 @@ export const RawSubagentProfileSchema = z.object({
 
 export type RawSubagentProfile = z.infer<typeof RawSubagentProfileSchema>;
 
+/**
+ * Symbolic model preference a profile declares for subagent spawning: the
+ * `Agent` / `AgentSwarm` tools use it as the default for their `model`
+ * parameter when the call does not pass one explicitly.
+ */
+export const AgentModelPreferenceSchema = z.enum(['primary', 'secondary']);
+
+export type AgentModelPreference = z.infer<typeof AgentModelPreferenceSchema>;
+
 export const RawAgentProfileSchema = z.object({
   extends: z.string().optional(),
   name: z.string().min(1),
@@ -23,6 +32,7 @@ export const RawAgentProfileSchema = z.object({
   tools: z.array(z.string()).optional(),
   whenToUse: z.string().optional(),
   subagents: z.record(z.string(), RawSubagentProfileSchema).optional(),
+  modelPreference: AgentModelPreferenceSchema.optional(),
 });
 
 export type RawAgentProfile = z.infer<typeof RawAgentProfileSchema>;
@@ -42,6 +52,7 @@ export interface SystemPromptContext {
   readonly cwdListing?: string;
   readonly agentsMd?: string;
   readonly skills?: SkillRegistry | string;
+  readonly pluginSections?: string;
   readonly additionalDirsInfo?: string;
   readonly roleAdditional?: string;
 }
@@ -53,6 +64,12 @@ export interface ResolvedAgentProfile {
   description?: string;
   systemPrompt: SystemPromptRenderer;
   tools: string[];
+  /**
+   * Denylist with the same matching rules as `tools` (exact builtin/user
+   * names plus `mcp__…` glob patterns), applied on top of the `tools`
+   * allowlist when the profile takes effect.
+   */
+  disallowedTools?: string[];
   whenToUse?: string;
   /**
    * Optional model/thinking overrides bound at the owner's `subagents` entry.
@@ -67,4 +84,5 @@ export interface ResolvedAgentProfile {
    * `roleAdditional` without re-parsing the source profile.
    */
   promptVars?: Record<string, string>;
+  modelPreference?: AgentModelPreference;
 }

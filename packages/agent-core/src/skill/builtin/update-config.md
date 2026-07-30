@@ -21,7 +21,7 @@ echo "$HOME/.omkc"
 
 Use the first non-empty line; otherwise use the last one. In the rest of this skill, `<KIMI_CODE_HOME>` means that resolved root — **never assume `~/.omkc`**.
 
-- **`config.toml`** — agent / runtime settings: `default_model`, `providers`, `models`, `thinking`, `permission`, `hooks`, `loop_control`, etc.
+- **`config.toml`** — agent / runtime settings: `default_model`, `secondary_model` (subagent model), `providers`, `models`, `thinking`, `permission`, `hooks`, `loop_control`, etc.
 - **`tui.toml`** — terminal-UI / client preferences: `theme`, `[editor].command`, `[notifications]`, `[upgrade].auto_install` (auto-update). These can usually also be changed with the interactive commands `/config`, `/theme`, `/editor`, which is easier — prefer pointing the user at those.
 
 The "read → copy → Edit → validate → back up → overwrite" flow below applies to both files; only **which reload command applies** differs (see Capability 4).

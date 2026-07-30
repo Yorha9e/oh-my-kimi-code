@@ -17,6 +17,7 @@ import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '../../mcp/types';
 import { getSubagentProfiles } from '../../profile';
 import { resolveSubagentTimeoutMs } from '../../session/subagent-host';
+import { buildSubagentModelDescriptions } from '../../session/subagent-binding';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import { fingerprint } from '../llm-request-logger';
 import * as b from '../../tools/builtin';
@@ -57,6 +58,13 @@ export class ToolManager {
   protected enabledTools: Set<string> = new Set();
   /** Glob patterns (e.g. `mcp__*`, `mcp__github__*`) gating which MCP tools the profile exposes. */
   private mcpAccessPatterns: string[] = [];
+  /**
+   * Exact builtin/user tool names the profile denies, evaluated on top of the
+   * allowlist result (`enabledTools`).
+   */
+  private disabledTools: Set<string> = new Set();
+  /** Glob patterns (`mcp__…`) the profile denies, evaluated on top of `mcpAccessPatterns`. */
+  private mcpDenyPatterns: string[] = [];
   /**
    * Defer-window lead for the loaded-tools ledger: names marked loaded whose
    * schema message may still sit in the context's deferred queue (an open tool
@@ -523,15 +531,18 @@ export class ToolManager {
     });
   }
 
-  setActiveTools(names: readonly string[]): void {
+  setActiveTools(names: readonly string[], disallowedNames?: readonly string[]): void {
     this.agent.records.logRecord({
       type: 'tools.set_active_tools',
       names,
+      disallowedNames,
     });
     // MCP entries are glob patterns gated separately; the rest are exact
     // builtin/user tool names. The split keeps every caller on one string[].
     this.enabledTools = new Set(names.filter((name) => !isMcpToolName(name)));
     this.mcpAccessPatterns = names.filter((name) => isMcpToolName(name));
+    this.disabledTools = new Set((disallowedNames ?? []).filter((name) => !isMcpToolName(name)));
+    this.mcpDenyPatterns = (disallowedNames ?? []).filter((name) => isMcpToolName(name));
     // Builtin construction reads the enabled set (Bash/Agent bake
     // `allowBackground` from the Task* trio), and the constructor may already
     // have built the map while the enabled set was still empty. The lazy
@@ -548,7 +559,15 @@ export class ToolManager {
   }
 
   private isMcpToolEnabled(name: string): boolean {
-    return this.mcpAccessPatterns.some((pattern) => picomatch.isMatch(name, pattern));
+    return (
+      this.mcpAccessPatterns.some((pattern) => picomatch.isMatch(name, pattern)) &&
+      !this.mcpDenyPatterns.some((pattern) => picomatch.isMatch(name, pattern))
+    );
+  }
+
+  /** An exact builtin/user tool name survives when allowed and not denied. */
+  private isExactToolEnabled(name: string): boolean {
+    return this.enabledTools.has(name) && !this.disabledTools.has(name);
   }
 
   /**
@@ -572,7 +591,7 @@ export class ToolManager {
       [...this.mcpTools.keys()].filter((name) => this.isMcpToolEnabled(name)),
     );
     for (const name of this.deferredUserTools) {
-      if (this.userTools.has(name) && this.enabledTools.has(name)) names.add(name);
+      if (this.userTools.has(name) && this.isExactToolEnabled(name)) names.add(name);
     }
     return [...names].toSorted((a, b) => a.localeCompare(b));
   }
@@ -633,7 +652,7 @@ export class ToolManager {
     return (
       this.deferredUserTools.has(name) &&
       this.userTools.has(name) &&
-      this.enabledTools.has(name)
+      this.isExactToolEnabled(name)
     );
   }
 
@@ -669,7 +688,7 @@ export class ToolManager {
    */
   getDynamicToolSchema(name: string): Tool | undefined {
     const userTool =
-      this.deferredUserTools.has(name) && this.enabledTools.has(name)
+      this.deferredUserTools.has(name) && this.isExactToolEnabled(name)
         ? this.userTools.get(name)
         : undefined;
     const mcpTool = this.isMcpToolEnabled(name) ? this.mcpTools.get(name)?.tool : undefined;
@@ -719,10 +738,13 @@ export class ToolManager {
         name: tool.name,
         description: tool.description,
         // select_tools is always registered but only offered while the
-        // disclosure gate is open (see loopTools); report that live state.
+        // disclosure gate is open and the denylist does not name it (see
+        // loopTools); report that live state.
         active:
-          this.enabledTools.has(tool.name) ||
-          (tool.name === b.SELECT_TOOLS_TOOL_NAME && this.agent.toolSelectEnabled),
+          this.isExactToolEnabled(tool.name) ||
+          (tool.name === b.SELECT_TOOLS_TOOL_NAME &&
+            this.agent.toolSelectEnabled &&
+            !this.disabledTools.has(tool.name)),
         source: 'builtin',
       };
     }
@@ -730,7 +752,7 @@ export class ToolManager {
       yield {
         name: tool.name,
         description: tool.description,
-        active: this.enabledTools.has(tool.name),
+        active: this.isExactToolEnabled(tool.name),
         source: 'user',
       };
     }
@@ -773,9 +795,9 @@ export class ToolManager {
       this.agent.skills?.registry.getSkillRoots() ?? [],
     );
     const allowBackground =
-      this.enabledTools.has('TaskList') &&
-      this.enabledTools.has('TaskOutput') &&
-      this.enabledTools.has('TaskStop');
+      this.isExactToolEnabled('TaskList') &&
+      this.isExactToolEnabled('TaskOutput') &&
+      this.isExactToolEnabled('TaskStop');
     const goalToolsEnabled = this.agent.type === 'main';
     this.builtinTools = new Map(
       [
@@ -827,7 +849,10 @@ export class ToolManager {
           new b.AgentTool(
             this.agent.subagentHost,
             background,
-            getSubagentProfiles(this.agent.kimiHomeDir),
+            {
+              ...getSubagentProfiles(this.agent.kimiHomeDir),
+              ...this.agent.subagentHost.delegatableSubagents(this.agent.config.profileName),
+            },
             {
               allowBackground,
               log: this.agent.log,
@@ -835,6 +860,12 @@ export class ToolManager {
               modelSelectionEnabled: () =>
                 this.agent.experimentalFlags.enabled('subagent-model-selection'),
               ...createSubagentBindingCallbacks(this.agent, kaos, cwd),
+              showModelPreferences: this.agent.experimentalFlags.enabled('secondary-model'),
+              subagentModelDescription: buildSubagentModelDescriptions(
+                this.agent.kimiConfig,
+                this.agent.experimentalFlags,
+                this.agent.config.modelAlias,
+              ),
             },
           ),
         this.agent.subagentHost &&
@@ -847,6 +878,11 @@ export class ToolManager {
               modelSelectionEnabled: () =>
                 this.agent.experimentalFlags.enabled('subagent-model-selection'),
               ...createSubagentBindingCallbacks(this.agent, kaos, cwd),
+              subagentModelDescription: buildSubagentModelDescriptions(
+                this.agent.kimiConfig,
+                this.agent.experimentalFlags,
+                this.agent.config.modelAlias,
+              ),
             },
           ),
         toolServices?.webSearcher && new b.WebSearchTool(toolServices.webSearcher),
@@ -966,15 +1002,24 @@ export class ToolManager {
     const loadedSet = disclosure ? this.loadedDynamicToolNames() : undefined;
     const enabledNames =
       loadedSet === undefined
-        ? [...this.enabledTools]
+        ? [...this.enabledTools].filter((name) => !this.disabledTools.has(name))
         : [...this.enabledTools].filter(
-            (name) => !this.deferredUserTools.has(name) || loadedSet.has(name),
+            (name) =>
+              !this.disabledTools.has(name) &&
+              (!this.deferredUserTools.has(name) || loadedSet.has(name)),
           );
     const mcpNames =
       loadedSet === undefined
         ? enabledMcpNames
         : enabledMcpNames.filter((name) => loadedSet.has(name));
-    const selectToolsName = disclosure ? [b.SELECT_TOOLS_TOOL_NAME] : [];
+    // The disclosure gate decides exposure, but the denylist still wins: a
+    // profile disallowedTools entry naming select_tools keeps it out of the
+    // table (mirrors agent-core-v2 isToolActiveForDisclosure, which applies
+    // the deny layers but not the allowlist to select_tools).
+    const selectToolsName =
+      disclosure && !this.disabledTools.has(b.SELECT_TOOLS_TOOL_NAME)
+        ? [b.SELECT_TOOLS_TOOL_NAME]
+        : [];
     return uniq([...enabledNames, ...selectToolsName, ...mcpNames])
       .toSorted((a, b) => a.localeCompare(b))
       // select_tools is exposed exclusively through the disclosure gate — a

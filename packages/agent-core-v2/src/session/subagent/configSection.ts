@@ -313,7 +313,7 @@ export function buildSubagentModelDescriptions(
 export function wrapSubagentModelError(
   error: unknown,
   boundModel: string,
-  callerModelAlias: string,
+  callerModelAlias: string | undefined,
   source?: SubagentBindingSource,
   profileType?: string,
 ): unknown {

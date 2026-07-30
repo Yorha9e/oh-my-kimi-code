@@ -30,6 +30,7 @@ import { combineStartupNotice } from '#/tui/utils/startup';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
+import { resolveAgentProfileSelection } from './agent-selection';
 import { isKimiV2Enabled } from './experimental-v2';
 import { maybeLaunchMoaCard } from './moa-card';
 import { maybeLaunchOmkcStatus } from './omkc-status';
@@ -129,8 +130,12 @@ export async function runShell(
     configWarning = combineStartupNotice(configWarning, warning);
   }
   const configMs = Date.now() - configStartedAt;
+  // Resolve --agent/--agent-file once for the startup session; validateOptions
+  // has already rejected them alongside --session/--continue.
+  const agentProfile = await resolveAgentProfileSelection(opts, workDir);
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
+    agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
     version,

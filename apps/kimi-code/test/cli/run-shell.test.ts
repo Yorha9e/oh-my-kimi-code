@@ -287,7 +287,7 @@ describe('runShell', () => {
     expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         identity: expect.objectContaining({
-          userAgentProduct: 'kimi-code-cli',
+          productName: 'kimi-code-cli',
           version: '1.2.3-test',
         }),
         sessionStartedProperties: { yolo: true, auto: false, plan: true, afk: false },
@@ -401,6 +401,36 @@ describe('runShell', () => {
       expect(mocks.maybeLaunchOmkcStatus).not.toHaveBeenCalled();
       expect(mocks.startStatusExport).not.toHaveBeenCalled();
     });
+  });
+
+  it('resolves the --agent profile into the TUI startup input', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+      moa: { card: true, statusService: true, statusExport: true },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: 'reviewer',
+        agentFiles: [],
+      },
+      '1.2.3-test',
+    );
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({ agentProfile: 'reviewer' });
   });
 
   it('forwards skillsDirs from CLI options to the harness', async () => {
