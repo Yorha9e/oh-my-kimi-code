@@ -35,6 +35,7 @@ import type {
   TelemetryProperties,
   TestMcpServerOptions,
   Unsubscribe,
+  WorkspaceTrustInfo,
 } from '#/types';
 
 export interface KimiHarnessRuntimeOptions {
@@ -265,6 +266,20 @@ export class KimiHarness {
     return this.rpc.listWorkspaceSkills(workDir);
   }
 
+  /**
+   * Trust state of `workDir` (agent-core-v2 only; the v1 engine reports an
+   * always-trusted workspace). Querying may register the workDir as a
+   * workspace, which session creation would do anyway.
+   */
+  async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
+    return this.rpc.getWorkspaceTrustInfo(workDir);
+  }
+
+  /** Mark `workDir` as trusted; project-level MCP servers connect live afterwards. */
+  async trustWorkspace(workDir: string): Promise<void> {
+    return this.rpc.trustWorkspace(workDir);
+  }
+
   async getConfig(options: GetConfigOptions = {}): Promise<KimiConfig> {
     return this.rpc.getConfig(options);
   }
@@ -288,6 +303,24 @@ export class KimiHarness {
 
   async removeProvider(providerId: string): Promise<KimiConfig> {
     return this.rpc.removeProvider(providerId);
+  }
+
+  /**
+   * Whether several config sections can be persisted as ONE atomic write
+   * (see {@link replaceConfigSections}). False on the v1 harness.
+   */
+  supportsAtomicSectionReplace(): boolean {
+    return this.rpc.supportsAtomicSectionReplace();
+  }
+
+  /**
+   * Replace several top-level config sections in ONE atomic write: a section
+   * mapped to `undefined` is cleared, absent sections are left untouched.
+   * Replace semantics (unlike {@link setConfig}'s deep-merge), so staged
+   * removals are expressed by the written record itself.
+   */
+  async replaceConfigSections(sections: Record<string, unknown>): Promise<void> {
+    return this.rpc.replaceConfigSections(sections);
   }
 
   /** User-global MCP entries from `<KIMI_CODE_HOME>/mcp.json` only. */

@@ -40,6 +40,7 @@ import {
   type SessionSubagentHost,
   type SubagentHandle,
 } from '../../../session/subagent-host';
+import { stripSubagentModelParameter } from '../../../session/subagent-binding';
 import { isUserCancellation } from '../../../utils/abort';
 import { AgentBackgroundTask, type BackgroundManager } from '../../../agent/background';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -127,10 +128,13 @@ const BACKGROUND_AGENT_UNAVAILABLE =
 
 // ── AgentTool class ──────────────────────────────────────────────────
 
+const AGENT_TOOL_PARAMETERS = toInputJsonSchema(AgentToolInputSchema);
+const AGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_TOOL_PARAMETERS);
+
 export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly name: string = 'Agent';
   readonly description: string;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentToolInputSchema);
+  readonly parameters: Record<string, unknown>;
   constructor(
     private readonly subagentHost: SessionSubagentHost,
     private readonly backgroundManager: BackgroundManager,
@@ -146,6 +150,10 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       isModelAliasKnown?: IsModelAliasKnownCallback;
       subagentModelDescription?: string;
       showModelPreferences?: boolean;
+      // Mirrors the `secondary-model` experiment: off (the default), the
+      // no-op `model` parameter is stripped from the advertised schema so the
+      // secondary-model concept never enters the prompt.
+      modelChoiceEnabled?: boolean;
     },
   ) {
     const log = options?.log;
@@ -162,6 +170,10 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     this.readSlotBinding = options?.readSlotBinding;
     this.askBinding = options?.askBinding;
     this.isModelAliasKnown = options?.isModelAliasKnown;
+    this.parameters =
+      options?.modelChoiceEnabled === true
+        ? AGENT_TOOL_PARAMETERS
+        : AGENT_TOOL_PARAMETERS_NO_MODEL;
     const typeLines = buildSubagentDescriptions(
       subagents,
       options?.showModelPreferences ?? false,
