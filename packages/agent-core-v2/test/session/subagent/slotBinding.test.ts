@@ -399,24 +399,36 @@ describe('resolveSubagentBinding (slot layer)', () => {
     });
   });
 
-  it('falls back to secondary when the slot binding has no model', () => {
+  it('keeps the model on the chain below when the slot sets thinking but no model', () => {
     const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       thinking: 'high',
     });
+    // Model resolves to the secondary layer; the slot's thinking wins.
+    expect(binding).toEqual({
+      model: 'provider/secondary',
+      thinking: 'high',
+      source: 'secondary',
+    });
+  });
+
+  it('falls back to the caller model with the slot thinking when no secondary is set', () => {
+    const { config, flags } = setup({});
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
+      thinking: 'low',
+    });
+    // Slot thinking ('low') differs from the caller's own level ('high').
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own' });
+  });
+
+  it('treats an empty slot binding as no binding at all', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {});
     expect(binding).toEqual({
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
     });
-  });
-
-  it('falls back to the caller model when the slot has no model and no secondary is set', () => {
-    const { config, flags } = setup({});
-    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
-      thinking: 'high',
-    });
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
   });
 
   it('keeps existing behavior when no slot binding is passed', () => {

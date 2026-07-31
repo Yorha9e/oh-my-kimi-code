@@ -5,7 +5,7 @@
  * against `[subagent-slot.<slot>]` in `.kimi-code/local.toml` (workspace
  * layer: the nearest `.git` ancestor of the work dir, or the work dir itself)
  * and, falling back, `<home>/local.toml` (global layer; home via
- * `resolveKimiHome`: `OMHC_HOME` > `KIMI_CODE_HOME` > `~/.omkc`). Field
+ * `resolveKimiHome`: `OMKC_HOME` > `KIMI_CODE_HOME` > `~/.omkc`). Field
  * names, file layout, and malformed-input behavior mirror the v1
  * `workspace-local` reader: a missing file/section/entry is `undefined` and
  * an empty file is an empty config, while malformed TOML or a schema-

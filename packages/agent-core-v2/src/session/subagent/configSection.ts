@@ -33,7 +33,9 @@
  * `[subagent-slot.<slot>]` from local.toml (read by the `slotBinding`
  * module), passed into `resolveSubagentBinding` as pure data with
  * `source: 'slot'`; the caller drops the level on `inherit: true` or an
- * unknown alias before it ever reaches the resolver. Self-registered at
+ * unknown alias before it ever reaches the resolver. A slot setting only
+ * `thinking_effort` keeps the model on the chain below (secondary → own)
+ * while the slot's thinking level wins. Self-registered at
  * module load via `registerConfigSection`.
  */
 
@@ -258,6 +260,19 @@ export function resolveSubagentBinding(
   // unknown alias already dropped the whole level.
   if (requested === undefined && slotBinding?.model !== undefined) {
     return { model: slotBinding.model, thinking: slotBinding.thinking, source: 'slot' };
+  }
+
+  // Slot with thinking only: the model keeps resolving down the chain
+  // (secondary → own) while the slot's thinking level wins, with `source`
+  // tracking the model's actual layer — mirroring v1's independent
+  // thinking chain.
+  if (
+    requested === undefined &&
+    slotBinding?.model === undefined &&
+    slotBinding?.thinking !== undefined
+  ) {
+    const fallback = resolveSubagentBinding(config, flags, own);
+    return { model: fallback.model, thinking: slotBinding.thinking, source: fallback.source };
   }
 
   // Explicit 'secondary' or undefined fallback: the global secondary model.

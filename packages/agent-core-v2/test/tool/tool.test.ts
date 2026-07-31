@@ -2207,10 +2207,12 @@ describe('Agent tool slot binding wiring', () => {
     );
   });
 
-  it('continues down the chain when the slot sets thinking but no model', async () => {
+  it('keeps the model on the chain below with the slot thinking when the slot sets thinking but no model', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createSlotContext(lifecycle, 'coder', {
-      localToml: '[subagent-slot.coder]\nthinking_effort = "low"\n',
+      // Slot thinking ('medium') differs from the secondary default effort
+      // ('low'), proving the level comes from the slot, not the model layer.
+      localToml: '[subagent-slot.coder]\nthinking_effort = "medium"\n',
       secondary: true,
     });
 
@@ -2223,7 +2225,29 @@ describe('Agent tool slot binding wiring', () => {
       expect.objectContaining({
         binding: expect.objectContaining({
           model: SECONDARY_DERIVED_MODEL_ID,
-          thinking: 'low',
+          thinking: 'medium',
+        }),
+      }),
+    );
+  });
+
+  it('uses the slot thinking with the caller model when no model layer below is configured', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, 'coder', {
+      // Slot thinking ('medium') differs from the caller's own level ('off').
+      localToml: '[subagent-slot.coder]\nthinking_effort = "medium"\n',
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: 'mock-model',
+          thinking: 'medium',
         }),
       }),
     );
