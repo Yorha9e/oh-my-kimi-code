@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
@@ -176,6 +176,36 @@ function profileCatalogWithPreference(
   const target: AgentProfile = {
     name: profileName,
     description: `${profileName} agent`,
+    modelPreference,
+    systemPrompt: () => profileName,
+  };
+  return {
+    _serviceBrand: undefined,
+    ready: Promise.resolve(),
+    onDidChange: Event.None as ISessionAgentProfileCatalog['onDidChange'],
+    get: (name) => [main, target].find((profile) => profile.name === name),
+    getDefault: () => main,
+    list: () => [target],
+    inspect: () => undefined,
+    load: async () => {},
+    reload: async () => {},
+  };
+}
+
+function profileCatalogWithSlot(
+  profileName: string,
+  slot: string | undefined,
+  modelPreference?: 'primary' | 'secondary',
+): ISessionAgentProfileCatalog {
+  const main: AgentProfile = {
+    name: 'agent',
+    description: 'Main agent',
+    systemPrompt: () => 'main',
+  };
+  const target: AgentProfile = {
+    name: profileName,
+    description: `${profileName} agent`,
+    slot,
     modelPreference,
     systemPrompt: () => profileName,
   };
@@ -1965,6 +1995,241 @@ describe('Agent tool execution contract', () => {
   });
 });
 
+describe('Agent tool slot binding wiring', () => {
+  let ctx: TestAgentContext;
+  let workDir: string;
+
+  afterEach(async () => {
+    await ctx?.dispose();
+    ctx = undefined as never;
+    if (workDir !== undefined) {
+      rmSync(workDir, { recursive: true, force: true });
+      workDir = undefined as never;
+    }
+  });
+
+  function createSlotContext(
+    lifecycle: AgentLifecycleStub,
+    slot: string | undefined,
+    options: {
+      readonly localToml?: string;
+      readonly modelAliases?: readonly string[];
+      readonly secondary?: boolean;
+    } = {},
+  ): TestAgentContext {
+    workDir = mkdtempSync(join(tmpdir(), 'v2-slot-agent-'));
+    if (options.localToml !== undefined) {
+      mkdirSync(join(workDir, '.kimi-code'), { recursive: true });
+      writeFileSync(join(workDir, '.kimi-code', 'local.toml'), options.localToml, 'utf8');
+    }
+    ctx = createTestAgent(
+      sessionService(IAgentLifecycleService, lifecycle),
+      sessionService(ISessionSubagentService, lifecycle),
+      sessionService(ISessionCronService, cronStub),
+      sessionService(ISessionAgentProfileCatalog, profileCatalogWithSlot('coder', slot)),
+      modelProviderServices(
+        modelCatalogResolving(
+          'mock-model',
+          'provider/secondary',
+          SECONDARY_DERIVED_MODEL_ID,
+          ...(options.modelAliases ?? []),
+        ),
+      ),
+      secondaryModelFlags(),
+      ...(options.secondary === true
+        ? [
+            {
+              initialConfig: {
+                secondaryModel: { model: 'provider/secondary', defaultEffort: 'low' },
+              },
+            } satisfies TestAgentOptions,
+          ]
+        : []),
+      { cwd: workDir },
+    );
+    lifecycle.addHandle('main', 'agent');
+    return ctx;
+  }
+
+  it('binds the profile slot model when the profile declares a slot', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\nthinking_effort = "medium"\n',
+      modelAliases: ['provider/slot'],
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: 'provider/slot',
+          thinking: 'medium',
+        }),
+      }),
+    );
+  });
+
+  it('passes undefined slot thinking through when the slot sets only a model', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\n',
+      modelAliases: ['provider/slot'],
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: 'provider/slot',
+          thinking: undefined,
+        }),
+      }),
+    );
+  });
+
+  it('drops the slot level on inherit: true and falls back to the secondary model', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\ninherit = true\n',
+      modelAliases: ['provider/slot'],
+      secondary: true,
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: SECONDARY_DERIVED_MODEL_ID,
+          thinking: 'low',
+        }),
+      }),
+    );
+  });
+
+  it('drops the slot level with a warning when the slot model alias is unknown', async () => {
+    const logs = captureLogs();
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    workDir = mkdtempSync(join(tmpdir(), 'v2-slot-agent-'));
+    mkdirSync(join(workDir, '.kimi-code'), { recursive: true });
+    writeFileSync(
+      join(workDir, '.kimi-code', 'local.toml'),
+      '[subagent-slot.coder]\nmodel = "provider/unknown"\n',
+      'utf8',
+    );
+    ctx = createTestAgent(
+      sessionService(IAgentLifecycleService, lifecycle),
+      sessionService(ISessionSubagentService, lifecycle),
+      sessionService(ISessionCronService, cronStub),
+      sessionService(ISessionAgentProfileCatalog, profileCatalogWithSlot('coder', 'coder')),
+      modelProviderServices(
+        modelCatalogResolving('mock-model', 'provider/secondary', SECONDARY_DERIVED_MODEL_ID),
+      ),
+      secondaryModelFlags(),
+      sessionService(ILogService, logs.logger),
+      { cwd: workDir },
+    );
+    lifecycle.addHandle('main', 'agent');
+
+    await executeAgentTool(ctx, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: 'mock-model',
+          thinking: 'off',
+        }),
+      }),
+    );
+    expect(logs.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        message: 'ignoring slot binding with unknown model alias',
+        payload: { slot: 'coder', modelAlias: 'provider/unknown' },
+      }),
+    );
+  });
+
+  it('ignores the local slot binding entirely when the profile declares no slot', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, undefined, {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\n',
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: 'mock-model',
+          thinking: 'off',
+        }),
+      }),
+    );
+  });
+
+  it('skips the slot level for an explicit model choice without reading local.toml', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\n',
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      model: 'primary',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: 'mock-model',
+          thinking: 'off',
+        }),
+      }),
+    );
+  });
+
+  it('continues down the chain when the slot sets thinking but no model', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
+    const context = createSlotContext(lifecycle, 'coder', {
+      localToml: '[subagent-slot.coder]\nthinking_effort = "low"\n',
+      secondary: true,
+    });
+
+    await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          model: SECONDARY_DERIVED_MODEL_ID,
+          thinking: 'low',
+        }),
+      }),
+    );
+  });
+});
+
 describe('AgentSwarmToolInputSchema', () => {
   const spawnInput: AgentSwarmToolInput = {
     description: 'Review files',
@@ -2668,6 +2933,268 @@ describe('AgentSwarm tool execution contract', () => {
       agent_name: 'swarm (3 subagents)',
       prompt: 'Finish review',
     });
+  });
+});
+
+describe('AgentSwarm tool slot binding wiring', () => {
+  let ctx: TestAgentContext;
+  let workDir: string;
+
+  afterEach(async () => {
+    await ctx?.dispose();
+    ctx = undefined as never;
+    if (workDir !== undefined) {
+      rmSync(workDir, { recursive: true, force: true });
+      workDir = undefined as never;
+    }
+  });
+
+  function createSlotSwarmContext(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    runSwarm: (...args: any[]) => any,
+    slot: string | undefined,
+    options: {
+      readonly localToml?: string;
+      readonly modelAliases?: readonly string[];
+      readonly secondary?: boolean;
+    } = {},
+  ): { readonly ctx: TestAgentContext; readonly runSwarm: ReturnType<typeof vi.fn> } {
+    workDir = mkdtempSync(join(tmpdir(), 'v2-slot-swarm-'));
+    if (options.localToml !== undefined) {
+      mkdirSync(join(workDir, '.kimi-code'), { recursive: true });
+      writeFileSync(join(workDir, '.kimi-code', 'local.toml'), options.localToml, 'utf8');
+    }
+    const swarmService: ISessionSwarmService = {
+      _serviceBrand: undefined,
+      getSwarmItem: async () => undefined,
+      run: runSwarm as ISessionSwarmService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(
+      swarmServices(swarmService),
+      sessionService(ISessionAgentProfileCatalog, profileCatalogWithSlot('explore', slot)),
+      modelProviderServices(
+        modelCatalogResolving(
+          'mock-model',
+          'provider/secondary',
+          SECONDARY_DERIVED_MODEL_ID,
+          ...(options.modelAliases ?? []),
+        ),
+      ),
+      secondaryModelFlags(),
+      ...(options.secondary === true
+        ? [
+            {
+              initialConfig: {
+                secondaryModel: { model: 'provider/secondary', defaultEffort: 'low' },
+              },
+            } satisfies TestAgentOptions,
+          ]
+        : []),
+      { cwd: workDir },
+    );
+    return { ctx, runSwarm: runSwarm as ReturnType<typeof vi.fn> };
+  }
+
+  function swarmArgs(): {
+    readonly description: string;
+    readonly prompt_template: string;
+    readonly items: string[];
+    readonly subagent_type: string;
+  } {
+    return {
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+      subagent_type: 'explore',
+    };
+  }
+
+  it('threads the profile slot binding into all spawn task bindings', async () => {
+    const runSwarm = vi.fn(
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> =>
+        args.tasks.map((task, index) => ({
+          task,
+          agentId: `agent-explore-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: 'ok',
+        })),
+    );
+    const { ctx: context } = createSlotSwarmContext(runSwarm, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\nthinking_effort = "medium"\n',
+      modelAliases: ['provider/slot'],
+    });
+
+    await executeTool(agentSwarmTool(context), {
+      turnId: 0,
+      toolCallId: 'call_swarm',
+      args: swarmArgs(),
+      signal,
+    });
+
+    expect(runSwarm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasks: [
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: { model: 'provider/slot', thinking: 'medium', source: 'slot' },
+          }),
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: { model: 'provider/slot', thinking: 'medium', source: 'slot' },
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('drops the slot level on inherit: true and falls back to the secondary model', async () => {
+    const runSwarm = vi.fn(
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> =>
+        args.tasks.map((task, index) => ({
+          task,
+          agentId: `agent-explore-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: 'ok',
+        })),
+    );
+    const { ctx: context } = createSlotSwarmContext(runSwarm, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\ninherit = true\n',
+      modelAliases: ['provider/slot'],
+      secondary: true,
+    });
+
+    await executeTool(agentSwarmTool(context), {
+      turnId: 0,
+      toolCallId: 'call_swarm',
+      args: swarmArgs(),
+      signal,
+    });
+
+    expect(runSwarm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasks: [
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: {
+              model: SECONDARY_DERIVED_MODEL_ID,
+              thinking: 'low',
+              source: 'secondary',
+            },
+          }),
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: {
+              model: SECONDARY_DERIVED_MODEL_ID,
+              thinking: 'low',
+              source: 'secondary',
+            },
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('drops the slot level with a warning when the slot model alias is unknown', async () => {
+    const logs = captureLogs();
+    const runSwarm = vi.fn(
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> =>
+        args.tasks.map((task, index) => ({
+          task,
+          agentId: `agent-explore-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: 'ok',
+        })),
+    );
+    workDir = mkdtempSync(join(tmpdir(), 'v2-slot-swarm-'));
+    mkdirSync(join(workDir, '.kimi-code'), { recursive: true });
+    writeFileSync(
+      join(workDir, '.kimi-code', 'local.toml'),
+      '[subagent-slot.coder]\nmodel = "provider/unknown"\n',
+      'utf8',
+    );
+    const swarmService: ISessionSwarmService = {
+      _serviceBrand: undefined,
+      getSwarmItem: async () => undefined,
+      run: runSwarm as ISessionSwarmService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(
+      swarmServices(swarmService),
+      sessionService(ISessionAgentProfileCatalog, profileCatalogWithSlot('explore', 'coder')),
+      modelProviderServices(
+        modelCatalogResolving('mock-model', 'provider/secondary', SECONDARY_DERIVED_MODEL_ID),
+      ),
+      secondaryModelFlags(),
+      sessionService(ILogService, logs.logger),
+      { cwd: workDir },
+    );
+
+    await executeTool(agentSwarmTool(ctx), {
+      turnId: 0,
+      toolCallId: 'call_swarm',
+      args: swarmArgs(),
+      signal,
+    });
+
+    expect(runSwarm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasks: [
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: { model: 'mock-model', thinking: 'off', source: 'own' },
+          }),
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: { model: 'mock-model', thinking: 'off', source: 'own' },
+          }),
+        ],
+      }),
+    );
+    expect(logs.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        message: 'ignoring slot binding with unknown model alias',
+        payload: { slot: 'coder', modelAlias: 'provider/unknown' },
+      }),
+    );
+  });
+
+  it('skips the slot level for an explicit model choice without reading local.toml', async () => {
+    const runSwarm = vi.fn(
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> =>
+        args.tasks.map((task, index) => ({
+          task,
+          agentId: `agent-explore-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: 'ok',
+        })),
+    );
+    const { ctx: context } = createSlotSwarmContext(runSwarm, 'coder', {
+      localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\n',
+    });
+
+    await executeTool(agentSwarmTool(context), {
+      turnId: 0,
+      toolCallId: 'call_swarm',
+      args: { ...swarmArgs(), model: 'primary' },
+      signal,
+    });
+
+    expect(runSwarm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasks: [
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: { model: 'mock-model', thinking: 'off', source: 'own' },
+          }),
+          expect.objectContaining({
+            kind: 'spawn',
+            binding: { model: 'mock-model', thinking: 'off', source: 'own' },
+          }),
+        ],
+      }),
+    );
   });
 });
 

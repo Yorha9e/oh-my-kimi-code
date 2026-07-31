@@ -12,7 +12,11 @@
  * `ISessionAgentProfileCatalog`, and the caller's `IAgentProfileService`) and
  * threads it through the swarm tasks; otherwise binding is left to the
  * service, which keeps its own "no model bound" check and inherit-caller
- * fallback. Swarm mode is entered through `IAgentSwarmService`; the caller's
+ * fallback. A target profile declaring `slot` in its frontmatter binds
+ * `[subagent-slot.<slot>]` from local.toml — read once up front like the
+ * model preference itself, and dropped (with a log warning) on
+ * `inherit: true` or an alias the model catalog no longer resolves. Swarm
+ * mode is entered through `IAgentSwarmService`; the caller's
  * agent id comes from `IAgentScopeContext`. Pure tool — owns no scoped state.
  *
  * Registered via the module-level `registerAgentToolService(IAgentSwarmTool,
@@ -47,6 +51,11 @@ import {
   type SubagentBinding,
 } from '#/session/subagent/configSection';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
+import { readWorkspaceThenGlobalSlotBinding } from '#/session/subagent/slotBinding';
+import { ILogService } from '#/_base/log/log';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   AgentSwarmToolInputSchema,
   IAgentSwarmTool,
@@ -112,6 +121,9 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     @IFlagService private readonly flags: IFlagService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
+    @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @ILogService private readonly log: ILogService,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
@@ -179,12 +191,15 @@ export class AgentSwarmTool implements IAgentSwarmTool {
         throw new Error(`Unknown agent type: "${profileName}"`);
       }
       if (own.modelAlias !== undefined) {
+        const requestedModel = args.model ?? targetProfile.modelPreference;
+        const slotBinding = await this.readProfileSlotBinding(targetProfile, requestedModel);
         binding = resolveSubagentBinding(
           this.config,
           this.flags,
           { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-          args.model ?? targetProfile.modelPreference,
+          requestedModel,
           profileName,
+          slotBinding,
         );
       }
     }
@@ -226,6 +241,42 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     return renderSwarmResults(
       results.map(({ task, ...result }) => ({ spec: task.data as AgentSwarmSpec, ...result })),
     );
+  }
+
+  /**
+   * Stored binding for the target profile's declared slot (frontmatter
+   * `slot`, `[subagent-slot.<slot>]` in local.toml) — the spawn level
+   * between the per-type binding and the secondary/caller chain, with v1
+   * `readProfileSlotBinding`'s skip policy: a missing binding, an explicit
+   * `inherit: true`, or a stored alias the model catalog no longer resolves
+   * drops the whole level (the last with a log warning). Only read when no
+   * explicit model choice exists — an explicit choice never touches the
+   * filesystem. Read once up front, like the model preference itself.
+   */
+  private async readProfileSlotBinding(
+    profile: AgentProfile,
+    requestedModel: string | undefined,
+  ): Promise<{ readonly model?: string; readonly thinking?: string } | undefined> {
+    if (requestedModel !== undefined || profile.slot === undefined) return undefined;
+    const binding = await readWorkspaceThenGlobalSlotBinding(this.workspace.workDir, profile.slot);
+    if (binding === undefined || binding.inherit === true) return undefined;
+    if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
+      this.log.warn('ignoring slot binding with unknown model alias', {
+        slot: profile.slot,
+        modelAlias: binding.model,
+      });
+      return undefined;
+    }
+    return { model: binding.model, thinking: binding.thinkingEffort };
+  }
+
+  private isModelAliasKnown(model: string): boolean {
+    try {
+      this.modelCatalog.get(model);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
