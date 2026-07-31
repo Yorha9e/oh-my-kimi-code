@@ -26,8 +26,15 @@
  * `buildSubagentModelDescriptions`, and wrap spawn failures with
  * `wrapSubagentModelError`; while the experiment is off they also strip the
  * no-op `model` parameter from their advertised schemas via
- * `stripSubagentModelParameter`. Self-registered at module load via
- * `registerConfigSection`.
+ * `stripSubagentModelParameter`.
+ *
+ * One more binding level slots into the chain between the per-type and
+ * secondary layers: a profile declaring `slot` in its frontmatter binds
+ * `[subagent-slot.<slot>]` from local.toml (read by the `slotBinding`
+ * module), passed into `resolveSubagentBinding` as pure data with
+ * `source: 'slot'`; the caller drops the level on `inherit: true` or an
+ * unknown alias before it ever reaches the resolver. Self-registered at
+ * module load via `registerConfigSection`.
  */
 
 import { z } from 'zod';
@@ -189,7 +196,7 @@ export function resolveSubagentTimeoutMs(config: IConfigService): number {
 export type SubagentModelChoice = AgentModelPreference;
 
 /** Where a resolved subagent model binding came from. */
-export type SubagentBindingSource = 'agent_types' | 'secondary' | 'own';
+export type SubagentBindingSource = 'agent_types' | 'slot' | 'secondary' | 'own';
 
 /** A resolved subagent model binding, with provenance for error attribution. */
 export interface SubagentBinding {
@@ -212,6 +219,7 @@ export function resolveSubagentBinding(
   own: { modelAlias: string; thinkingLevel: string },
   requested?: SubagentModelChoice,
   profileType?: string,
+  slotBinding?: { readonly model?: string; readonly thinking?: string },
 ): SubagentBinding {
   // Explicit 'primary': always the caller's model, skipping all config.
   if (requested === 'primary') {
@@ -242,6 +250,14 @@ export function resolveSubagentBinding(
         source: 'agent_types',
       };
     }
+  }
+
+  // No explicit choice: the profile's declared slot
+  // (`[subagent-slot.<slot>]` in local.toml, read by the `slotBinding`
+  // module). The caller passes digested data — `inherit: true` or an
+  // unknown alias already dropped the whole level.
+  if (requested === undefined && slotBinding?.model !== undefined) {
+    return { model: slotBinding.model, thinking: slotBinding.thinking, source: 'slot' };
   }
 
   // Explicit 'secondary' or undefined fallback: the global secondary model.
@@ -307,6 +323,7 @@ export function wrapSubagentModelError(
   callerModelAlias: string | undefined,
   source?: SubagentBindingSource,
   profileType?: string,
+  slotName?: string,
 ): unknown {
   if (boundModel === callerModelAlias) return error;
   if (!isError2(error) || error.code !== ErrorCodes.CONFIG_INVALID) return error;
@@ -327,6 +344,25 @@ export function wrapSubagentModelError(
           boundModel,
           agentTypeConfig: {
             section: `agentTypes.${profileType}.model`,
+          },
+        },
+      },
+    );
+  }
+
+  if (source === 'slot' && slotName !== undefined) {
+    return new Error2(
+      error.code,
+      `${error.message} (model "${boundModel}" comes from [subagent-slot.${slotName}].model in local.toml — check that it names a valid [models] entry)`,
+      {
+        cause: error,
+        name: error.name,
+        details: {
+          ...error.details,
+          boundModel,
+          slotBindingConfig: {
+            section: `subagent-slot.${slotName}.model`,
+            file: 'local.toml',
           },
         },
       },
