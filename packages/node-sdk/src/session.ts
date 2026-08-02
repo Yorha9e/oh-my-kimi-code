@@ -192,6 +192,20 @@ export class Session {
     return this.rpc.startBtw({ sessionId: this.id });
   }
 
+  async startTipSave(): Promise<string> {
+    this.ensureOpen();
+    return this.rpc.startTipSave({ sessionId: this.id });
+  }
+
+  /**
+   * Release a one-shot agent instance (e.g. a `/tip-save` child) after its
+   * turn has ended. Best-effort and idempotent on both engines.
+   */
+  async disposeAgent(agentId: string): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.disposeAgent({ sessionId: this.id, agentId });
+  }
+
   async getSubagentBindings(): Promise<GetSubagentBindingsResult> {
     this.ensureOpen();
     return this.rpc.getSubagentBindings({ sessionId: this.id });

@@ -61,18 +61,18 @@ export async function handleSubagentModelCommand(
       }
     }
     // Best-effort: also list the profiles the Agent tool can actually spawn
-    // (builtin + user-defined from <home>/agents/*.md). On failure, skip.
+    // from the session's merged profile catalog. On failure, skip.
     try {
       const profiles = await session.listSubagentProfiles();
       if (profiles.length > 0) {
         lines.push('Available subagent types:');
         for (const profile of profiles) {
-          const tag = profile.source === 'user' ? ' (user)' : '';
+          const tag = profile.source === 'builtin' ? '' : ` (${profile.source})`;
           lines.push(`  ${profile.name}${tag}`);
         }
       }
     } catch {
-      // Older engine without listSubagentProfiles — bindings list above still stands.
+      // Profile listing is best effort; the bindings list above still stands.
     }
     lines.push('Use /subagent-model set <type> or /subagent-model set slot <name> to bind a model.');
     host.showStatus(lines.join('\n'));

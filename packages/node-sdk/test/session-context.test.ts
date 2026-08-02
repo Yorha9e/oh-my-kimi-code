@@ -96,6 +96,13 @@ describe('Session context', () => {
       '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\n---\nArgue both sides.\n',
       'utf8',
     );
+    await mkdir(join(workDir, '.git'), { recursive: true });
+    await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
+    await writeFile(
+      join(workDir, '.kimi-code', 'agents', 'test.md'),
+      '---\nname: test\ndescription: A project agent\n---\nReview the project.\n',
+      'utf8',
+    );
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -112,6 +119,10 @@ describe('Session context', () => {
       expect(debater?.source).toBe('user');
       expect(debater?.description).toBe('A debate agent');
       expect(debater?.whenToUse).toBe('When you need a debate');
+
+      const projectProfile = byName.get('test');
+      expect(projectProfile?.source).toBe('project');
+      expect(projectProfile?.description).toBe('A project agent');
     } finally {
       await harness.close();
     }

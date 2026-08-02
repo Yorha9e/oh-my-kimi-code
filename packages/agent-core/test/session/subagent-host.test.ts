@@ -13,7 +13,6 @@ import { ErrorCodes, KimiError } from '../../src/errors';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
 import {
   DEFAULT_AGENT_PROFILES,
-  resetUserAgentProfileCacheForTest,
   SessionAgentProfileCatalog,
   type ResolvedAgentProfile,
 } from '../../src/profile';
@@ -543,6 +542,34 @@ describe('SessionSubagentHost', () => {
         signal,
       }),
     ).rejects.toThrow('Subagent profile "btw" was not found');
+    expect(createAgent).not.toHaveBeenCalled();
+  });
+
+  it('does not bypass the persisted parent allowlist with a builtin profile', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.config.update({ subagentNames: ['explore'] });
+    const createAgent = vi.fn();
+    const host = new SessionSubagentHost(
+      {
+        agents: new Map([['main', parent.agent]]),
+        ensureAgentResumed: vi.fn(async () => parent.agent),
+        createAgent,
+        agentCatalog: testAgentCatalog(),
+      } as never,
+      'main',
+    );
+
+    await expect(
+      host.spawn({
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Implement the fix',
+        description: 'Fix bug',
+        runInBackground: false,
+        signal,
+      }),
+    ).rejects.toThrow('Subagent profile "coder" was not found');
     expect(createAgent).not.toHaveBeenCalled();
   });
 
@@ -2445,14 +2472,16 @@ describe('Session.createAgent', () => {
 
 describe('Session.listSubagentProfiles', () => {
   let kimiHome: string;
+  let workDir: string;
 
   beforeEach(async () => {
     kimiHome = await mkdtemp(join(tmpdir(), 'kimi-list-profiles-'));
-    resetUserAgentProfileCacheForTest();
+    workDir = await mkdtemp(join(tmpdir(), 'kimi-list-workdir-'));
   });
 
   afterEach(async () => {
     await rm(kimiHome, { recursive: true, force: true });
+    await rm(workDir, { recursive: true, force: true });
   });
 
   async function writeAgent(file: string, content: string): Promise<void> {
@@ -2460,18 +2489,29 @@ describe('Session.listSubagentProfiles', () => {
     await writeFile(join(kimiHome, 'agents', file), content, 'utf8');
   }
 
-  it('lists built-in and user profiles with correct source tags', async () => {
+  async function writeProjectAgent(file: string, content: string): Promise<void> {
+    const dir = join(workDir, '.kimi-code', 'agents');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, file), content, 'utf8');
+  }
+
+  it('lists built-in, legacy home, and project profiles with correct source tags', async () => {
     await writeAgent(
-      'debater.md',
-      '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\n---\nArgue both sides.\n',
+      'legacy-reviewer.md',
+      '---\nname: legacy-reviewer\nwhen_to_use: When you need a legacy review\n---\nLegacy home reviewer.\n',
+    );
+    await writeProjectAgent(
+      'test.md',
+      '---\nname: test\n---\nProject test agent.\n',
     );
 
     const session = new Session({
-      kaos: createFakeKaos({}),
+      kaos: createFakeKaos({ getcwd: () => workDir }),
       homedir: '/tmp/kimi-session',
       kimiHomeDir: kimiHome,
       rpc: createSessionRpc(),
       initializeMainAgent: false,
+      agents: { userHomeDir: join(workDir, 'user-home') },
     });
 
     const profiles = await session.listSubagentProfiles();
@@ -2482,12 +2522,16 @@ describe('Session.listSubagentProfiles', () => {
     expect(coder).toBeDefined();
     expect(coder?.source).toBe('builtin');
 
-    // User profiles appear and are tagged 'user'.
-    const debater = byName.get('debater');
-    expect(debater).toBeDefined();
-    expect(debater?.source).toBe('user');
-    expect(debater?.description).toBe('A debate agent');
-    expect(debater?.whenToUse).toBe('When you need a debate');
+    // Home profiles without a description use their first body line.
+    const legacyReviewer = byName.get('legacy-reviewer');
+    expect(legacyReviewer).toMatchObject({
+      source: 'user',
+      description: 'Legacy home reviewer.',
+      whenToUse: 'When you need a legacy review',
+    });
+
+    const project = byName.get('test');
+    expect(project).toMatchObject({ source: 'project', description: 'Project test agent.' });
   });
 
   it('returns only built-in profiles when no agents dir exists', async () => {
@@ -2497,6 +2541,7 @@ describe('Session.listSubagentProfiles', () => {
       kimiHomeDir: kimiHome,
       rpc: createSessionRpc(),
       initializeMainAgent: false,
+      agents: { userHomeDir: join(workDir, 'user-home') },
     });
 
     const profiles = await session.listSubagentProfiles();

@@ -25,15 +25,15 @@ _2026-07-25 · resume 换模型续跑。_
 
 _2026-07-24 · 自定义子代理 profile 与显示修复。_
 
-### 自定义子代理 profile（home 目录）
+### 统一自定义 Agent/Profile 目录
 
-- 在 `~/.omkc/agents/*.md` 放 Markdown 文件即可定义自己的子代理类型：frontmatter 支持 `name`（缺省取文件名）、`description`（缺省取正文首行）、`when_to_use`、`tools`（缺省继承 `coder` 工具集），正文作为角色 prompt 接在内置 `coder` 的子代理前导之后。
-- 定义后立即可用：主代理 `Agent`/`AgentSwarm` 的 `subagent_type` 类型列表中出现并可派遣；`/subagent-model set <名字>` 与 `.kimi-code/local.toml` 的 `[subagent.<名字>]` 可直接绑模型。
-- 容错：目录不存在、单文件解析失败、非法名字、与内置类型同名，均跳过并告警，不影响会话启动。仅 home 一级，无项目级覆盖。
+- 自定义 Agent 统一由 Session Agent Catalog 发现，支持 Plugin、用户、额外目录、项目与显式文件作用域；项目级文件可放在 `.kimi-code/agents/*.md` 或 `.agents/agents/*.md`。
+- `name` 缺省取文件名；`description` 缺省取正文首个非空行；兼容旧 `when_to_use`，并支持 `tools`、`disallowedTools`、`subagents`、`model_preference` 与 OMKC `slot`。
+- Agent 工具类型、spawn、resume 与列表共用同一 Catalog 和 `subagents` allowlist，旧 home-only loader 不再绕过委派限制。单文件解析失败会跳过并告警，不影响会话启动。
 
 ### 子代理模型管理界面增强
 
-- `/settings` 的 Subagent models 面板类型下拉改为经新增的 `listSubagentProfiles` RPC 拉取（含用户自定义 profile，带来源标记），RPC 失败时回退内置列表；`/subagent-model list` 同样列出可用类型（用户 profile 标 `(user)`）。
+- `/settings` 的 Subagent models 面板类型下拉经 `listSubagentProfiles` RPC 拉取当前 Agent 实际可委派的 Profile；`/subagent-model list` 同时列出 Plugin、项目、用户、额外与显式来源标记（如 `(project)`），RPC 失败时回退内置列表。
 - 槽位删除交互改为在 Settings 面板选中后按 `D` 键。
 - `binding_slot` 工具参数描述收敛为纯透传语义：slot 是用户侧的隐式模型路由层，不再向 LLM 暴露「用于选择模型/effort」的描述，profile（用途/prompt）是 LLM 选择子代理的唯一语义接口——类型列表更短，主上下文更省 token。
 

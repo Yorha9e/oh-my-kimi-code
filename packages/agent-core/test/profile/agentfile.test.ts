@@ -100,8 +100,29 @@ describe('parseAgentFileText', () => {
     );
   });
 
-  it('rejects a missing description', () => {
-    expect(() => parse(agentFileText({ name: 'reviewer' }))).toThrow(/description/);
+  it('falls back to the first non-empty prompt line for a missing description', () => {
+    const definition = parse(agentFileText({ name: 'reviewer' }, '\n\nReview the changed files.\nThen report risks.'));
+    expect(definition.description).toBe('Review the changed files.');
+  });
+
+  it('truncates fallback descriptions to 240 characters', () => {
+    const firstLine = 'x'.repeat(241);
+    const definition = parse(agentFileText({ name: 'reviewer' }, `${firstLine}\nMore details.`));
+    expect(definition.description).toBe(`${'x'.repeat(239)}…`);
+    expect(definition.description).toHaveLength(240);
+  });
+
+  it('rejects a non-string description', () => {
+    expect(() => parse('---\nname: reviewer\ndescription: [bad]\n---\n\nReview code.')).toThrow(
+      /description.*non-empty string/,
+    );
+  });
+
+  it('accepts the snake_case when_to_use spelling', () => {
+    const definition = parse(
+      agentFileText({ name: 'reviewer', when_to_use: 'Use for review tasks.' }),
+    );
+    expect(definition.whenToUse).toBe('Use for review tasks.');
   });
 
   it('rejects missing frontmatter and an empty prompt body', () => {
@@ -544,6 +565,14 @@ describe('SessionAgentProfileCatalog', () => {
     // The builtin profile objects are shared constants; the extension must
     // not leak into them.
     expect(Object.keys(DEFAULT_AGENT_PROFILES['agent']!.subagents ?? {})).not.toContain('reviewer');
+  });
+
+  it('applies a persisted delegation allowlist in persisted order', async () => {
+    const { workDir, brandHome, osHome } = await makeLayout();
+    const c = catalog({ workDir, brandHomeDir: brandHome, osHomeDir: osHome });
+    await c.ready;
+
+    expect(Object.keys(c.delegatableSubagents('agent', ['coder', 'missing']))).toEqual(['coder']);
   });
 
   it('links a file profile subagents allowlist, unrestricted when omitted', async () => {

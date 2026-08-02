@@ -712,6 +712,8 @@ export class Agent {
         this.turn.prompt([{ type: 'text', text: expanded }], origin);
       },
       startBtw: () => this.subagentHost!.startBtw(),
+      startTipSave: () => this.subagentHost!.startTipSave(),
+      disposeAgent: () => this.subagentHost!.disposeOwner(),
       createGoal: (payload) => this.goal.createGoal(payload),
       getGoal: () => this.goal.getGoal(),
       pauseGoal: () => this.goal.pauseGoal(),

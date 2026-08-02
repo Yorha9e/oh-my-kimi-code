@@ -93,6 +93,10 @@ export interface SessionIdRpcInput {
   readonly sessionId: string;
 }
 
+export interface DisposeAgentRpcInput extends SessionIdRpcInput {
+  readonly agentId: string;
+}
+
 export interface ImportContextRpcInput extends SessionIdRpcInput {
   readonly content: string;
   readonly source: string;
@@ -506,6 +510,29 @@ export abstract class SDKRpcClientBase {
     return rpc.startBtw({
       sessionId: input.sessionId,
       agentId,
+    });
+  }
+
+  async startTipSave(input: SessionIdRpcInput): Promise<string> {
+    const agentId = this.interactiveAgentId;
+    const rpc = await this.getRpc();
+    return rpc.startTipSave({
+      sessionId: input.sessionId,
+      agentId,
+    });
+  }
+
+  /**
+   * Release a one-shot agent instance (e.g. a `/tip-save` child) after its
+   * turn has ended. Best-effort and idempotent on both engines: the v2
+   * engine reclaims the child itself on `turn.ended`, the v1 engine drops
+   * the session registry entry here.
+   */
+  async disposeAgent(input: DisposeAgentRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.disposeAgent({
+      sessionId: input.sessionId,
+      agentId: input.agentId,
     });
   }
 

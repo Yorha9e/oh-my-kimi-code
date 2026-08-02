@@ -207,10 +207,20 @@ export class SessionAgentProfileCatalog {
    * declares none (mirroring the historical lookup against the builtin
    * `agent` profile).
    */
-  delegatableSubagents(callerProfileName?: string): Record<string, ResolvedAgentProfile> {
+  delegatableSubagents(
+    callerProfileName?: string,
+    persistedNames?: readonly string[],
+  ): Record<string, ResolvedAgentProfile> {
     const caller = callerProfileName === undefined ? undefined : this.merged.get(callerProfileName);
-    const record = caller?.subagents ?? this.getDefault().subagents;
-    return record ?? {};
+    const record = caller?.subagents ?? this.getDefault().subagents ?? {};
+    if (persistedNames === undefined) return record;
+
+    return Object.fromEntries(
+      persistedNames.flatMap((name) => {
+        const profile = record[name];
+        return profile === undefined ? [] : [[name, profile]];
+      }),
+    );
   }
 
   private async load(): Promise<void> {
@@ -400,7 +410,7 @@ export class SessionAgentProfileCatalog {
       .filter((winner) => winner.definition !== systemMd)
       .map(({ definition, profile }) => ({
         name: profile.name,
-        description: profile.description ?? definition.description,
+        description: profile.description ?? definition.description ?? '',
         whenToUse: profile.whenToUse,
         tools: [...profile.tools],
         disallowedTools:

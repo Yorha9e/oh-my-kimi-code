@@ -56,6 +56,7 @@ import {
 } from './session';
 import { handleSwarmCommand } from './swarm';
 import { handleSyncFromKimiCommand } from './sync-from-kimi';
+import { handleTipSaveCommand } from './tip-save';
 import { handleUndoCommand } from './undo';
 import { handleWebCommand } from './web';
 
@@ -95,6 +96,7 @@ export {
   handleTitleCommand,
 } from './session';
 export { handleSyncFromKimiCommand } from './sync-from-kimi';
+export { handleTipSaveCommand } from './tip-save';
 export { handleUndoCommand } from './undo';
 export { handleWebCommand } from './web';
 
@@ -340,6 +342,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'btw':
       await handleBtwCommand(host, args);
+      return;
+    case 'tip-save':
+      await handleTipSaveCommand(host, args);
       return;
     case 'title':
       await handleTitleCommand(host, args);

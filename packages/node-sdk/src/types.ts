@@ -241,7 +241,7 @@ export interface ListSubagentProfileEntry {
   readonly name: string;
   readonly description?: string;
   readonly whenToUse?: string;
-  readonly source: 'builtin' | 'user';
+  readonly source: 'builtin' | 'plugin' | 'project' | 'user' | 'extra' | 'explicit';
 }
 
 export type ListSubagentProfilesResult = readonly ListSubagentProfileEntry[];

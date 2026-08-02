@@ -421,7 +421,7 @@ export interface ListSubagentProfileEntry {
   readonly name: string;
   readonly description?: string;
   readonly whenToUse?: string;
-  readonly source: 'builtin' | 'user';
+  readonly source: 'builtin' | 'plugin' | 'project' | 'user' | 'extra' | 'explicit';
 }
 
 export type ListSubagentProfilesResult = readonly ListSubagentProfileEntry[];
@@ -547,6 +547,8 @@ export interface AgentAPI {
   activateSkill: (payload: ActivateSkillPayload) => void;
   activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
   startBtw: (payload: EmptyPayload) => string;
+  startTipSave: (payload: EmptyPayload) => string;
+  disposeAgent: (payload: EmptyPayload) => void;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshot;
   getGoal: (payload: EmptyPayload) => GoalToolResult;
   pauseGoal: (payload: EmptyPayload) => GoalSnapshot;

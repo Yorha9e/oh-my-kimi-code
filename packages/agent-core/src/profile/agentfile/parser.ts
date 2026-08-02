@@ -77,12 +77,6 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
     );
   }
 
-  const description = requiredNonEmptyString(
-    frontmatter['description'],
-    'description',
-    options.path,
-  );
-
   const override = parseBoolean(frontmatter['override'], 'override', options.path);
   const rawTools = parseStringList(frontmatter['tools'], 'tools', options.path);
   const tools = rawTools?.length === 1 && rawTools[0] === '*' ? undefined : rawTools;
@@ -107,11 +101,13 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
   if (prompt.length === 0) {
     throw new AgentFileParseError(`Missing prompt body in ${options.path}`);
   }
+  const description = parseDescription(frontmatter['description'], prompt, options.path);
 
   return {
     name,
     description,
-    whenToUse: nonEmptyString(frontmatter['whenToUse']),
+    whenToUse:
+      nonEmptyString(frontmatter['whenToUse']) ?? nonEmptyString(frontmatter['when_to_use']),
     override,
     tools,
     disallowedTools,
@@ -172,17 +168,17 @@ function parseStringList(
   return out;
 }
 
-function requiredNonEmptyString(value: unknown, field: string, filePath: string): string {
+function parseDescription(value: unknown, prompt: string, filePath: string): string {
   if (value !== undefined && value !== null && typeof value !== 'string') {
     throw new AgentFileParseError(
-      `Frontmatter field "${field}" in ${filePath} must be a non-empty string`,
+      `Frontmatter field "description" in ${filePath} must be a non-empty string`,
     );
   }
-  const parsed = nonEmptyString(value);
-  if (parsed === undefined) {
-    throw new AgentFileParseError(`Missing required frontmatter field "${field}" in ${filePath}`);
-  }
-  return parsed;
+  const explicit = nonEmptyString(value);
+  if (explicit !== undefined) return explicit;
+
+  const firstLine = prompt.split(/\r?\n/).find((line) => line.trim() !== '')?.trim() ?? '';
+  return firstLine.length > 240 ? `${firstLine.slice(0, 239)}…` : firstLine;
 }
 
 function deriveNameFromPath(filePath: string): string | undefined {

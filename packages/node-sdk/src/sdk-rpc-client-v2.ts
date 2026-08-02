@@ -182,6 +182,7 @@ import {
   IModelService,
   IProviderService,
   ISessionBtwService,
+  ISessionTipSaveService,
   ISessionContext,
   ISessionCronService,
   ISessionExportService,
@@ -239,6 +240,7 @@ import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
   type ActivateSkillRpcInput,
+  type DisposeAgentRpcInput,
   type ImportContextRpcInput,
   type ReconnectMcpServerRpcInput,
   type ReloadSessionRpcInput,
@@ -1736,6 +1738,31 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const session = this.requireLiveSession(input.sessionId);
     await this.materializeMainAgent(session);
     return session.accessor.get(ISessionBtwService).start();
+  }
+
+  /**
+   * Through the session scope (`ISessionTipSaveService`) — no klient facade
+   * exists. Forks the main agent into a background tip-saving child bound to
+   * the resolved model (slot `tip_save` → secondary → main); unlike `btw` no
+   * tool veto is installed, so the child can call the `moa_tip_create` MCP
+   * tool. The host sends the summarization prompt itself and watches the
+   * child's events for its plain-text report.
+   */
+  override async startTipSave(input: SessionIdRpcInput): Promise<string> {
+    const session = this.requireLiveSession(input.sessionId);
+    await this.materializeMainAgent(session);
+    return session.accessor.get(ISessionTipSaveService).start();
+  }
+
+  /**
+   * Through the session scope's agent registry — the v2 tip-save service
+   * already reclaims its child on `turn.ended`, so this is an idempotent
+   * backstop for the host's own `disposeAgent` call (the first removal wins,
+   * a repeated call finds no live handle and returns).
+   */
+  override async disposeAgent(input: DisposeAgentRpcInput): Promise<void> {
+    const session = this.requireLiveSession(input.sessionId);
+    await session.accessor.get(IAgentLifecycleService).remove(input.agentId);
   }
 
   /**

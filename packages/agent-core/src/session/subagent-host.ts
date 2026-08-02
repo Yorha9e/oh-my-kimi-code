@@ -11,12 +11,7 @@ import { ErrorCodes, KimiError } from '../errors';
 import { DenyAllPermissionPolicy } from '../agent/permission/policies/deny-all';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
 import { isAbortError } from '../loop/errors';
-import {
-  DEFAULT_AGENT_PROFILES,
-  getSubagentProfiles,
-  prepareSystemPromptContext,
-  type ResolvedAgentProfile,
-} from '../profile';
+import { prepareSystemPromptContext, type ResolvedAgentProfile } from '../profile';
 import {
   linkAbortSignal,
   userCancellationReason,
@@ -425,6 +420,27 @@ export class SessionSubagentHost {
     return id;
   }
 
+  async startTipSave(): Promise<string> {
+    const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
+    const { id, agent: child } = await this.session.createAgent(
+      {
+        type: 'sub',
+        generate: parent.rawGenerate,
+        persistence: new InMemoryAgentRecordPersistence(),
+      },
+      { parentAgentId: this.ownerAgentId, persistMetadata: false },
+    );
+
+    child.config.update({
+      modelAlias: parent.config.modelAlias,
+      thinkingEffort: parent.config.thinkingEffort,
+      systemPrompt: parent.config.systemPrompt,
+    });
+    child.tools.copyLoopToolsFrom(parent.tools);
+    child.context.useProjectedHistoryFrom(parent.context);
+    return id;
+  }
+
   cancelAll(reason: unknown = userCancellationReason()): void {
     const foregroundChildren = Array.from(this.activeChildren).filter(
       ([, child]) => !child.runInBackground,
@@ -440,6 +456,10 @@ export class SessionSubagentHost {
   markActiveChildDetached(agentId: string): void {
     const child = this.activeChildren.get(agentId);
     if (child !== undefined) child.runInBackground = true;
+  }
+
+  async disposeOwner(): Promise<void> {
+    await this.session.disposeAgent(this.ownerAgentId);
   }
 
   async getProfileName(agentId: string): Promise<string | undefined> {
@@ -462,9 +482,7 @@ export class SessionSubagentHost {
     const profile =
       this.resolveDelegatableSubagents(parent.config.profileName, parent.config.subagentNames)[
         profileName
-      ] ??
-      DEFAULT_AGENT_PROFILES[parent.config.profileName ?? 'agent']?.subagents?.[profileName] ??
-      getSubagentProfiles(this.session.options?.kimiHomeDir)[profileName];
+      ];
     if (profile === undefined) {
       throw new Error(`Subagent profile "${profileName}" was not found`);
     }
@@ -541,15 +559,7 @@ export class SessionSubagentHost {
     callerProfileName: string | undefined,
     persistedNames: readonly string[] | undefined,
   ): Record<string, ResolvedAgentProfile> {
-    const catalogProfiles = this.session.agentCatalog.delegatableSubagents(callerProfileName);
-    if (persistedNames === undefined) return catalogProfiles;
-
-    return Object.fromEntries(
-      persistedNames.flatMap((name) => {
-        const profile = catalogProfiles[name];
-        return profile === undefined ? [] : [[name, profile]];
-      }),
-    );
+    return this.session.agentCatalog.delegatableSubagents(callerProfileName, persistedNames);
   }
 
   private runWithActiveChild(

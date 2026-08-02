@@ -155,7 +155,7 @@ disallowedTools:
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `name` | 否 | kebab-case 唯一标识。缺省时取文件名（去掉扩展名，如 `review.md` → `review`）；解析后名字缺失或不是 kebab-case 的文件会被跳过并告警 |
-| `description` | 是 | Agent 的用途。主 Agent 挑选子 Agent 时会看到，请围绕委派决策来写 |
+| `description` | 否 | Agent 的用途。主 Agent 挑选子 Agent 时会看到，请围绕委派决策来写；缺省时取正文第一条非空行（最多 240 字符） |
 | `whenToUse` | 否 | 补充说明何时应使用该 Agent |
 | `override` | 否 | 是否允许覆盖同名内置 Agent，默认 `false`。`--agent-file` 属于显式启动意图，无需设置此字段 |
 | `model_preference` | 否 | `Agent` 或 `AgentSwarm` 启动该 profile 时的符号默认值：`primary` 选择调用方的主模型，`secondary` 选择 `[secondary_model] model`。工具调用显式传入的 `model` 优先；两者均未设置时，已配置的次主力模型仍为默认值。未配置次主力模型时，子 Agent 继承调用方模型 |

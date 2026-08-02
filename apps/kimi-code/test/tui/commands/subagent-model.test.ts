@@ -1,4 +1,4 @@
-import type { Session } from '@moonshot-ai/kimi-code-sdk';
+import type { ListSubagentProfileEntry, Session } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { applySubagentModelSettingsChanges } from '#/tui/commands/config';
@@ -14,10 +14,12 @@ function makeHost(options: {
   bindings?: Record<string, { model?: string; thinkingEffort?: string; inherit?: boolean }>;
   slotBindings?: Record<string, { model?: string; thinkingEffort?: string; inherit?: boolean }>;
   availableModels?: Record<string, { supportEfforts?: string[] }>;
+  profiles?: readonly ListSubagentProfileEntry[];
 }) {
   const bindings = options.bindings ?? {};
   const slotBindings = options.slotBindings ?? {};
   const availableModels = options.availableModels ?? { 'k3': {}, 'glm': { supportEfforts: ['low', 'high'] } };
+  const profiles = options.profiles ?? [];
   const state = {
     appState: {
       availableModels,
@@ -28,6 +30,7 @@ function makeHost(options: {
   let mountedPanel: MountedPanel | null = null;
   const session = {
     id: 'session-1',
+    listSubagentProfiles: vi.fn(async () => profiles),
     getSubagentBindings: vi.fn(async () => bindings),
     setSubagentBinding: vi.fn(
       async (_type: string, _binding?: unknown) => ({ configPath: '/repo/.kimi-code/local.toml' }),
@@ -96,6 +99,16 @@ describe('handleSubagentModelCommand', () => {
     expect(host.showStatus).toHaveBeenCalledWith(
       expect.stringContaining('explore: inherit from main agent'),
     );
+  });
+
+  it('labels available profiles with their catalog source', async () => {
+    const { host } = makeHost({
+      profiles: [{ name: 'test', source: 'project' }],
+    });
+
+    await handleSubagentModelCommand(host, 'list');
+
+    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('test (project)'));
   });
 
   it('lists slot bindings in their own section', async () => {

@@ -46,11 +46,8 @@ import {
 import type { EnabledPluginSessionStart, EnabledPluginSystemPrompt, PluginCommandDef } from '../plugin';
 import {
   AgentProfileCatalogSnapshotSchema,
-  DEFAULT_AGENT_PROFILES,
   DEFAULT_AGENT_PROFILE_NAME,
   DEFAULT_INIT_PROMPT,
-  getSubagentProfiles,
-  getUserSubagentProfileNames,
   SessionAgentProfileCatalog,
   loadAgentsMd,
   prepareSystemPromptContext,
@@ -419,16 +416,23 @@ export class Session {
     return readSubagentBindings(this.systemContextKaos(cwd), cwd);
   }
 
-  /** Merged built-in + user sub-agent profiles (from `<home>/agents/*.md`). */
+  /** List the profiles currently delegatable by the resumed main agent. */
   async listSubagentProfiles(): Promise<readonly ListSubagentProfileEntry[]> {
-    const home = this.options.kimiHomeDir;
-    const profiles = getSubagentProfiles(home);
-    const userNames = new Set(getUserSubagentProfileNames(home));
+    await this.skillsReady;
+    const main = this.getReadyAgent('main');
+    const profiles = this.agentCatalog.delegatableSubagents(
+      main?.config.profileName,
+      main?.config.subagentNames,
+    );
+    const snapshot = this.agentCatalog.snapshot();
+    const sourceByName = new Map(
+      snapshot?.profiles.map(({ name, source }) => [name, source] as const) ?? [],
+    );
     return Object.entries(profiles).map(([name, profile]) => ({
       name,
       description: profile.description,
       whenToUse: profile.whenToUse,
-      source: userNames.has(name) ? ('user' as const) : ('builtin' as const),
+      source: sourceByName.get(name) ?? ('builtin' as const),
     }));
   }
 
@@ -880,6 +884,12 @@ export class Session {
       throw new KimiError(ErrorCodes.AGENT_NOT_FOUND, `Agent "${id}" was not found`);
     }
     return (await this.resumeAgent(id)).agent;
+  }
+
+  async disposeAgent(agentId: string): Promise<void> {
+    const entry = this.agents.get(agentId);
+    if (entry instanceof Promise) return;
+    if (entry !== undefined) this.agents.delete(agentId);
   }
 
   /**
@@ -1447,11 +1457,10 @@ export class Session {
     if (profileName === undefined) return undefined;
     if (meta.type === 'sub') {
       const parentProfileName = parentAgent?.config.profileName;
-      return (
-        this.agentCatalog.delegatableSubagents(parentProfileName ?? 'agent')[profileName] ??
-        DEFAULT_AGENT_PROFILES[parentProfileName ?? 'agent']?.subagents?.[profileName] ??
-        getSubagentProfiles(this.options.kimiHomeDir)[profileName]
-      );
+      return this.agentCatalog.delegatableSubagents(
+        parentProfileName ?? 'agent',
+        parentAgent?.config.subagentNames,
+      )[profileName];
     }
     return this.agentCatalog.get(profileName);
   }

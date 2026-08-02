@@ -579,6 +579,8 @@ export * from '#/agent/stepRetry/stepRetry';
 export * from '#/agent/stepRetry/stepRetryService';
 export * from '#/session/btw/btw';
 export * from '#/session/btw/btwService';
+export * from '#/session/tipSave/tipSave';
+export * from '#/session/tipSave/tipSaveService';
 export * from '#/session/sessionInit/sessionInit';
 export * from '#/session/sessionInit/sessionInitService';
 export * from '#/session/sessionInit/profile/init';

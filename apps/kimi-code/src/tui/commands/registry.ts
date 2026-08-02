@@ -245,6 +245,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
+    name: 'tip-save',
+    aliases: ['tip'],
+    description: 'Summarize the discussion into moamcp Project Tips via a cheap side agent',
+    priority: 85,
+    availability: 'always',
+  },
+  {
     name: 'help',
     aliases: ['h', '?'],
     description: 'Show available commands and shortcuts',

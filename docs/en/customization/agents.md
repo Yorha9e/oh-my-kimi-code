@@ -155,7 +155,7 @@ You are a strict code reviewer. Read the diff, then report findings grouped by s
 | Field | Required | Description |
 | --- | --- | --- |
 | `name` | no | Unique identifier in kebab-case. Defaults to the file name without its extension (`review.md` → `review`); a file whose resolved name is missing or not kebab-case is skipped with a warning |
-| `description` | yes | What the agent does. Shown to the main Agent when it picks a sub-agent, so write it to guide delegation decisions |
+| `description` | no | What the agent does. Shown to the main Agent when it picks a sub-agent, so write it to guide delegation decisions; defaults to the first non-empty body line (up to 240 characters) |
 | `whenToUse` | no | Extra hint describing when the agent should be used |
 | `override` | no | Whether this file may replace a same-name built-in Agent. Defaults to `false`; `--agent-file` is already explicit and does not require this field |
 | `model_preference` | no | Symbolic default used when `Agent` or `AgentSwarm` spawns this profile: `primary` selects the caller's main model, while `secondary` selects `[secondary_model] model`. An explicit tool-call `model` wins; without either setting, the configured secondary model remains the default. If no secondary model is configured, the subagent inherits the caller's model |

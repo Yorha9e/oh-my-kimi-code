@@ -15,7 +15,6 @@ import { createSubagentBindingCallbacks, createSubagentBindingResolver } from '.
 import { mcpResultToExecutableOutput } from '../../mcp/output';
 import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '../../mcp/types';
-import { getSubagentProfiles } from '../../profile';
 import { resolveSubagentTimeoutMs } from '../../session/subagent-host';
 import { buildSubagentModelDescriptions } from '../../session/subagent-binding';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
@@ -849,10 +848,7 @@ export class ToolManager {
           new b.AgentTool(
             this.agent.subagentHost,
             background,
-            {
-              ...getSubagentProfiles(this.agent.kimiHomeDir),
-              ...this.agent.subagentHost.delegatableSubagents(this.agent.config.profileName),
-            },
+            this.agent.subagentHost.delegatableSubagents(this.agent.config.profileName),
             {
               allowBackground,
               log: this.agent.log,

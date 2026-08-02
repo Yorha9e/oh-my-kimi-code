@@ -163,12 +163,15 @@ function makeSession(overrides: Record<string, unknown> = {}) {
   return {
     id: 'ses-1',
     model: 'k2',
+    workDir: '/tmp/proj-a',
     summary: { title: null },
     prompt: vi.fn(async (_input: unknown) => {}),
     compact: vi.fn(async () => {}),
     steer: vi.fn(async () => {}),
     init: vi.fn(async () => {}),
     startBtw: vi.fn(async () => 'agent-btw'),
+    startTipSave: vi.fn(async () => 'agent-tip-save'),
+    disposeAgent: vi.fn(async () => {}),
     undoHistory: vi.fn(async () => {}),
     cancel: vi.fn(async () => {}),
     cancelCompaction: vi.fn(async () => {}),
@@ -2606,6 +2609,99 @@ command = "vim"
 
     expect(session.cancel).toHaveBeenCalledOnce();
     expect(driver.state.btwPanelContainer.children).toHaveLength(0);
+  });
+
+  it('starts /tip-save through a forked side agent and notices the report', async () => {
+    const eventListeners: Array<(event: Event) => void> = [];
+    const session = makeSession({
+      onEvent: vi.fn((listener: (event: Event) => void) => {
+        eventListeners.push(listener);
+        return vi.fn();
+      }),
+    });
+    const { driver, harness } = await makeDriver(session, {
+      withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
+        expect(agentId).toBe('agent-tip-save');
+        return fn();
+      }),
+    });
+    harness.track.mockClear();
+
+    driver.handleUserInput('/tip-save 优先沉淀 MCP 工具链方案');
+
+    await vi.waitFor(() => {
+      expect(session.startTipSave).toHaveBeenCalledWith();
+    });
+    await vi.waitFor(() => {
+      expect(session.prompt).toHaveBeenCalledTimes(1);
+    });
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'tip-save' });
+
+    const prompt = session.prompt.mock.calls[0]?.[0] as string;
+    expect(prompt).toContain('/tmp/proj-a');
+    expect(prompt).toContain('moa_tip_create');
+    expect(prompt).toContain('Additional instructions from the user: 优先沉淀 MCP 工具链方案');
+    expect(stripSgr(renderTranscript(driver))).toContain('TipSave started in background');
+
+    for (const listener of eventListeners) {
+      listener({
+        type: 'assistant.delta',
+        agentId: 'agent-tip-save',
+        sessionId: 'ses-1',
+        turnId: 0,
+        delta: 'Saved 2 tips:',
+      } as Event);
+    }
+    for (const listener of eventListeners) {
+      listener({
+        type: 'turn.ended',
+        agentId: 'agent-tip-save',
+        sessionId: 'ses-1',
+        turnId: 0,
+        reason: 'completed',
+      } as Event);
+    }
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('TipSave finished');
+    expect(transcript).toContain('Saved 2 tips:');
+    // The one-shot child is released once its turn has ended.
+    expect(session.disposeAgent).toHaveBeenCalledWith('agent-tip-save');
+  });
+
+  it('notices /tip-save failure when the child turn fails', async () => {
+    const eventListeners: Array<(event: Event) => void> = [];
+    const session = makeSession({
+      onEvent: vi.fn((listener: (event: Event) => void) => {
+        eventListeners.push(listener);
+        return vi.fn();
+      }),
+    });
+    const { driver } = await makeDriver(session);
+
+    driver.handleUserInput('/tip-save');
+
+    await vi.waitFor(() => {
+      expect(session.prompt).toHaveBeenCalledTimes(1);
+    });
+
+    for (const listener of eventListeners) {
+      listener({
+        type: 'turn.ended',
+        agentId: 'agent-tip-save',
+        sessionId: 'ses-1',
+        turnId: 0,
+        reason: 'failed',
+        error: { code: 'provider.filtered', message: 'provider blocked the response' },
+      } as Event);
+    }
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('TipSave failed');
+    expect(transcript).toContain('provider.filtered');
+    // A failed turn still releases the one-shot child.
+    expect(session.disposeAgent).toHaveBeenCalledWith('agent-tip-save');
   });
 
   it('renders /btw output in a dedicated panel instead of an Agent tool card', async () => {

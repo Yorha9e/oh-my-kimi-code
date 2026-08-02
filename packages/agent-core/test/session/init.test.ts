@@ -699,6 +699,132 @@ describe('AgentAPI.startBtw', () => {
   });
 });
 
+describe('AgentAPI.startTipSave', () => {
+  it('creates an ephemeral child that inherits tools and history without btw restrictions', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+
+    const events: Array<Record<string, unknown>> = [];
+    const scripted = createScriptedGenerate();
+    const rpc = createSessionRpc(events);
+    vi.mocked(rpc.toolCall).mockResolvedValue({
+      output: 'lookup note result',
+      isError: false,
+    });
+    const session = new Session({
+      id: 'test-tip-save',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc,
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      providerManager: testProviderManager(),
+    });
+    const { agent: mainAgent } = await session.createAgent(
+      { type: 'main', generate: scripted.generate },
+      { profile: testProfile() },
+    );
+    mainAgent.config.update({
+      modelAlias: 'mock-model',
+      thinkingEffort: 'off',
+    });
+    mainAgent.permission.setMode('yolo');
+    mainAgent.tools.setActiveTools(['Read']);
+    registerLookupNoteTool(mainAgent);
+    mainAgent.context.appendUserMessage([{ type: 'text', text: 'Main task context.' }]);
+    mainAgent.context.appendLoopEvent({
+      type: 'step.begin',
+      uuid: 'open-step',
+      turnId: 'main-turn',
+      step: 1,
+    });
+    mainAgent.context.appendLoopEvent({
+      type: 'tool.call',
+      uuid: 'open-call',
+      turnId: 'main-turn',
+      step: 1,
+      stepUuid: 'open-step',
+      toolCallId: 'call-open',
+      name: 'Read',
+      args: { path: 'src/main.ts' },
+    });
+    events.length = 0;
+
+    try {
+      const api = new SessionAPIImpl(session);
+      const agentId = await api.startTipSave({ agentId: 'main' });
+      expect(agentId).toBe('agent-0');
+      expect(session.metadata.agents[agentId]).toBeUndefined();
+
+      const childAgent = session.getReadyAgent(agentId);
+      if (childAgent === undefined) throw new Error('Expected /tip-save child agent');
+      const inheritedHistory = trimTrailingOpenToolExchange(
+        mainAgent.context.project(mainAgent.context.history),
+      );
+      expect(childAgent.context.history).toEqual(inheritedHistory);
+      expect(childAgent.config.modelAlias).toBe(mainAgent.config.modelAlias);
+      expect(childAgent.config.thinkingEffort).toBe(mainAgent.config.thinkingEffort);
+      expect(childAgent.config.systemPrompt).toBe(mainAgent.config.systemPrompt);
+      expect(childAgent.tools.loopTools.map((tool) => tool.name)).toEqual([
+        'LookupNote',
+        'Read',
+      ]);
+      expect(childAgent.permission.policies.some((policy) => policy.name === 'deny-all')).toBe(
+        false,
+      );
+      const inheritedText = JSON.stringify(childAgent.context.history);
+      expect(inheritedText).not.toContain('side-channel conversation');
+      expect(inheritedText).not.toContain('Tool calls are disabled');
+
+      scripted.mockNextResponse(lookupNoteCall());
+      scripted.mockNextResponse({ type: 'text', text: 'Tip saved.' });
+      await api.prompt({
+        agentId,
+        input: [{ type: 'text', text: 'Save a useful tip from the current context.' }],
+      });
+
+      await vi.waitFor(() => {
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'turn.ended',
+            agentId,
+            reason: 'completed',
+          }),
+        );
+      });
+      expect(scripted.calls).toHaveLength(2);
+      expect(scripted.calls[0]?.tools.map((tool) => tool.name)).toEqual([
+        'LookupNote',
+        'Read',
+      ]);
+      expect(JSON.stringify(scripted.calls[0]?.history)).not.toContain(
+        'Tool calls are disabled for side questions.',
+      );
+      expect(JSON.stringify(scripted.calls[0]?.history)).not.toContain(
+        'This is a side-channel conversation with the user.',
+      );
+      expect(JSON.stringify(scripted.calls[1]?.history)).toContain('lookup note result');
+      expect(rpc.toolCall).toHaveBeenCalled();
+      const toolResult = events.find(
+        (event) =>
+          event['type'] === 'tool.result' &&
+          event['agentId'] === agentId &&
+          event['toolCallId'] === 'call_lookup_note',
+      );
+      expect(toolResult).toEqual(
+        expect.objectContaining({
+          type: 'tool.result',
+          agentId,
+          toolCallId: 'call_lookup_note',
+          output: 'lookup note result',
+        }),
+      );
+      expect(toolResult?.['isError']).not.toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
+});
+
 describe('Session secondary-model live config', () => {
   const SECONDARY_BASE_CONFIG: KimiConfig = {
     providers: {
