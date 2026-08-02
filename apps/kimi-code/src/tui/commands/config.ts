@@ -3,6 +3,7 @@ import {
   SECONDARY_DERIVED_MODEL_ALIAS,
   type ExperimentalFeatureState,
   type KimiConfig,
+  type ListSubagentProfileEntry,
   type ModelAlias,
   type PermissionMode,
   type Session,
@@ -943,10 +944,9 @@ async function showSubagentModelSettings(host: SlashCommandHost): Promise<void> 
   }
   // Best-effort: list user + builtin subagent profiles for the type dropdown.
   // On failure the panel falls back to BUILTIN_SUBAGENT_TYPES.
-  let subagentProfiles: readonly string[] | undefined;
+  let subagentProfiles: readonly ListSubagentProfileEntry[] | undefined;
   try {
-    const profiles = await session.listSubagentProfiles();
-    subagentProfiles = profiles.map((p) => p.name);
+    subagentProfiles = await session.listSubagentProfiles();
   } catch {
     // Ignore - the panel uses its built-in fallback.
   }
@@ -958,7 +958,7 @@ function mountSubagentModelSettingsPanel(
   session: Session,
   workspace: SubagentModelLayerData,
   global: SubagentModelLayerData,
-  subagentProfiles?: readonly string[],
+  subagentProfiles?: readonly ListSubagentProfileEntry[],
 ): void {
   const panel = new SubagentModelSettingsComponent({
     workspace,

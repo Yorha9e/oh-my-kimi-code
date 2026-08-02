@@ -2502,7 +2502,7 @@ describe('Session.listSubagentProfiles', () => {
     );
     await writeProjectAgent(
       'test.md',
-      '---\nname: test\n---\nProject test agent.\n',
+      '---\nname: test\nslot: project-review\n---\nProject test agent.\n',
     );
 
     const session = new Session({
@@ -2531,7 +2531,11 @@ describe('Session.listSubagentProfiles', () => {
     });
 
     const project = byName.get('test');
-    expect(project).toMatchObject({ source: 'project', description: 'Project test agent.' });
+    expect(project).toMatchObject({
+      source: 'project',
+      description: 'Project test agent.',
+      slot: 'project-review',
+    });
   });
 
   it('returns only built-in profiles when no agents dir exists', async () => {

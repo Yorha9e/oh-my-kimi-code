@@ -433,6 +433,7 @@ export class Session {
       description: profile.description,
       whenToUse: profile.whenToUse,
       source: sourceByName.get(name) ?? ('builtin' as const),
+      slot: profile.slot,
     }));
   }
 

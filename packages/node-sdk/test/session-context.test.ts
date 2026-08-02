@@ -100,7 +100,7 @@ describe('Session context', () => {
     await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
     await writeFile(
       join(workDir, '.kimi-code', 'agents', 'test.md'),
-      '---\nname: test\ndescription: A project agent\n---\nReview the project.\n',
+      '---\nname: test\ndescription: A project agent\nslot: project-review\n---\nReview the project.\n',
       'utf8',
     );
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
@@ -123,6 +123,7 @@ describe('Session context', () => {
       const projectProfile = byName.get('test');
       expect(projectProfile?.source).toBe('project');
       expect(projectProfile?.description).toBe('A project agent');
+      expect(projectProfile?.slot).toBe('project-review');
     } finally {
       await harness.close();
     }

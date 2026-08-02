@@ -11,6 +11,13 @@
  * confirmation on the row, Enter executes it, and Esc (or any movement key)
  * cancels. Type rows keep D as a clear/restore-binding-draft toggle. The
  * component never talks to the SDK itself.
+ *
+ * The Global layer only offers profiles that can actually be bound globally:
+ * `project` and `explicit` profiles belong to a repo, so they are not shown as
+ * new Global bindings there. A Global row for such a profile stays visible when
+ * a persisted global binding already exists (so it can be viewed/cleared), and
+ * historical dangling bindings are never hidden. The Workspace layer keeps
+ * every profile (including `project`, with its source badge and slot hint).
  */
 
 import {
@@ -22,7 +29,10 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import type { SubagentBinding } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  ListSubagentProfileEntry,
+  SubagentBinding,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import { BUILTIN_SUBAGENT_TYPES } from '#/tui/constant/subagent-model';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
@@ -64,9 +74,9 @@ export interface SubagentModelSettingsOptions {
   readonly workspace: SubagentModelLayerData;
   readonly global: SubagentModelLayerData;
   readonly availableModels: Readonly<Record<string, SubagentBindingModelLike>>;
-  /** Subagent profile names from `listSubagentProfiles` RPC. When omitted the
+  /** Subagent profiles from `listSubagentProfiles` RPC. When omitted the
    * panel falls back to `BUILTIN_SUBAGENT_TYPES` (the pre-RPC behavior). */
-  readonly subagentProfiles?: readonly string[];
+  readonly subagentProfiles?: readonly ListSubagentProfileEntry[];
   /** Mount a child picker into the editor-replacement slot. */
   readonly mountPicker: (picker: ChoicePickerComponent) => void;
   /** Re-mount this panel after a child picker settles. */
@@ -86,6 +96,9 @@ interface SubagentModelRow {
   readonly kind: 'type' | 'slot';
   readonly name: string;
   readonly original: SubagentBinding | undefined;
+  /** Catalog metadata carried by type rows from `listSubagentProfiles`. */
+  readonly source?: ListSubagentProfileEntry['source'];
+  readonly slot?: string;
   /** True for slots added via `+ Add slot…` that are not yet persisted. */
   readonly isNew?: boolean;
 }
@@ -106,10 +119,14 @@ class SubagentModelLayerState {
   readonly draft = new Map<string, SubagentBinding | undefined>();
   list: SearchableList<SubagentModelItem>;
 
-  constructor(data: SubagentModelLayerData, profileNames: readonly string[]) {
+  constructor(
+    data: SubagentModelLayerData,
+    profiles: readonly ListSubagentProfileEntry[],
+    globalLayer: boolean,
+  ) {
     this.bindings = data.bindings;
     this.slots = { ...data.slots };
-    this.items = buildItems(data, profileNames);
+    this.items = buildItems(data, profiles, globalLayer);
     this.list = makeList(this.items, 0);
   }
 
@@ -148,10 +165,12 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   constructor(opts: SubagentModelSettingsOptions) {
     super();
     this.opts = opts;
-    const profileNames = opts.subagentProfiles ?? BUILTIN_SUBAGENT_TYPES;
+    const profiles =
+      opts.subagentProfiles ??
+      BUILTIN_SUBAGENT_TYPES.map((name) => ({ name, source: 'builtin' as const }));
     this.layers = {
-      workspace: new SubagentModelLayerState(opts.workspace, profileNames),
-      global: new SubagentModelLayerState(opts.global, profileNames),
+      workspace: new SubagentModelLayerState(opts.workspace, profiles, false),
+      global: new SubagentModelLayerState(opts.global, profiles, true),
     };
   }
 
@@ -450,9 +469,14 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
   ): string {
     const pointer = selected ? SELECT_POINTER : ' ';
     const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
-    const label = selected
+    const labelName = selected
       ? currentTheme.boldFg('primary', row.name)
       : currentTheme.fg('text', row.name);
+    const source =
+      row.kind === 'type' && row.source !== undefined && row.source !== 'builtin'
+        ? currentTheme.fg('textMuted', ` (${row.source})`)
+        : '';
+    const label = labelName + source;
     if (this.deleteConfirmRow === row) {
       const prompt = currentTheme.boldFg(
         'warning',
@@ -468,16 +492,52 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
       status = formatSubagentBinding(effective, this.opts.availableModels);
     }
     let detail = layer.draft.has(rowKey(row)) ? `${status} · modified` : status;
+    const followsSlot = this.followsSlot(layer, row);
+    if (followsSlot !== undefined) detail += ` · follows slot: ${followsSlot}`;
     const globalRef = this.globalReference(row);
     if (globalRef !== undefined) detail += ` · global: ${globalRef}`;
     return `${prefix}${label}  ${currentTheme.fg('textMuted', detail)}`;
   }
 
-  /** Workspace rows reference the persisted global binding for the same name. */
+  private followsSlot(_layer: SubagentModelLayerState, row: SubagentModelRow): string | undefined {
+    if (row.kind !== 'type' || row.slot === undefined) return undefined;
+    return typeBindingOverridesSlot(
+      this.effectiveTypeBinding(row.name),
+      this.opts.availableModels,
+    )
+      ? undefined
+      : row.slot;
+  }
+
+  /** Workspace-first type lookup used by the runtime, regardless of the editing tab. */
+  private effectiveTypeBinding(name: string): SubagentBinding | undefined {
+    const workspace = this.layers.workspace;
+    const key = `type:${name}`;
+    if (workspace.draft.has(key)) {
+      const draft = workspace.draft.get(key);
+      // Clearing the workspace entry reveals the global fallback after Apply;
+      // an explicit binding (including `inherit`) still shadows that layer.
+      if (draft !== undefined) return draft;
+    } else if (Object.prototype.hasOwnProperty.call(workspace.bindings, name)) {
+      return workspace.bindings[name];
+    }
+    return this.layerBinding(this.layers.global, 'type', name);
+  }
+
+  private layerBinding(
+    layer: SubagentModelLayerState,
+    kind: 'type' | 'slot',
+    name: string,
+  ): SubagentBinding | undefined {
+    const key = `${kind}:${name}`;
+    if (layer.draft.has(key)) return layer.draft.get(key);
+    return kind === 'type' ? layer.bindings[name] : layer.slots[name];
+  }
+
+  /** Workspace rows reference the current global binding for the same name. */
   private globalReference(row: SubagentModelRow): string | undefined {
     if (this.activeLayer !== 'workspace') return undefined;
-    const global = this.layers.global;
-    const binding = row.kind === 'slot' ? global.slots[row.name] : global.bindings[row.name];
+    const binding = this.layerBinding(this.layers.global, row.kind, row.name);
     return binding === undefined ? undefined : formatSubagentBinding(binding);
   }
 
@@ -540,15 +600,39 @@ export class SubagentModelSettingsComponent extends Container implements Focusab
 
 function buildItems(
   data: SubagentModelLayerData,
-  profileNames: readonly string[],
+  profiles: readonly ListSubagentProfileEntry[],
+  globalLayer: boolean,
 ): SubagentModelItem[] {
+  const profileByName = new Map(profiles.map((profile) => [profile.name, profile] as const));
+  // The Global layer only offers profiles that can be bound globally. `project`
+  // and `explicit` profiles belong to a repo, so they are not offered as new
+  // Global bindings — unless a persisted global binding already exists for one,
+  // in which case the row stays visible so it can be viewed/cleared. Dangling
+  // bindings (names no longer in the catalog) are always kept via the union
+  // with `data.bindings` below. The Workspace layer keeps every profile.
+  const offeredProfiles = globalLayer
+    ? profiles.filter(
+        (profile) =>
+          (profile.source !== 'project' && profile.source !== 'explicit') ||
+          Object.prototype.hasOwnProperty.call(data.bindings, profile.name),
+      )
+    : profiles;
   const typeNames = [
-    ...new Set([...profileNames, ...Object.keys(data.bindings)]),
+    ...new Set([...offeredProfiles.map((profile) => profile.name), ...Object.keys(data.bindings)]),
   ].toSorted();
-  const items: SubagentModelItem[] = typeNames.map((name) => ({
-    kind: 'row',
-    row: { kind: 'type', name, original: data.bindings[name] },
-  }));
+  const items: SubagentModelItem[] = typeNames.map((name) => {
+    const profile = profileByName.get(name);
+    return {
+      kind: 'row',
+      row: {
+        kind: 'type',
+        name,
+        original: data.bindings[name],
+        source: profile?.source,
+        slot: profile?.slot,
+      },
+    };
+  });
   for (const name of Object.keys(data.slots).toSorted()) {
     items.push({ kind: 'row', row: { kind: 'slot', name, original: data.slots[name] } });
   }
@@ -585,6 +669,15 @@ function validateSlotName(name: string, layer: SubagentModelLayerState): string 
 
 function rowKey(row: SubagentModelRow): string {
   return `${row.kind}:${row.name}`;
+}
+
+/** Mirrors runtime fallback: inherit and stale model aliases do not shadow a profile slot. */
+function typeBindingOverridesSlot(
+  binding: SubagentBinding | undefined,
+  availableModels: Readonly<Record<string, SubagentBindingModelLike>>,
+): boolean {
+  if (binding === undefined || binding.inherit === true) return false;
+  return binding.model === undefined || binding.model in availableModels;
 }
 
 function bindingEquals(

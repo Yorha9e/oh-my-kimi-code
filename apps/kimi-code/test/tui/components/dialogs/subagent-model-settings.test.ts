@@ -1,4 +1,7 @@
-import type { SubagentBinding } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  ListSubagentProfileEntry,
+  SubagentBinding,
+} from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
@@ -36,7 +39,7 @@ interface HarnessOverrides {
   readonly workspace?: SubagentModelLayerData;
   readonly global?: SubagentModelLayerData;
   readonly availableModels?: Readonly<Record<string, { supportEfforts?: readonly string[] }>>;
-  readonly subagentProfiles?: readonly string[];
+  readonly subagentProfiles?: readonly ListSubagentProfileEntry[];
 }
 
 const EMPTY_LAYER: SubagentModelLayerData = { bindings: {}, slots: {} };
@@ -677,21 +680,259 @@ describe('SubagentModelSettingsComponent', () => {
   it('renders user-defined profile types when subagentProfiles is provided', () => {
     const { panel } = makeHarness({
       subagentProfiles: [
-        'coder',
-        'critic',
-        'explore',
-        'orchestrator',
-        'plan',
-        'synthesizer',
-        'my-reviewer',
+        { name: 'coder', source: 'builtin' },
+        { name: 'critic', source: 'builtin' },
+        { name: 'explore', source: 'builtin' },
+        { name: 'orchestrator', source: 'builtin' },
+        { name: 'plan', source: 'builtin' },
+        { name: 'synthesizer', source: 'builtin' },
+        { name: 'my-reviewer', source: 'project' },
       ],
     });
     const out = text(panel);
     // Built-in types are still present.
     expect(out).toContain('coder');
     expect(out).toContain('explore');
-    // The user-defined type appears as an unbound type row.
-    expect(out).toContain('my-reviewer  not bound');
+    // The user-defined type appears as an unbound type row with its source badge.
+    expect(out).toContain('my-reviewer (project)  not bound');
+  });
+
+  it('renders source badges for non-builtin profiles but not builtin profiles', () => {
+    const { panel } = makeHarness({
+      subagentProfiles: [
+        { name: 'builtin-agent', source: 'builtin' },
+        { name: 'project-agent', source: 'project' },
+      ],
+    });
+    const out = text(panel);
+
+    expect(out).toContain('builtin-agent  not bound');
+    expect(out).not.toContain('builtin-agent (builtin)');
+    expect(out).toContain('project-agent (project)  not bound');
+  });
+
+  it('shows a declared profile slot when no type binding overrides it', () => {
+    const { panel } = makeHarness({
+      workspace: { bindings: {}, slots: { review: { model: 'kimi-k2' } } },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+
+    expect(text(panel)).toContain('reviewer (project)  not bound · follows slot: review');
+  });
+
+  it('hides a declared profile slot when a direct type binding is present', () => {
+    const { panel } = makeHarness({
+      workspace: {
+        bindings: { reviewer: { model: 'kimi-k2' } },
+        slots: { review: { model: 'kimi-k2' } },
+      },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+    const out = text(panel);
+
+    expect(out).toContain('reviewer (project)  kimi-k2');
+    expect(out).not.toContain('follows slot: review');
+  });
+
+  it('uses the effective global type binding as a workspace fallback for slot hints', () => {
+    const { panel } = makeHarness({
+      workspace: { bindings: {}, slots: { review: { model: 'kimi-k2' } } },
+      global: { bindings: { reviewer: { model: 'gpt-5' } }, slots: {} },
+      availableModels: { 'kimi-k2': {}, 'gpt-5': {} },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+    const out = text(panel);
+
+    expect(out).toContain('reviewer (project)  not bound · global: gpt-5');
+    expect(out).not.toContain('follows slot: review');
+  });
+
+  it('keeps the global type fallback when a workspace type binding is cleared', () => {
+    const { panel } = makeHarness({
+      workspace: {
+        bindings: { reviewer: { model: 'kimi-k2' } },
+        slots: { review: { model: 'kimi-k2' } },
+      },
+      global: { bindings: { reviewer: { model: 'gpt-5' } }, slots: {} },
+      availableModels: { 'kimi-k2': {}, 'gpt-5': {} },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+
+    panel.handleInput('D');
+    const out = text(panel);
+    expect(out).toContain('reviewer (project)  not bound · modified · global: gpt-5');
+    expect(out).not.toContain('follows slot: review');
+  });
+
+  it('treats explicit inherit as slot-following even with global type fallback', () => {
+    const { panel, mountPicker } = makeHarness({
+      workspace: { bindings: {}, slots: { review: { model: 'kimi-k2' } } },
+      global: { bindings: { reviewer: { model: 'gpt-5' } }, slots: {} },
+      availableModels: { 'kimi-k2': {}, 'gpt-5': {} },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+
+    expect(text(panel)).not.toContain('follows slot: review');
+
+    // An explicit inherit draft shadows the global type binding at runtime, so
+    // the profile slot becomes effective again.
+    panel.handleInput(ENTER);
+    const modelPicker = mountPicker.mock.calls[0]![0];
+    modelPicker.handleInput(ENTER);
+    expect(text(panel)).toContain(
+      'reviewer (project)  inherit from main agent · modified · follows slot: review',
+    );
+  });
+
+  it('updates the slot hint when a direct type draft is cleared and restored', () => {
+    const { panel } = makeHarness({
+      workspace: {
+        bindings: { reviewer: { model: 'kimi-k2' } },
+        slots: { review: { model: 'kimi-k2' } },
+      },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+
+    panel.handleInput('D');
+    expect(text(panel)).toContain('reviewer (project)  not bound · modified · follows slot: review');
+
+    panel.handleInput('D');
+    expect(text(panel)).toContain('reviewer (project)  kimi-k2');
+    expect(text(panel)).not.toContain('follows slot: review');
+  });
+
+  it('uses the workspace-first runtime binding when showing slot hints on the Global page', () => {
+    const { panel } = makeHarness({
+      workspace: {
+        bindings: { reviewer: { model: 'kimi-k2' } },
+        slots: { review: { model: 'kimi-k2' } },
+      },
+      global: { bindings: { reviewer: { model: 'gpt-5' } }, slots: {} },
+      availableModels: { 'kimi-k2': {}, 'gpt-5': {} },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+
+    panel.handleInput(TAB);
+    const out = text(panel);
+    // The project profile only stays on the Global page because it has a
+    // persisted global binding, and the slot hint still follows the
+    // workspace-first runtime lookup (workspace `kimi-k2` shadows the slot).
+    expect(out).toContain('reviewer (project)  gpt-5');
+    expect(out).not.toContain('follows slot: review');
+  });
+
+  it('shows slot following when the direct type model alias is stale', () => {
+    const { panel } = makeHarness({
+      workspace: {
+        bindings: { reviewer: { model: 'missing-model' } },
+        slots: { review: { model: 'kimi-k2' } },
+      },
+      subagentProfiles: [{ name: 'reviewer', source: 'project', slot: 'review' }],
+    });
+
+    expect(text(panel)).toContain(
+      'reviewer (project)  missing-model · follows slot: review',
+    );
+  });
+
+  it('does not offer project profiles as new bindings on the Global page', () => {
+    const { panel } = makeHarness({
+      subagentProfiles: [{ name: 'project-agent', source: 'project' }],
+    });
+
+    // The Workspace layer still lists the project profile with its badge.
+    expect(text(panel)).toContain('project-agent (project)  not bound');
+
+    // The Global layer does not offer it as a new binding.
+    panel.handleInput(TAB);
+    expect(text(panel)).not.toContain('project-agent');
+  });
+
+  it('does not offer explicit profiles as new bindings on the Global page', () => {
+    const { panel } = makeHarness({
+      subagentProfiles: [{ name: 'explicit-agent', source: 'explicit' }],
+    });
+
+    expect(text(panel)).toContain('explicit-agent (explicit)  not bound');
+
+    panel.handleInput(TAB);
+    expect(text(panel)).not.toContain('explicit-agent');
+  });
+
+  it('keeps existing global bindings for project profiles visible on the Global page', () => {
+    const { panel } = makeHarness({
+      global: { bindings: { 'project-agent': { model: 'kimi-k2' } }, slots: {} },
+      subagentProfiles: [{ name: 'project-agent', source: 'project' }],
+    });
+
+    panel.handleInput(TAB);
+    // The row stays so the persisted binding can be viewed/cleared, with its
+    // source badge retained from the profile metadata.
+    expect(text(panel)).toContain('project-agent (project)  kimi-k2');
+
+    // D clears it like any other Global type row.
+    panel.handleInput('D');
+    expect(text(panel)).toContain('project-agent (project)  not bound · modified');
+  });
+
+  it('keeps a dangling global binding for a type with no catalog profile', () => {
+    const { panel } = makeHarness({
+      global: { bindings: { 'legacy-agent': { model: 'kimi-k2' } }, slots: {} },
+      subagentProfiles: [],
+    });
+
+    panel.handleInput(TAB);
+    expect(text(panel)).toContain('legacy-agent  kimi-k2');
+  });
+
+  it('keeps a dangling global slot binding for a slot with no catalog metadata', () => {
+    const { panel } = makeHarness({
+      global: { bindings: {}, slots: { 'legacy-slot': { model: 'kimi-k2' } } },
+      subagentProfiles: [],
+    });
+
+    panel.handleInput(TAB);
+    expect(text(panel)).toContain('legacy-slot  kimi-k2');
+  });
+
+  it('offers user, plugin, and extra profiles as new Global bindings', () => {
+    const { panel } = makeHarness({
+      subagentProfiles: [
+        { name: 'user-agent', source: 'user' },
+        { name: 'plugin-agent', source: 'plugin' },
+        { name: 'extra-agent', source: 'extra' },
+      ],
+    });
+
+    panel.handleInput(TAB);
+    const out = text(panel);
+    expect(out).toContain('user-agent (user)  not bound');
+    expect(out).toContain('plugin-agent (plugin)  not bound');
+    expect(out).toContain('extra-agent (extra)  not bound');
+  });
+
+  it('keeps an explicit profile with a persisted global binding and routes D to the global layer', () => {
+    const { panel, onApply } = makeHarness({
+      global: { bindings: { 'explicit-agent': { model: 'kimi-k2' } }, slots: {} },
+      subagentProfiles: [{ name: 'explicit-agent', source: 'explicit' }],
+    });
+
+    panel.handleInput(TAB);
+    expect(text(panel)).toContain('explicit-agent (explicit)  kimi-k2');
+
+    // D clears the staged draft; a second D restores the persisted binding.
+    panel.handleInput('D');
+    expect(text(panel)).toContain('explicit-agent (explicit)  not bound · modified');
+    panel.handleInput('D');
+    expect(text(panel)).toContain('explicit-agent (explicit)  kimi-k2');
+
+    // Clear it again and apply: the change goes to the global layer.
+    panel.handleInput('D');
+    moveDown(panel, 32);
+    panel.handleInput(ENTER);
+    expect(onApply).toHaveBeenCalledWith('global', [
+      { kind: 'type', name: 'explicit-agent', binding: undefined },
+    ]);
   });
 
   it('falls back to built-in types when subagentProfiles is omitted', () => {

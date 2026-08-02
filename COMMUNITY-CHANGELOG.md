@@ -2,6 +2,21 @@
 
 本文件记录 [oh-my-kimi-code](https://github.com/Yorha9e/oh-my-kimi-code) 社区版（呼出命令 `omkc`）相对上游 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 新增的变更。按版本倒序排列。
 
+## 0.31.1-omkc.3
+
+_2026-08-02 · 修正全局子代理 Profile 的绑定作用域。_
+
+- **Global 页过滤项目 Profile**：`/settings` 的 Subagent models 全局层不再把当前工作区的 `project` / `explicit` Profile 作为可新增的全局绑定项，避免项目专属角色被误写入全局配置；Workspace 页的显示与绑定能力不变。
+- **历史绑定仍可清理**：已经存在的全局 `project` / `explicit` 绑定以及 Catalog 中已不存在的悬空绑定仍会显示，可继续查看并按 `D` 清除。
+
+## 0.31.1-omkc.2
+
+_2026-08-02 · 子代理设置页 Profile 来源与 slot 跟随提示。_
+
+- **Profile 来源徽章**：`/settings` 的 Subagent models 面板保留完整 Profile Catalog 元数据，非内置 Profile 会显示 `(project)`、`(plugin)` 等来源标记。
+- **slot 跟随提示**：Profile 声明 `slot` 且没有有效 type 绑定覆盖时，设置页显示 `follows slot: <name>`；提示遵循 Workspace-first、Global 回退、显式 inherit 与失效模型别名的真实运行时语义。
+- **RPC / SDK 元数据补全**：`listSubagentProfiles` 现在向 Node SDK 透传 Profile 的可选 `slot` 字段。
+
 ## 0.29.1-omkc.7
 
 _2026-07-28 · 内置 create-subagent-profile 技能。_
