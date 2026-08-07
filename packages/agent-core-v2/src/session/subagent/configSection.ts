@@ -23,7 +23,10 @@
  * naturally (global thinking config → the bound model's default effort)
  * rather than inheriting the caller's level. Both tools resolve spawn
  * bindings through `resolveSubagentBinding`, advertise the pair via
- * `buildSubagentModelDescriptions`, and wrap spawn failures with
+ * `buildSubagentModelDescriptions` (each line suffixed with the entry's
+ * resolved capability flags, so the parent can route multimodal or
+ * thinking-heavy subagent tasks instead of guessing from the model id),
+ * and wrap spawn failures with
  * `wrapSubagentModelError`; while the experiment is off they also strip the
  * no-op `model` parameter from their advertised schemas via
  * `stripSubagentModelParameter`.
@@ -35,8 +38,12 @@
  * `source: 'slot'`; the caller drops the level on `inherit: true` or an
  * unknown alias before it ever reaches the resolver. A slot setting only
  * `thinking_effort` keeps the model on the chain below (secondary → own)
- * while the slot's thinking level wins. Self-registered at
- * module load via `registerConfigSection`.
+ * while the slot's thinking level wins. Spawn reporting reads the display-facing
+ * alias from `subagentDisplayModel`: the derived entry id means nothing to a
+ * user, so it resolves back to the recipe's base alias — flag-independent on
+ * purpose, since interpreting an already-persisted derived binding (resume)
+ * must keep working after the experiment is switched off. Self-registered
+ * at module load via `registerConfigSection`.
  */
 
 import { z } from 'zod';
@@ -69,6 +76,8 @@ import {
   setDefined,
   transformPlainObject,
 } from '#/app/config/toml';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { IModelCatalog } from '#/kosong/model/catalog';
 
 import { SECONDARY_MODEL_FLAG_ID } from './flag';
 
@@ -140,6 +149,12 @@ export function isAgentTypeDerivedModelId(id: string): boolean {
   );
 }
 
+/** Inverse of {@link agentTypeDerivedModelId}: the type name behind a derived id. */
+export function agentTypeFromDerivedModelId(id: string): string | undefined {
+  if (!isAgentTypeDerivedModelId(id)) return undefined;
+  return id.slice(AGENT_TYPE_DERIVED_PREFIX.length, -AGENT_TYPE_DERIVED_SUFFIX.length);
+}
+
 // The patch half of a per-type binding (every field except `model` /
 // `thinking`); undefined when no patch field is set.
 export function agentTypePatch(
@@ -204,6 +219,7 @@ export type SubagentBindingSource = 'agent_types' | 'slot' | 'secondary' | 'own'
 export interface SubagentBinding {
   readonly model: string;
   readonly thinking?: string;
+  readonly displayModel: string;
   readonly source?: SubagentBindingSource;
 }
 
@@ -225,7 +241,12 @@ export function resolveSubagentBinding(
 ): SubagentBinding {
   // Explicit 'primary': always the caller's model, skipping all config.
   if (requested === 'primary') {
-    return { model: own.modelAlias, thinking: own.thinkingLevel, source: 'own' };
+    return {
+      model: own.modelAlias,
+      thinking: own.thinkingLevel,
+      displayModel: subagentDisplayModel(config, own.modelAlias),
+      source: 'own',
+    };
   }
 
   // No explicit choice: check the per-type binding first.
@@ -249,6 +270,9 @@ export function resolveSubagentBinding(
       return {
         model: synthesize ? agentTypeDerivedModelId(profileType) : perType.model,
         thinking: perType.thinking,
+        // The derived `__agent_type_<type>__` id means nothing to a user;
+        // report the entry's base alias, mirroring `subagentDisplayModel`.
+        displayModel: subagentDisplayModel(config, perType.model),
         source: 'agent_types',
       };
     }
@@ -259,7 +283,12 @@ export function resolveSubagentBinding(
   // module). The caller passes digested data — `inherit: true` or an
   // unknown alias already dropped the whole level.
   if (requested === undefined && slotBinding?.model !== undefined) {
-    return { model: slotBinding.model, thinking: slotBinding.thinking, source: 'slot' };
+    return {
+      model: slotBinding.model,
+      thinking: slotBinding.thinking,
+      displayModel: subagentDisplayModel(config, slotBinding.model),
+      source: 'slot',
+    };
   }
 
   // Slot with thinking only: the model keeps resolving down the chain
@@ -272,51 +301,113 @@ export function resolveSubagentBinding(
     slotBinding?.thinking !== undefined
   ) {
     const fallback = resolveSubagentBinding(config, flags, own);
-    return { model: fallback.model, thinking: slotBinding.thinking, source: fallback.source };
+    return {
+      model: fallback.model,
+      thinking: slotBinding.thinking,
+      displayModel: fallback.displayModel,
+      source: fallback.source,
+    };
   }
 
   // Explicit 'secondary' or undefined fallback: the global secondary model.
+  // ('primary' already returned above, so the upstream `requested !==
+  // 'primary'` guard is redundant here and trips TS2367 narrowing.)
   const secondary = resolveSecondaryModel(config, flags);
   if (secondary?.model !== undefined) {
+    const model =
+      secondaryModelPatch(secondary) === undefined ? secondary.model : SECONDARY_DERIVED_MODEL_ID;
     return {
-      model:
-        secondaryModelPatch(secondary) === undefined
-          ? secondary.model
-          : SECONDARY_DERIVED_MODEL_ID,
+      model,
       thinking: secondary.defaultEffort,
+      displayModel: subagentDisplayModel(config, model),
       source: 'secondary',
     };
   }
 
   // Final fallback: the caller's model.
-  return { model: own.modelAlias, thinking: own.thinkingLevel, source: 'own' };
+  return {
+    model: own.modelAlias,
+    thinking: own.thinkingLevel,
+    displayModel: subagentDisplayModel(config, own.modelAlias),
+    source: 'own',
+  };
+}
+
+export function subagentDisplayModel(
+  config: IConfigService,
+  boundAlias: string,
+): string {
+  if (boundAlias !== SECONDARY_DERIVED_MODEL_ID) return boundAlias;
+  return (
+    config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION)?.model ?? boundAlias
+  );
+}
+
+/**
+ * Display-facing alias for a resolved subagent binding, resolving the
+ * per-type derived id (`__agent_type_<type>__`) back to its base alias
+ * (`[agent_types.<type>].model`) before deferring to `subagentDisplayModel`
+ * for the secondary convention. OMKC extension: the per-type binding layer's
+ * derived-id convention is unknown to the official resolver, so spawn
+ * reporting on this path resolves it flag-independently, exactly like
+ * `subagentDisplayModel` does for `SECONDARY_DERIVED_MODEL_ID`.
+ */
+export function subagentBindingDisplayModel(
+  config: IConfigService,
+  boundAlias: string,
+): string {
+  const agentType = agentTypeFromDerivedModelId(boundAlias);
+  if (agentType !== undefined) {
+    const perType = config.get<AgentTypesConfig | undefined>(AGENT_TYPES_SECTION)?.[agentType];
+    if (perType?.model !== undefined) return perType.model;
+  }
+  return subagentDisplayModel(config, boundAlias);
 }
 
 export function buildSubagentModelDescriptions(
   config: IConfigService,
   flags: IFlagService,
   callerModelAlias: string | undefined,
+  modelCatalog: IModelCatalog,
 ): string | undefined {
-  const secondaryModel = resolveSecondaryModel(config, flags)?.model;
+  const secondary = resolveSecondaryModel(config, flags);
+  const secondaryModel = secondary?.model;
   if (secondaryModel === undefined || callerModelAlias === undefined) return undefined;
+  const boundSecondary =
+    secondaryModelPatch(secondary) === undefined ? secondaryModel : SECONDARY_DERIVED_MODEL_ID;
   return [
     'Available models (pass via model):',
-    `- secondary: ${secondaryModel} (default) — the configured secondary model; prefer it for routine subagent tasks`,
-    `- primary: ${callerModelAlias} — the main model you are running on; use it for hard, quality-sensitive subagent tasks`,
+    `- secondary: ${secondaryModel} (default) — the configured secondary model; prefer it for routine subagent tasks${capabilitiesSuffix(resolvedCapabilities(modelCatalog, boundSecondary))}`,
+    `- primary: ${callerModelAlias} — the main model you are running on; use it for hard, quality-sensitive subagent tasks${capabilitiesSuffix(resolvedCapabilities(modelCatalog, callerModelAlias))}`,
   ].join('\n');
 }
 
-/**
- * Strip the `model` property from a subagent collaboration tool's advertised
- * JSON schema. While the `secondary-model` experiment is off the parameter is
- * a silent no-op, so the schema the model sees (and the args validator
- * compiled from the same advertised schema) drops it entirely — the
- * secondary-model concept never enters the prompt, and a stray `model`
- * argument is rejected instead of silently inheriting the caller's model.
- * Returns the input unchanged when there is no `model` property; otherwise a
- * shallow copy — the input is never mutated, so callers can keep both
- * variants as shared constants.
- */
+const ADVERTISED_CAPABILITY_FLAGS = [
+  'image_in',
+  'video_in',
+  'audio_in',
+  'thinking',
+  'tool_use',
+  'dynamically_loaded_tools',
+] as const satisfies readonly (keyof ModelCapability)[];
+
+function capabilitiesSuffix(capability: ModelCapability | undefined): string {
+  if (capability === undefined) return '';
+  const names = ADVERTISED_CAPABILITY_FLAGS.filter((flag) => capability[flag] === true);
+  return `; capabilities: ${names.length === 0 ? 'none' : names.join(', ')}`;
+}
+
+function resolvedCapabilities(
+  modelCatalog: IModelCatalog,
+  model: string,
+): ModelCapability | undefined {
+  try {
+    return modelCatalog.get(model).capabilities;
+  } catch {
+    return undefined;
+  }
+}
+
 export function stripSubagentModelParameter(
   parameters: Record<string, unknown>,
 ): Record<string, unknown> {

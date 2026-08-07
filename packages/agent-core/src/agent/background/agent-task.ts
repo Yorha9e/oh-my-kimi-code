@@ -12,7 +12,10 @@ export interface AgentBackgroundTaskInfo extends BackgroundTaskInfoBase {
   readonly agentId?: string;
   /** Subagent profile name. */
   readonly subagentType?: string;
-  /** Effective model alias of the subagent run, when resolved. */
+  /** Effective model alias of the subagent run, when resolved.
+   *  OMKC divergence: upstream (>= 0.34.0, #2679) names this `model`
+   *  (display-normalized, v2 engine). We keep `modelAlias`; revisit when
+   *  upstream's unified rw-model event layer lands. */
   readonly modelAlias?: string;
   /** Effective thinking effort of the subagent run, when resolved. */
   readonly thinkingEffort?: string;

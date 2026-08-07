@@ -20,7 +20,6 @@ All other workspace packages are private internal packages and are excluded via 
 - `@moonshot-ai/kaos`
 - `@moonshot-ai/kimi-code-oauth`
 - `@moonshot-ai/kimi-telemetry`
-- `@moonshot-ai/kimi-web`
 - `@moonshot-ai/kosong`
 - `@moonshot-ai/migration-legacy`
 - `@moonshot-ai/protocol`

@@ -344,7 +344,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/slot',
       thinking: 'medium',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: 'medium', source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: 'medium', source: 'slot', displayModel: 'provider/slot' });
   });
 
   it('passes thinking through as undefined when the slot has no thinking', () => {
@@ -352,7 +352,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       model: 'provider/slot',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
 
   it('prefers the per-type binding over the slot binding', () => {
@@ -364,6 +364,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/type',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/type',
     });
   });
 
@@ -373,7 +374,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/slot',
       thinking: 'high',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: 'high', source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: 'high', source: 'slot', displayModel: 'provider/slot' });
   });
 
   it('skips the slot binding for an explicit primary request', () => {
@@ -384,7 +385,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder', {
       model: 'provider/slot',
     });
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('skips the slot binding for an explicit secondary request', () => {
@@ -396,6 +397,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -409,6 +411,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: 'high',
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -418,7 +421,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       thinking: 'low',
     });
     // Slot thinking ('low') differs from the caller's own level ('high').
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own', displayModel: 'caller-model' });
   });
 
   it('treats an empty slot binding as no binding at all', () => {
@@ -428,6 +431,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -437,6 +441,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -448,7 +453,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       model: 'provider/slot',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
 });
 

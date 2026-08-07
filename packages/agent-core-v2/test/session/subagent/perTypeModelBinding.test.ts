@@ -53,7 +53,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
   it('falls back to the caller model when no config is set', () => {
     const { config, flags } = setup({});
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('uses the per-type binding when the type has a model', () => {
@@ -65,6 +65,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: 'medium',
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -74,7 +75,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       secondary: { model: 'provider/secondary' },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('skips per-type and returns the secondary model for an explicit secondary request', () => {
@@ -87,6 +88,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -100,6 +102,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: 'medium',
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -113,6 +116,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -121,7 +125,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       agentTypes: { reviewer: { model: 'provider/reviewer' } },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('falls back to secondary when per-type has only thinking but no model', () => {
@@ -134,6 +138,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -142,7 +147,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       agentTypes: { coder: { thinking: 'medium' } },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('uses per-type model with undefined thinking when only model is set', () => {
@@ -154,6 +159,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -167,6 +173,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -181,6 +188,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -190,7 +198,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       flagEnabled: false,
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 });
 
@@ -299,6 +307,7 @@ describe('agentTypes TOML key preservation (real ConfigService pipeline)', () =>
       model: 'provider/reviewer',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/reviewer',
     });
 
     disposables.dispose();
@@ -335,6 +344,7 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
       model: 'provider/coder',
       thinking: 'medium',
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -399,7 +409,7 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
       secondary: { model: 'provider/secondary' },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('skips per-type patch for an explicit secondary request', () => {

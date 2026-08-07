@@ -27,7 +27,8 @@
  * the main agent first; forking a missing source throws.
  */
 
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IEventBus } from '#/app/event/eventBus';
 import { IConfigService } from '#/app/config/config';

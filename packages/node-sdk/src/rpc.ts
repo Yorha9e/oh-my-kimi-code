@@ -26,6 +26,7 @@ import type { ApprovalHandler, QuestionHandler } from '#/events';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
+  AgentCommandInfo,
   BackgroundTaskInfo,
   ConfigDiagnostics,
   CreateSessionOptions,
@@ -38,6 +39,7 @@ import type {
   GetGlobalSubagentSlotBindingsResult,
   GetSubagentBindingsResult,
   GetSubagentSlotBindingsResult,
+  GlobalMcpServerAuthStatus,
   McpServerConfig,
   GoalSnapshot,
   GoalToolResult,
@@ -143,6 +145,11 @@ export interface ActivateSkillRpcInput extends SessionIdRpcInput {
 export interface ActivatePluginCommandRpcInput extends SessionIdRpcInput {
   readonly pluginId: string;
   readonly commandName: string;
+  readonly args?: string | undefined;
+}
+
+export interface RunCommandRpcInput extends SessionIdRpcInput {
+  readonly name: string;
   readonly args?: string | undefined;
 }
 
@@ -324,6 +331,11 @@ export abstract class SDKRpcClientBase {
   async listGlobalMcpServers(): Promise<readonly McpServerConfig[]> {
     const rpc = await this.getRpc();
     return rpc.listGlobalMcpServers({});
+  }
+
+  async listGlobalMcpServerAuthStatuses(): Promise<readonly GlobalMcpServerAuthStatus[]> {
+    const rpc = await this.getRpc();
+    return rpc.listGlobalMcpServerAuthStatuses({});
   }
 
   async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
@@ -765,6 +777,15 @@ export abstract class SDKRpcClientBase {
     return rpc.listPluginCommands({ sessionId: input.sessionId });
   }
 
+  /**
+   * App-global plugin command list, no session required. The v1 engine only
+   * exposes plugin commands through a live session, so the base returns an
+   * empty list; the v2 client overrides with the app-global live view.
+   */
+  async listPluginCommandsGlobal(): Promise<readonly PluginCommandDef[]> {
+    return [];
+  }
+
   async listBackgroundTasks(
     input: SessionIdRpcInput & { activeOnly?: boolean; limit?: number },
   ): Promise<readonly BackgroundTaskInfo[]> {
@@ -871,6 +892,17 @@ export abstract class SDKRpcClientBase {
     return rpc.listMcpServers({ sessionId: input.sessionId });
   }
 
+  /**
+   * Workspace-level MCP server list, no session required. The v2 engine owns
+   * one shared connection set per workspace handler, so `/mcp` is inspectable
+   * before the first session exists; the v1 engine only exposes MCP through
+   * a live session and the base returns an empty list.
+   */
+  async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
+    void workDir;
+    return [];
+  }
+
   async getMcpStartupMetrics(input: SessionIdRpcInput): Promise<McpStartupMetrics> {
     const rpc = await this.getRpc();
     return rpc.getMcpStartupMetrics({ sessionId: input.sessionId });
@@ -939,6 +971,26 @@ export abstract class SDKRpcClientBase {
       commandName: input.commandName,
       args: input.args,
     });
+  }
+
+  /**
+   * Contributed commands of the session's interactive agent. The
+   * contributed-command seam exists only in the agent-core-v2 engine, so the
+   * base implementation reports the empty set and rejects runs with a coded
+   * error (same shape as `replaceConfigSections`); only the v2 client
+   * overrides these.
+   */
+  async listCommands(input: SessionIdRpcInput): Promise<readonly AgentCommandInfo[]> {
+    void input;
+    return [];
+  }
+
+  async runCommand(input: RunCommandRpcInput): Promise<void> {
+    void input;
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK client does not support contributed commands.',
+    );
   }
 
   onEvent(listener: (event: Event) => void): Unsubscribe {
