@@ -22,9 +22,8 @@
 3. **MOA 多代理辩论 profiles** — 内置 `orchestrator` / `critic` / `synthesizer` 等角色化子代理配置（`packages/agent-core` 的 MOA profiles），让多代理协作以结构化辩论的形式展开。
 4. **桌面悬浮卡片 moa-card** — `omkc` 交互启动时自动拉起（`tui.toml` 的 `[moa] card` 开关，默认开），实时显示 MOA 辩论进度与各 agent 状态。
 5. **内嵌状态导出** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起，只绑环回、零写盘），供外部工具订阅 agent 状态；开关为 `tui.toml` 的 `[moa] status_export`（默认开）。
-6. **omkc-status 独立状态服务（伴生项目）** — 只读监听会话持久化文件，折叠出 agent 状态，对外提供 HTTP `/state` 与 SSE `/events`（39627 端口）。不依赖 CLI 进程存活，也不向会话目录写入任何东西。
-7. **kosong Anthropic 兼容端点加固** — `max_tokens` 保守兜底 + 400 错误自动解析并重试，兼容更多第三方 Anthropic 风格端点（已提上游 [PR #2066](https://github.com/MoonshotAI/kimi-code/pull/2066)）。
-8. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
+6. **kosong Anthropic 兼容端点加固** — `max_tokens` 保守兜底 + 400 错误自动解析并重试，兼容更多第三方 Anthropic 风格端点（已提上游 [PR #2066](https://github.com/MoonshotAI/kimi-code/pull/2066)）。
+7. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
 
 ## 安装
 

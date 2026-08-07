@@ -65,7 +65,7 @@ function makeStartupInput(): KimiTUIStartupInput {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      moa: { card: true, statusService: true, statusExport: true },
+      moa: { card: true, statusExport: true },
       statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',

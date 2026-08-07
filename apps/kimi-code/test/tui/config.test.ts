@@ -42,7 +42,6 @@ describe('TUI config', () => {
     expect(text).toContain('notification_condition = "unfocused"');
     expect(text).toContain('[moa]');
     expect(text).toContain('card = true');
-    expect(text).toContain('status_service = true');
     expect(text).toContain('status_export = true');
   });
 
@@ -70,18 +69,19 @@ card = false
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
-      moa: { card: false, statusService: true, statusExport: true },
+      moa: { card: false, statusExport: true },
       statusLine: { items: null, command: null },
     });
   });
 
-  it('parses moa.status_service', () => {
+  it('ignores a legacy moa.status_service key (retired companion) without error', () => {
     const config = parseTuiConfig(`
 [moa]
 status_service = false
+status_export = false
 `);
 
-    expect(config.moa).toEqual({ card: true, statusService: false, statusExport: true });
+    expect(config.moa).toEqual({ card: true, statusExport: false });
   });
 
   it('parses moa.status_export', () => {
@@ -90,16 +90,7 @@ status_service = false
 status_export = false
 `);
 
-    expect(config.moa).toEqual({ card: true, statusService: true, statusExport: false });
-  });
-
-  it('defaults status_service to true for old configs that omit it', () => {
-    const config = parseTuiConfig(`
-[moa]
-card = false
-`);
-
-    expect(config.moa).toEqual({ card: false, statusService: true, statusExport: true });
+    expect(config.moa).toEqual({ card: true, statusExport: false });
   });
 
   it('parses disable_paste_burst', () => {
@@ -123,7 +114,7 @@ command = "   "
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      moa: { card: true, statusService: true, statusExport: true },
+      moa: { card: true, statusExport: true },
       statusLine: { items: null, command: null },
     });
   });
@@ -133,7 +124,7 @@ command = "   "
 
     expect(config.notifications).toEqual({ enabled: true, condition: 'unfocused' });
     expect(config.upgrade).toEqual({ autoInstall: true });
-    expect(config.moa).toEqual({ card: true, statusService: true, statusExport: true });
+    expect(config.moa).toEqual({ card: true, statusExport: true });
   });
 
   it('throws TuiConfigParseError with fallback when parsing fails, leaving the file untouched', async () => {
@@ -158,7 +149,7 @@ command = "   "
         editorCommand: 'vim',
         notifications: { enabled: false, condition: 'always' },
         upgrade: { autoInstall: false },
-        moa: { card: false, statusService: false, statusExport: false },
+        moa: { card: false, statusExport: false },
         statusLine: { items: null, command: null },
       },
       filePath,
@@ -170,7 +161,7 @@ command = "   "
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
-      moa: { card: false, statusService: false, statusExport: false },
+      moa: { card: false, statusExport: false },
       statusLine: { items: null, command: null },
     });
   });
