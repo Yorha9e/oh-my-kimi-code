@@ -16,6 +16,7 @@ import {
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/os/interface/hostEnvironment';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService, type IAgentProfileService as ProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
@@ -56,6 +57,7 @@ describe('AgentPermissionPolicyService chain', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.definePartialInstance(IAgentProfileService, profileStub());
         reg.defineInstance(
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
@@ -197,6 +199,7 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.definePartialInstance(IAgentProfileService, profileStub());
         reg.defineInstance(
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
@@ -339,6 +342,24 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
 interface MutablePermissionRulesStubOptions {
   readonly rules?: () => readonly PermissionRule[];
   readonly sessionApprovalRulePatterns?: () => readonly string[];
+}
+
+function profileStub(profileName = 'main'): Partial<ProfileService> {
+  return {
+    data: () => ({
+      profileName,
+      modelCapabilities: {
+        image_in: false,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: false,
+        max_context_tokens: 0,
+      },
+      thinkingLevel: 'low',
+      systemPrompt: '',
+    }),
+  };
 }
 
 function permissionRulesStub(

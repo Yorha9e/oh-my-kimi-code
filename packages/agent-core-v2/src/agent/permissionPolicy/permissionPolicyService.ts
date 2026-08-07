@@ -18,6 +18,7 @@ import { GitControlPathAccessAskPermissionPolicyService } from '#/agent/permissi
 import { GitCwdWriteApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/git-cwd-write-approve';
 import { SensitiveFileAccessAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/sensitive-file-access-ask';
 import { SessionApprovalHistoryPermissionPolicyService } from '#/agent/permissionPolicy/policies/session-approval-history';
+import { TowerWorkerWriteGuardPermissionPolicyService } from '#/agent/permissionPolicy/policies/tower-worker-write-guard';
 import { UserConfiguredAllowPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-allow';
 import { UserConfiguredAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-ask';
 import { UserConfiguredDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-deny';
@@ -45,6 +46,10 @@ export class AgentPermissionPolicyService
     this.policies = [
       this.instantiation.createInstance(AutoModeAskUserQuestionDenyPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredDenyPermissionPolicyService),
+      // tower workers: Write/Edit escaping their own worktree → deny. Must run
+      // before auto-mode approval (B3-3) — auto mode unconditionally approves
+      // everything, so the guard would be dead code behind it.
+      this.instantiation.createInstance(TowerWorkerWriteGuardPermissionPolicyService),
       this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
       this.instantiation.createInstance(SessionApprovalHistoryPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredAskPermissionPolicyService),
