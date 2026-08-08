@@ -18,12 +18,15 @@
 ## 特性
 
 1. **子代理模型绑定全家桶（默认开启）** — 按子代理类型（`coder` / `explore` / `plan` 等）或命名槽位（slot）绑定模型与思考强度。绑定是用户配置而非 LLM 决策，在 spawn 时机械生效。工作区层（`.kimi-code/local.toml`）与全局层两级存储；中断恢复的子代理保持原绑定（sticky resume），也可用 `binding_slot` 在 resume 时换模型续跑；`AgentSwarm` 支持槽位；绑定显示带模型能力标识。详见 [SUBAGENT-MODEL-BINDING.md](SUBAGENT-MODEL-BINDING.md)。
-2. **自定义子代理 profile** — 在 `~/.omkc/agents/*.md` 用 frontmatter + 正文定义自己的子代理类型（用途描述、工具集、角色 prompt），主代理可直接派遣，可与槽位机制组合实现「同角色多模型」。教程见下文「自定义子代理 profile」。
+2. **自定义子代理 profile** — 用 frontmatter + 正文的 Markdown 定义自己的子代理类型（用途描述、工具集、角色 prompt），来源覆盖全局 `~/.omkc/agents/`、项目级 `.kimi-code/agents/` 与 `.agents/agents/`、插件自带、`extra_agent_dirs` 与 `--agent-file` 显式指定；frontmatter 的 `slot` 字段（OMKC 扩展）让 profile 自动跟随命名槽位，「一个角色多模型」零重复定义。教程见下文「自定义子代理 profile」。
 3. **MOA 多代理辩论 profiles** — 内置 `orchestrator` / `critic` / `synthesizer` 等角色化子代理配置（`packages/agent-core` 的 MOA profiles），让多代理协作以结构化辩论的形式展开。
 4. **桌面悬浮卡片 moa-card** — `omkc` 交互启动时自动拉起（`tui.toml` 的 `[moa] card` 开关，默认开），实时显示 MOA 辩论进度与各 agent 状态。
-5. **内嵌状态导出** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起，只绑环回、零写盘），供外部工具订阅 agent 状态；开关为 `tui.toml` 的 `[moa] status_export`（默认开）。
+5. **内嵌状态导出与 Agent Status 隶属树** — CLI 进程内建 loopback SSE 服务（`127.0.0.1:39631` 起探测，只绑环回、零写盘），实时广播 `subagent.spawned/started/completed/failed/suspended` 事件（含 `parentAgentId` 血缘）；独立的 omkc-status 伴生服务已退役（`status_export` 配置键随之移除），状态消费统一走 moamcp 插件的 `/status-board` 面板，按 session 分组展示主/子代理嵌套树。
 6. **kosong Anthropic 兼容端点加固** — `max_tokens` 保守兜底 + 400 错误自动解析并重试，兼容更多第三方 Anthropic 风格端点（已提上游 [PR #2066](https://github.com/MoonshotAI/kimi-code/pull/2066)）。
-7. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
+7. **tower worker 写入守卫（双引擎）** — 配合 moamcp tower 工作流，`tower-worker` profile 的 `Write/Edit` 被限制在其 worktree 内：v1 权限策略 + v2 permissionPolicy + 插件 `PreToolUse` 钩子三重兜底，守卫镜像为 `<repo>/.tower-guard.json`。
+8. **moamcp 插件体系** — Tips（跨会话功能想法卡片）、共享黑板、定向交接（mailbox）、Agent Status 面板、MOA 辩论、Tower 工作流编排、狼人杀彩蛋，统一从 `/plugins` 安装；详见 [USAGE.md](USAGE.md)。
+9. **`/tip-save`（`/tip`）** — 一键把本次讨论中最有价值的功能想法/设计结论总结写入 moamcp Project Tips，后台 fork 主代理执行，模型走 `[subagent-slot.tip_save]` 槽位。
+10. **Windows 平台测试兼容性修复** — 修复一批在 Windows 上跑测试的兼容性问题。
 
 ## 安装
 
@@ -180,13 +183,13 @@ git pull --ff-only && pnpm install && pnpm -C apps/kimi-code run build
 
 ### 1. 创建 profile 文件
 
-在 `~/.omkc/agents/` 下新建一个 `.md` 文件，例如 `~/.omkc/agents/debater.md`：
+在 `~/.omkc/agents/`（全局）或项目的 `.kimi-code/agents/`（项目级，随仓库共享）下新建一个 `.md` 文件，例如 `~/.omkc/agents/debater.md`：
 
 ```markdown
 ---
 name: debater
 description: 多视角辩论者，从对立观点审视方案并给出结构化结论
-when_to_use: 需要对一个方案、设计或结论做正反多视角审视时
+whenToUse: 需要对一个方案、设计或结论做正反多视角审视时
 tools:
   - Bash
   - Read
@@ -203,21 +206,25 @@ frontmatter 字段（全部可选）：
 | --- | --- |
 | `name` | 取文件名（不含 `.md`）；只允许小写字母/数字/连字符 |
 | `description` | 取正文第一行 |
-| `when_to_use` | 无；写给主代理看的派遣指引，填了能显著提高被选中的准确率 |
+| `whenToUse`（兼容旧写法 `when_to_use`） | 无；写给主代理看的派遣指引，填了能显著提高被选中的准确率 |
 | `tools` | 继承 `coder` 的完整工具集；给了就按列表收敛（如只读角色不给编辑工具） |
+| `disallowedTools` | 无；在 `tools` 基础上按名剔除 |
+| `subagents` | 无；限制该角色可再派遣的子代理类型 |
+| `model_preference` | 无；上游字段，声明偏好模型 |
+| `slot`（OMKC 扩展） | 无；声明后该 profile 自动跟随 `[subagent-slot.<名>]` 的模型/思考强度，适合「一个角色多模型」 |
 
 正文会接在内置 `coder` 的「你是子代理」前导之后，成为该 profile 的角色 prompt——所以正文只需要写角色本身，不用解释子代理机制。
 
 ### 2. 使用
 
-- **主代理自动派遣**：新开会话后，主代理的 `Agent`/`AgentSwarm` 工具类型列表里就有 `debater`，它会按 `description`/`when_to_use` 自行选择，你也可以在对话里点名（"派一个 debater 审视这个方案"）。
-- **绑定模型**：`/subagent-model set debater` 交互选择，或在 `.kimi-code/local.toml` 写 `[subagent.debater]`；`/settings` 的 Subagent models 面板下拉同样可见（用户 profile 带标记）。
+- **主代理自动派遣**：新开会话后，主代理的 `Agent`/`AgentSwarm` 工具类型列表里就有 `debater`，它会按 `description`/`whenToUse` 自行选择，你也可以在对话里点名（"派一个 debater 审视这个方案"）。
+- **绑定模型**：`/subagent-model set debater` 交互选择，或在 `.kimi-code/local.toml` 写 `[subagent.debater]`；`/settings` 的 Subagent models 面板下拉同样可见（非内置 profile 带 `(user)`/`(project)`/`(plugin)` 等来源徽章，声明了 `slot` 的显示 `follows slot: <名>`）。
 - **批量同角色多模型**：profile 只定义一份，用命名槽位区分模型——比如 MOA 辩论里 5 个辩手共享同一个 `debater` profile，各绑一个 slot，避免 5 份重复描述占用上下文。
 
 ### 3. 注意
 
-- 只有 home 一级（`~/.omkc/agents/`），没有项目级覆盖；与内置类型同名的文件会被跳过并告警。
-- 单文件解析失败只会跳过该文件并告警，不影响启动。
+- 来源与优先级：**`--agent-file` 显式指定 > 项目级（`.kimi-code/agents/`、`.agents/agents/`）> `extra_agent_dirs`（config.toml 顶层配置）> 全局 `~/.omkc/agents/` > 插件自带 > 内置**；与内置类型同名的文件会被跳过并告警。
+- 单文件解析失败只会跳过该文件并告警，不影响启动；profile 在会话启动时加载，新增/修改后需开新会话生效。
 - 子代理跑到一半模型被限流/拒绝时，可以用 `Agent(resume=<id>, binding_slot=<另一个槽位>)` 换模型续跑，上下文不丢；换过的模型会固化，后续 resume 沿用。
 
 ## 常用命令对照
@@ -269,6 +276,9 @@ TUI 内的 slash 命令与官方版一致，另加社区版新增命令。
 | | `/subagent-model set <type>` / `set slot <name>` | 为类型或命名槽位绑定模型与思考强度 |
 | | `/subagent-model clear <type>` / `clear slot <name>` | 移除绑定 |
 | | `/sync-from-kimi` | 从官方 `~/.kimi-code` 增量同步数据到 `~/.omkc`（可反复执行） |
+| | `/tip-save [说明]`（`/tip`） | 后台总结本次讨论中的功能想法/设计结论，写入 moamcp Project Tips |
+| 插件注入 | `/moamcp:tips` / `tip-new` / `tip-show` / `tip-promote` / `tip-archive` | Tips 的列出、新建、查看、提升为 Todo、归档（安装 moamcp 后可用） |
+| | `/moawerewolf:ww-new` | 创建一局多模型狼人杀（安装 moawerewolf 后可用） |
 
 类型绑定示例（写入工作区 `.kimi-code/local.toml`）：
 
