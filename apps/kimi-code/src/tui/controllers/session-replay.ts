@@ -688,11 +688,11 @@ export class SessionReplayRenderer {
       parentToolCallId: origin.taskId,
       description: task?.description,
       model:
-        task?.model === undefined
+        task?.modelAlias === undefined
           ? undefined
           : modelDisplayName(
-              task.model,
-              this.host.state.appState.availableModels[task.model],
+              task.modelAlias,
+              this.host.state.appState.availableModels[task.modelAlias],
             ),
       effort:
         task?.thinkingEffort === undefined ||

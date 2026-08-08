@@ -276,8 +276,8 @@ describe('loadAgentsMdDetailed discovered paths', () => {
   });
 
   it('returns the normalized paths of every injected file in collection order', async () => {
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await writeFile(join(homeDir, '.kimi-code', 'AGENTS.md'), 'user branded', 'utf-8');
+    await mkdir(join(homeDir, '.omkc'), { recursive: true });
+    await writeFile(join(homeDir, '.omkc', 'AGENTS.md'), 'user branded', 'utf-8');
     await mkdir(join(workDir, '.kimi-code'), { recursive: true });
     await writeFile(join(workDir, '.kimi-code', 'AGENTS.md'), 'dot kimi', 'utf-8');
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
@@ -285,7 +285,7 @@ describe('loadAgentsMdDetailed discovered paths', () => {
     const result = await loadAgentsMdDetailed({ fs, homeDir }, workDir);
 
     expect(result.paths).toEqual([
-      normalize(join(homeDir, '.kimi-code', 'AGENTS.md')),
+      normalize(join(homeDir, '.omkc', 'AGENTS.md')),
       normalize(join(workDir, '.kimi-code', 'AGENTS.md')),
       normalize(join(workDir, 'AGENTS.md')),
     ]);

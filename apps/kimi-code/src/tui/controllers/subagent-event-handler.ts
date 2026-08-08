@@ -449,8 +449,8 @@ export class SubAgentEventHandler {
   private spawnedModelDisplay(
     event: SubagentLifecycleEventOf<'subagent.spawned'>,
   ): string | undefined {
-    if (event.model === undefined) return undefined;
-    return modelDisplayName(event.model, this.host.state.appState.availableModels[event.model]);
+    if (event.modelAlias === undefined) return undefined;
+    return modelDisplayName(event.modelAlias, this.host.state.appState.availableModels[event.modelAlias]);
   }
 
   /** Concrete effort levels are always shown; the boolean states carry no

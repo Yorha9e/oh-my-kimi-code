@@ -1466,7 +1466,7 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain("You're not signed in");
     expect(transcript).toContain('https://www.kimi.com/code');
-    expect(transcript).toContain('https://github.com/MoonshotAI/kimi-code/issues');
+    expect(transcript).toContain('https://github.com/Yorha9e/oh-my-kimi-code/issues');
   });
 
   it('falls back to GitHub Issues when the sign-in status cannot be read', async () => {
@@ -1479,7 +1479,7 @@ command = "vim"
     await handleFeedbackCommand(feedbackDriver as any);
 
     expect(openUrl).toHaveBeenCalledTimes(1);
-    expect(openUrl).toHaveBeenCalledWith('https://github.com/MoonshotAI/kimi-code/issues');
+    expect(openUrl).toHaveBeenCalledWith('https://github.com/Yorha9e/oh-my-kimi-code/issues');
     expect(promptFeedbackInput).not.toHaveBeenCalled();
     expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
     const transcript = stripSgr(renderTranscript(driver));
@@ -1816,7 +1816,7 @@ command = "vim"
 
     await expect(handleFeedbackCommand(feedbackDriver as any)).rejects.toThrow('socket hangup');
 
-    expect(openUrl).toHaveBeenCalledWith('https://github.com/MoonshotAI/kimi-code/issues');
+    expect(openUrl).toHaveBeenCalledWith('https://github.com/Yorha9e/oh-my-kimi-code/issues');
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Opening GitHub Issues as fallback');
   });
@@ -4759,7 +4759,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: false,
-        model: 'k2-cheap',
+        modelAlias: 'k2-cheap',
       } as Event,
       sendQueued,
     );
@@ -4781,7 +4781,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: false,
-        model: 'k2-cheap',
+        modelAlias: 'k2-cheap',
       } as Event,
       sendQueued,
     );
@@ -4805,7 +4805,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: false,
-        model: 'k2-cheap',
+        modelAlias: 'k2-cheap',
         thinkingEffort: 'high',
       } as Event,
       sendQueued,
@@ -4828,7 +4828,7 @@ command = "vim"
           subagentName: 'explore',
           description: `explore ${effort}`,
           runInBackground: false,
-          model: 'k2-cheap',
+          modelAlias: 'k2-cheap',
           thinkingEffort: effort,
         } as Event,
         sendQueued,
@@ -4902,7 +4902,7 @@ command = "vim"
         description: 'Review changed files #1 (coder)',
         swarmIndex: 1,
         runInBackground: false,
-        model: 'k2-cheap',
+        modelAlias: 'k2-cheap',
       } as Event,
       sendQueued,
     );
@@ -4928,7 +4928,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: true,
-        model: 'k2-cheap',
+        modelAlias: 'k2-cheap',
       } as Event,
       sendQueued,
     );
