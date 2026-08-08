@@ -123,7 +123,7 @@
 
 **kimi.plugin.json 声明**：`name: moamcp`；`agents` → `./agents`；`skills` → `./skills`（会话注入 `using-moamcp`）；`commands` → `./commands`；`hooks`：`PreToolUse` × `Write|Edit` → `node ./hooks/tower-write-guard.mjs`（timeout 10s）；`mcpServers.moamcp` → `node ./dist/server.js`（toolTimeoutMs 1800000）。
 
-**工具族（MCP，前缀 `mcp__moamcp__`，共 33 个）**：
+**工具族（MCP，前缀 `mcp__moamcp__`，共 37 个）**：
 
 - `moa_status` — Bus 状态（端口/模式 own-reuse/活跃任务）；`moa_status_agents` — 折叠的 agent/session 实时状态（含 parentAgentId 血缘、local/remote 来源标记）。
 - `moa_tip_*`（5）：`moa_tip_create` 建项目级 Tip；`moa_tip_read` 读完整 Tip；`moa_tip_list` 轻量列表（status/module/tag 过滤，默认隐藏归档）；`moa_tip_update` 原子更新；`moa_tip_archive` 归档。

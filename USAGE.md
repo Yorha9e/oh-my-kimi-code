@@ -194,7 +194,7 @@ slot: review-cheap
 
 ### 4.5 Web 面板总览
 
-面板地址在 moamcp 启动时打印（Bus 端口）。导航含：MOA Debate（辩论卡片）、Workspace Memory（Agents/Board/Inbox/Projects/Tips 五页）、MoA Runs、Agent Status、Tower Workflow、System Health、Werewolf（狼人杀观战）。
+面板地址在 moamcp 启动时打印（Bus 端口）。导航含六项：MOA Debate（辩论卡片）、Workspace Memory（Agents/Board/Inbox/Projects/Tips 五页）、MoA Runs、Agent Status、Tower Workflow、System Health。（狼人杀观战页 `/werewolf` 属于独立插件 moawerewolf 自有的 Bus，不在 moamcp 导航内。）
 
 ---
 
