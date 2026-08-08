@@ -17,6 +17,7 @@ import { PlanModeToolApprovePermissionPolicy } from './plan-mode-tool-approve';
 import { PreToolCallHookPermissionPolicy } from './pre-tool-call-hook';
 import { SessionApprovalHistoryPermissionPolicy } from './session-approval-history';
 import { SwarmModeAgentSwarmApprovePermissionPolicy } from './swarm-mode-agent-swarm-approve';
+import { TowerWorkerWriteGuardPermissionPolicy } from './tower-worker-write-guard';
 import {
   UserConfiguredAllowPermissionPolicy,
   UserConfiguredAskPermissionPolicy,
@@ -35,6 +36,11 @@ export function createPermissionDecisionPolicies(agent: Agent): PermissionPolicy
     new AutoModeAskUserQuestionDenyPermissionPolicy(agent),
     // plan mode: Write/Edit outside the plan file, or TaskStop → deny.
     new PlanModeGuardDenyPermissionPolicy(agent),
+    // tower workers: Write/Edit escaping their own worktree → deny. Must run
+    // before auto-mode approval (official position: right after the plan-mode
+    // guard) — auto mode unconditionally approves everything, so the guard
+    // would be dead code behind it.
+    new TowerWorkerWriteGuardPermissionPolicy(agent),
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
     // auto mode → approve (any auto-mode block must be a deny rule above this).
