@@ -125,6 +125,18 @@
  *   there is no session snapshot to push). `getSessionWarnings` also
  *   surfaces the v2 secondary-model warning next to the AGENTS.md one,
  *   matching v1's aggregate.
+ * - `getSubagentBindings` / `setSubagentBinding` /
+ *   `getSubagentSlotBindings` / `setSubagentSlotBinding` /
+ *   `getGlobalSubagentBindings` / `setGlobalSubagentBinding` /
+ *   `getGlobalSubagentSlotBindings` / `setGlobalSubagentSlotBinding` → the
+ *   v1 workspace-local binding helpers, ported byte-for-byte into
+ *   `src/v2/subagent-bindings.ts` (agent-core-v2 only reads those
+ *   `local.toml` sections on the spawn path and has no write-side service),
+ *   with the same pre-write model-alias validation rebuilt over the app-scope
+ *   `IModelCatalog`. `listSubagentProfiles` → the session-scope
+ *   `ISessionAgentProfileCatalog` filtered by the engine's own
+ *   `subagentAllowlistFor`, with the v2 `workspace` sourceId mapped back to
+ *   v1's `project` vocabulary.
  */
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
@@ -185,6 +197,7 @@ import {
   IModelCatalog,
   IModelService,
   IProviderService,
+  ISessionAgentProfileCatalog,
   ISessionBtwService,
   ISessionTipSaveService,
   ISessionContext,
@@ -227,6 +240,7 @@ import {
   resolveKimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
+  subagentAllowlistFor,
   summarizeSkill,
   type IAgentScopeHandle,
   type IDisposable,
@@ -275,6 +289,10 @@ import type {
   ForkSessionInput,
   GetConfigOptions,
   GetCronTasksResult,
+  GetGlobalSubagentBindingsResult,
+  GetGlobalSubagentSlotBindingsResult,
+  GetSubagentBindingsResult,
+  GetSubagentSlotBindingsResult,
   GlobalMcpServerAuthState,
   GlobalMcpServerAuthStatus,
   GoalSnapshot,
@@ -285,6 +303,8 @@ import type {
   KimiHarnessOptions,
   KimiHostIdentity,
   ListSessionsOptions,
+  ListSubagentProfileEntry,
+  ListSubagentProfilesResult,
   McpServerConfig,
   McpServerInfo,
   McpStartupMetrics,
@@ -302,7 +322,16 @@ import type {
   SessionStatus,
   SessionSummary,
   SessionUsage,
+  SetGlobalSubagentBindingInput,
+  SetGlobalSubagentBindingResult,
+  SetGlobalSubagentSlotBindingInput,
+  SetGlobalSubagentSlotBindingResult,
+  SetSubagentBindingInput,
+  SetSubagentBindingResult,
+  SetSubagentSlotBindingInput,
+  SetSubagentSlotBindingResult,
   SkillSummary,
+  SubagentBinding,
   TelemetryClient,
   WorkspaceTrustInfo,
 } from '#/types';
@@ -314,6 +343,12 @@ import {
 import { translateGlobalEvent } from '#/v2/event-mapper';
 import { assertImportFits, buildImportContextMessage } from '#/v2/import-context';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
+import {
+  readGlobalSubagentBindingSection,
+  readWorkspaceSubagentBindingSection,
+  writeGlobalSubagentBinding,
+  writeWorkspaceSubagentBinding,
+} from '#/v2/subagent-bindings';
 import {
   GlobalMcpConfigStore,
   mcpConfigWithoutName,
@@ -1250,6 +1285,134 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return handle.accessor
       .get(IWorkspaceDirs)
       .addDir({ path: input.path, persist: input.persist });
+  }
+
+  // -----------------------------------------------------------------------
+  // Subagent model bindings
+  //
+  // v1 serves these from the workspace-local config helpers
+  // (`agent-core/src/config/workspace-local.ts`): per-workspace bindings live
+  // in `<projectRoot>/.kimi-code/local.toml` under `[subagent.<type>]` /
+  // `[subagent-slot.<name>]`, global ones in `<home>/local.toml` under the
+  // same sections. agent-core-v2 only READS those files on the spawn path and
+  // has no write-side service at any scope, so the helpers are ported
+  // byte-for-byte into `src/v2/subagent-bindings.ts` (same TOML schema, same
+  // raw-document-preserving write, same CONFIG_INVALID failures) and the
+  // overrides below are thin drivers over them. Every override requires a
+  // live session (v1's `requireSession`); the workspace layer resolves the
+  // project root from the session's frozen cwd, and the global layer writes
+  // the client's own resolved kimi home (the same home the engine's
+  // spawn-side reader resolves via `resolveKimiHome`). A bound model alias is
+  // validated against the app-scope `IModelCatalog` BEFORE the write, the v2
+  // counterpart of v1's `resolveProviderConfig` gate (an unknown alias
+  // rejects with the same `config.invalid` code on both engines; only the
+  // message suffix drifts, and both refuse before touching the file).
+  // -----------------------------------------------------------------------
+
+  /** The session's frozen working directory — the workspace layer's root. */
+  private sessionWorkDir(sessionId: string): string {
+    return this.requireLiveSession(sessionId).accessor.get(ISessionContext).cwd;
+  }
+
+  /** v1's pre-write model validation (`resolveProviderConfig` on the main agent). */
+  private async assertSubagentBindingModel(binding: SubagentBinding | undefined): Promise<void> {
+    if (binding?.model === undefined) return;
+    await this.modelReady;
+    this.engineAccessor.get(IModelCatalog).get(binding.model);
+  }
+
+  override async getSubagentBindings(input: SessionIdRpcInput): Promise<GetSubagentBindingsResult> {
+    return readWorkspaceSubagentBindingSection(this.sessionWorkDir(input.sessionId), 'subagent');
+  }
+
+  override async setSubagentBinding(input: SetSubagentBindingInput): Promise<SetSubagentBindingResult> {
+    const workDir = this.sessionWorkDir(input.id);
+    await this.assertSubagentBindingModel(input.binding);
+    return writeWorkspaceSubagentBinding(workDir, 'subagent', input.agentType, input.binding);
+  }
+
+  override async getSubagentSlotBindings(
+    input: SessionIdRpcInput,
+  ): Promise<GetSubagentSlotBindingsResult> {
+    return readWorkspaceSubagentBindingSection(
+      this.sessionWorkDir(input.sessionId),
+      'subagent-slot',
+    );
+  }
+
+  override async setSubagentSlotBinding(
+    input: SetSubagentSlotBindingInput,
+  ): Promise<SetSubagentSlotBindingResult> {
+    const workDir = this.sessionWorkDir(input.id);
+    await this.assertSubagentBindingModel(input.binding);
+    return writeWorkspaceSubagentBinding(workDir, 'subagent-slot', input.slot, input.binding);
+  }
+
+  override async getGlobalSubagentBindings(
+    input: SessionIdRpcInput,
+  ): Promise<GetGlobalSubagentBindingsResult> {
+    this.requireLiveSession(input.sessionId);
+    return readGlobalSubagentBindingSection(this.homeDir, 'subagent');
+  }
+
+  override async setGlobalSubagentBinding(
+    input: SetGlobalSubagentBindingInput,
+  ): Promise<SetGlobalSubagentBindingResult> {
+    this.requireLiveSession(input.id);
+    await this.assertSubagentBindingModel(input.binding);
+    return writeGlobalSubagentBinding(this.homeDir, 'subagent', input.agentType, input.binding);
+  }
+
+  override async getGlobalSubagentSlotBindings(
+    input: SessionIdRpcInput,
+  ): Promise<GetGlobalSubagentSlotBindingsResult> {
+    this.requireLiveSession(input.sessionId);
+    return readGlobalSubagentBindingSection(this.homeDir, 'subagent-slot');
+  }
+
+  override async setGlobalSubagentSlotBinding(
+    input: SetGlobalSubagentSlotBindingInput,
+  ): Promise<SetGlobalSubagentSlotBindingResult> {
+    this.requireLiveSession(input.id);
+    await this.assertSubagentBindingModel(input.binding);
+    return writeGlobalSubagentBinding(this.homeDir, 'subagent-slot', input.slot, input.binding);
+  }
+
+  /**
+   * The profiles the session's main agent may currently delegate to: the
+   * session-scope `ISessionAgentProfileCatalog` (no klient facade exists)
+   * filtered through the same `subagentAllowlistFor` helper the v2 Agent tool
+   * uses, with the main agent's profile data as the caller (v1 lists the
+   * catalog's `delegatableSubagents` for the resumed main agent). An open
+   * allowlist (`undefined` = any type) lists every catalog profile except the
+   * default profile itself — v1's delegatable set is the caller profile's
+   * LINKED subagent set, which structurally never contains the default
+   * profile, so dropping it here keeps the v1 surface. The source tag maps
+   * the v2 catalog sourceId onto the v1 vocabulary — `workspace` becomes
+   * `project`; a name with no inspection falls back to `builtin`, v1's
+   * default for unmapped names.
+   */
+  override async listSubagentProfiles(
+    input: SessionIdRpcInput,
+  ): Promise<ListSubagentProfilesResult> {
+    const session = this.requireLiveSession(input.sessionId);
+    const agent = await this.agentScope(input.sessionId);
+    const catalog = session.accessor.get(ISessionAgentProfileCatalog);
+    await catalog.ready;
+    const caller = agent.accessor.get(IAgentProfileService).data();
+    const allowlist = subagentAllowlistFor(catalog, caller);
+    const profiles = catalog.list();
+    const delegatable =
+      allowlist === undefined
+        ? profiles.filter((profile) => profile.name !== DEFAULT_AGENT_PROFILE_NAME)
+        : profiles.filter((profile) => allowlist.includes(profile.name));
+    return delegatable.map((profile) => ({
+      name: profile.name,
+      description: profile.description,
+      whenToUse: profile.whenToUse,
+      source: subagentProfileSource(catalog.inspect(profile.name)?.sourceId),
+      slot: profile.slot,
+    }));
   }
 
   /**
@@ -2340,4 +2503,24 @@ function normalizeRequiredWorkDir(operation: string, workDir: string): string {
     throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
   }
   return normalizeWorkDir(workDir);
+}
+
+/**
+ * Map a v2 agent-profile catalog sourceId onto the v1 SDK
+ * `ListSubagentProfileEntry.source` vocabulary: the v2 workspace loader's
+ * `workspace` is v1's `project`, and an uninspectable name falls back to
+ * `builtin` (v1's default when the name is absent from the catalog snapshot).
+ */
+function subagentProfileSource(sourceId: string | undefined): ListSubagentProfileEntry['source'] {
+  switch (sourceId) {
+    case 'plugin':
+    case 'user':
+    case 'extra':
+    case 'explicit':
+      return sourceId;
+    case 'workspace':
+      return 'project';
+    default:
+      return 'builtin';
+  }
 }

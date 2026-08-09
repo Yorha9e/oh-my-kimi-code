@@ -7,7 +7,7 @@
  * Wiring: real v2 engine bootstrapped on a temp KIMI_CODE_HOME; no provider calls.
  * Run: pnpm exec vitest run test/sdk-rpc-client-v2.test.ts
  */
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -50,6 +50,40 @@ async function makeHarness(): Promise<{ harness: KimiHarness; homeDir: string }>
   const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
   tempDirs.push(homeDir);
   return { harness: createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY }), homeDir };
+}
+
+const toPosix = (path: string): string => path.replaceAll('\\', '/');
+
+/**
+ * One resolvable model alias (`test-model`) — the subagent-binding write path
+ * validates a bound model against the engine's model catalog before touching
+ * `local.toml`, and `missing-model` exercises the loud rejection.
+ */
+const SUBAGENT_TEST_CONFIG_TOML = `
+default_model = "test-model"
+
+[providers.local]
+type = "openai"
+base_url = "https://example.test/v1"
+api_key = "YOUR_API_KEY"
+
+[models.test-model]
+provider = "local"
+model = "test-model"
+max_context_size = 200000
+`;
+
+async function makeBindingHarness(): Promise<{ harness: KimiHarness; homeDir: string }> {
+  const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-binding-'));
+  tempDirs.push(homeDir);
+  await writeFile(join(homeDir, 'config.toml'), SUBAGENT_TEST_CONFIG_TOML, 'utf-8');
+  return { harness: createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY }), homeDir };
+}
+
+async function makeBindingWorkDir(): Promise<string> {
+  const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-binding-work-'));
+  tempDirs.push(workDir);
+  return workDir;
 }
 
 describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
@@ -288,6 +322,150 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
       await expect(harness.deleteSession('session_missing')).rejects.toMatchObject({
         code: ErrorCodes.NOT_IMPLEMENTED,
       });
+    } finally {
+      await harness.close();
+    }
+  });
+});
+
+describe('SDKRpcClientV2 subagent model bindings', () => {
+  it('round-trips workspace bindings and slots, preserving unrelated local.toml content', async () => {
+    const { harness } = await makeBindingHarness();
+    const workDir = await makeBindingWorkDir();
+    // Unrelated content that must survive every binding write (the port's
+    // raw-preserving TOML pass, same as v1).
+    const seededDir = await makeBindingWorkDir();
+    await mkdir(join(workDir, '.kimi-code'), { recursive: true });
+    await writeFile(
+      join(workDir, '.kimi-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["${toPosix(seededDir)}"]\n`,
+      'utf-8',
+    );
+    try {
+      const session = await harness.createSession({ id: 'ses_v2_subagent_binding', workDir });
+      await expect(session.getSubagentBindings()).resolves.toEqual({});
+      await expect(session.getSubagentSlotBindings()).resolves.toEqual({});
+
+      const { configPath } = await session.setSubagentBinding('coder', {
+        model: 'test-model',
+        thinkingEffort: 'high',
+      });
+      expect(toPosix(configPath)).toBe(toPosix(join(workDir, '.kimi-code', 'local.toml')));
+      await expect(session.getSubagentBindings()).resolves.toEqual({
+        coder: { model: 'test-model', thinkingEffort: 'high', inherit: undefined },
+      });
+
+      await session.setSubagentSlotBinding('review', { model: 'test-model', inherit: true });
+      await expect(session.getSubagentSlotBindings()).resolves.toEqual({
+        review: { model: 'test-model', thinkingEffort: undefined, inherit: true },
+      });
+
+      // The seeded [workspace] section survived both writes.
+      const text = await readFile(join(workDir, '.kimi-code', 'local.toml'), 'utf-8');
+      expect(text).toContain('additional_dir');
+      expect(text).toContain('[subagent.coder]');
+      expect(text).toContain('[subagent-slot.review]');
+
+      // An unknown model alias rejects loudly and writes nothing (same
+      // `config.invalid` code v1's resolveProviderConfig raises; only the
+      // message suffix differs between the engines).
+      await expect(
+        session.setSubagentBinding('explore', { model: 'missing-model' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      await expect(session.getSubagentBindings()).resolves.toEqual({
+        coder: { model: 'test-model', thinkingEffort: 'high', inherit: undefined },
+      });
+
+      await session.setSubagentBinding('coder', undefined);
+      await expect(session.getSubagentBindings()).resolves.toEqual({});
+      await session.setSubagentSlotBinding('review', undefined);
+      await expect(session.getSubagentSlotBindings()).resolves.toEqual({});
+      // Clearing the last entry of a section drops the section, never the
+      // unrelated content.
+      const cleared = await readFile(join(workDir, '.kimi-code', 'local.toml'), 'utf-8');
+      expect(cleared).toContain('additional_dir');
+      expect(cleared).not.toContain('[subagent.coder]');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('round-trips global bindings and slots against the client home', async () => {
+    const { harness, homeDir } = await makeBindingHarness();
+    const workDir = await makeBindingWorkDir();
+    try {
+      const session = await harness.createSession({ id: 'ses_v2_global_binding', workDir });
+      await expect(session.getGlobalSubagentBindings()).resolves.toEqual({});
+      await expect(session.getGlobalSubagentSlotBindings()).resolves.toEqual({});
+
+      const { configPath } = await session.setGlobalSubagentBinding('coder', {
+        model: 'test-model',
+        thinkingEffort: 'high',
+      });
+      // The global layer is the resolved client home — the same path the
+      // engine's spawn-side reader resolves through `resolveKimiHome`.
+      expect(toPosix(configPath)).toBe(toPosix(join(homeDir, 'local.toml')));
+      await expect(session.getGlobalSubagentBindings()).resolves.toEqual({
+        coder: { model: 'test-model', thinkingEffort: 'high', inherit: undefined },
+      });
+      // The workspace layer is untouched by global writes.
+      await expect(session.getSubagentBindings()).resolves.toEqual({});
+
+      await session.setGlobalSubagentSlotBinding('review', { model: 'test-model' });
+      await expect(session.getGlobalSubagentSlotBindings()).resolves.toEqual({
+        review: { model: 'test-model', thinkingEffort: undefined, inherit: undefined },
+      });
+
+      await expect(
+        session.setGlobalSubagentBinding('explore', { model: 'missing-model' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+
+      await session.setGlobalSubagentBinding('coder', undefined);
+      await expect(session.getGlobalSubagentBindings()).resolves.toEqual({});
+      await session.setGlobalSubagentSlotBinding('review', undefined);
+      await expect(session.getGlobalSubagentSlotBindings()).resolves.toEqual({});
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('lists builtin and file-defined subagent profiles with the v1 source vocabulary', async () => {
+    const { harness, homeDir } = await makeBindingHarness();
+    const workDir = await makeBindingWorkDir();
+    await mkdir(join(homeDir, 'agents'), { recursive: true });
+    await writeFile(
+      join(homeDir, 'agents', 'debater.md'),
+      '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\n---\nArgue both sides.\n',
+      'utf8',
+    );
+    await mkdir(join(workDir, '.git'), { recursive: true });
+    await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
+    await writeFile(
+      join(workDir, '.kimi-code', 'agents', 'test.md'),
+      '---\nname: test\ndescription: A project agent\nslot: project-review\n---\nReview the project.\n',
+      'utf8',
+    );
+    try {
+      const session = await harness.createSession({ id: 'ses_v2_profiles', workDir });
+      const profiles = await session.listSubagentProfiles();
+      const byName = new Map(profiles.map((profile) => [profile.name, profile]));
+
+      expect(byName.get('coder')?.source).toBe('builtin');
+      expect(byName.get('explore')?.source).toBe('builtin');
+      // v1 never lists the default profile itself as a delegatable subagent
+      // type; the v2 surface mirrors that.
+      expect(byName.has('agent')).toBe(false);
+
+      const debater = byName.get('debater');
+      expect(debater?.source).toBe('user');
+      expect(debater?.description).toBe('A debate agent');
+      expect(debater?.whenToUse).toBe('When you need a debate');
+
+      const projectProfile = byName.get('test');
+      // The v2 catalog's `workspace` sourceId maps to v1's `project`.
+      expect(projectProfile?.source).toBe('project');
+      expect(projectProfile?.description).toBe('A project agent');
+      expect(projectProfile?.slot).toBe('project-review');
     } finally {
       await harness.close();
     }

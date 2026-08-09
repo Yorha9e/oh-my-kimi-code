@@ -40,6 +40,7 @@ import {
   type JsonObject,
   type KimiConfig,
   type KimiHarness,
+  type ListSubagentProfileEntry,
   type McpServerConfig,
   type McpStartupMetrics,
   type PluginCommandDef,
@@ -318,6 +319,25 @@ const KNOWN_DIFFS = {
   // summaries compare in full.
   listSkills: (skills: readonly SkillSummary[], home: HomePair): unknown =>
     scrubHomePrefixes(skills, home),
+  // Subagent profiles: the builtin rosters are engine-owned and genuinely
+  // differ (v1 ships orchestrator/critic/synthesizer builtins the v2 engine
+  // never registers, and builtin description/whenToUse text is engine-owned
+  // and drifts between the engines), so the comparison intersects by name
+  // and compares shared builtins on (name, source) only. File-defined
+  // profiles (the user / project fixtures) compare in full: name,
+  // description, whenToUse, source (v2 `workspace` mapped back to v1
+  // `project`), slot.
+  listSubagentProfiles: (
+    profiles: readonly ListSubagentProfileEntry[],
+    other: readonly ListSubagentProfileEntry[],
+  ): unknown =>
+    profiles
+      .filter((profile) => other.some((candidate) => candidate.name === profile.name))
+      .map((profile) =>
+        profile.source === 'builtin'
+          ? { name: profile.name, source: profile.source }
+          : profile,
+      ),
 } satisfies Record<string, (value: never, other: never) => unknown>;
 
 /** See the KNOWN_DIFFS goal note above for what this projects and why. */
@@ -1574,6 +1594,332 @@ describe('v1↔v2 session lifecycle parity', () => {
       ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
     } finally {
       await closeSessionPair(pair);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subagent model binding parity
+//
+// Same driving rule as the session batch: `SDKRpcClient` / `SDKRpcClientV2`
+// directly, isolated per-engine homes, one SHARED workDir, explicit session
+// ids. The workspace cases write the SAME shared `local.toml` from both
+// engines, so same-file mutations stay sequential (the addAdditionalDir
+// lesson). The binding write validates a bound model alias up front on both
+// engines, so the homes get one resolvable fixture model; `missing-model`
+// exercises the loud rejection. No provider calls anywhere.
+// ---------------------------------------------------------------------------
+
+/** One resolvable model alias for the binding-validation gate. */
+const SUBAGENT_BINDING_CONFIG_TOML = `
+default_provider = "fixture-provider"
+default_model = "fixture-model"
+
+[providers.fixture-provider]
+type = "kimi"
+api_key = "fixture-api-key"
+base_url = "https://example.com/v1"
+
+[models.fixture-model]
+provider = "fixture-provider"
+model = "kimi-for-coding"
+max_context_size = 262144
+`;
+
+const toPosix = (path: string): string => path.replaceAll('\\', '/');
+
+/**
+ * v1's GLOBAL binding file lives under the kaos OS home
+ * (`getGlobalLocalConfigPath`: `<osHome>/.omkc/local.toml`), not the client
+ * home. Redirect `os.homedir()` (POSIX `$HOME`, Windows `USERPROFILE`) to a
+ * temp dir so the v1 side never touches the developer's real
+ * `~/.omkc/local.toml`; the v2 side writes its own resolved client home and
+ * is unaffected. Returns the restore function.
+ */
+function redirectOsHome(osHome: string): () => void {
+  const keys = ['HOME', 'USERPROFILE'] as const;
+  const saved = keys.map((key) => [key, process.env[key]] as const);
+  process.env['HOME'] = osHome;
+  process.env['USERPROFILE'] = osHome;
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
+describe('v1↔v2 subagent binding parity', () => {
+  it('workspace bindings and slots round-trip identically through the shared local.toml', async () => {
+    const restoreEnv = scrubConfigEnv();
+    const pair = await makeSessionParityPair(SUBAGENT_BINDING_CONFIG_TOML);
+    // Unrelated content that must survive every binding write (both engines'
+    // raw-preserving TOML pass).
+    const seededDir = await makeTempDir('kimi-sdk-parity-seeded-');
+    try {
+      await mkdir(join(pair.workDir, '.kimi-code'), { recursive: true });
+      await writeFile(
+        join(pair.workDir, '.kimi-code', 'local.toml'),
+        `[workspace]\nadditional_dir = ["${toPosix(seededDir)}"]\n`,
+        'utf-8',
+      );
+      await createOnBoth(pair, { id: 'session_parity_subagent_ws' });
+      const id = 'session_parity_subagent_ws';
+
+      const [v1Empty, v2Empty] = await Promise.all([
+        pair.v1.getSubagentBindings({ sessionId: id }),
+        pair.v2.getSubagentBindings({ sessionId: id }),
+      ]);
+      expect(v2Empty).toEqual(v1Empty);
+      expect(v1Empty).toEqual({});
+
+      const v1Set = await pair.v1.setSubagentBinding({
+        id,
+        agentType: 'coder',
+        binding: { model: 'fixture-model', thinkingEffort: 'high' },
+      });
+      const v2Set = await pair.v2.setSubagentBinding({
+        id,
+        agentType: 'coder',
+        binding: { model: 'fixture-model', thinkingEffort: 'high' },
+      });
+      expect(v2Set).toEqual(v1Set);
+      expect(toPosix(v1Set.configPath)).toBe(
+        toPosix(join(pair.workDir, '.kimi-code', 'local.toml')),
+      );
+
+      const [v1Bindings, v2Bindings] = await Promise.all([
+        pair.v1.getSubagentBindings({ sessionId: id }),
+        pair.v2.getSubagentBindings({ sessionId: id }),
+      ]);
+      expect(v2Bindings).toEqual(v1Bindings);
+      expect(v1Bindings).toEqual({
+        coder: { model: 'fixture-model', thinkingEffort: 'high', inherit: undefined },
+      });
+
+      // Slots share the same file: set through each engine in turn, read back
+      // on both.
+      const v1SlotSet = await pair.v1.setSubagentSlotBinding({
+        id,
+        slot: 'review',
+        binding: { model: 'fixture-model', inherit: true },
+      });
+      const v2SlotSet = await pair.v2.setSubagentSlotBinding({
+        id,
+        slot: 'review',
+        binding: { model: 'fixture-model', inherit: true },
+      });
+      expect(v2SlotSet).toEqual(v1SlotSet);
+      const [v1Slots, v2Slots] = await Promise.all([
+        pair.v1.getSubagentSlotBindings({ sessionId: id }),
+        pair.v2.getSubagentSlotBindings({ sessionId: id }),
+      ]);
+      expect(v2Slots).toEqual(v1Slots);
+      expect(v1Slots).toEqual({
+        review: { model: 'fixture-model', thinkingEffort: undefined, inherit: true },
+      });
+
+      // The seeded [workspace] section survived every write.
+      const text = await readFile(join(pair.workDir, '.kimi-code', 'local.toml'), 'utf-8');
+      expect(text).toContain('additional_dir');
+
+      // An unknown model alias rejects on both engines before any write —
+      // both raise `config.invalid` (only the message suffix drifts) — and
+      // the file keeps the surviving entries.
+      await expect(
+        pair.v1.setSubagentBinding({ id, agentType: 'explore', binding: { model: 'missing-model' } }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      await expect(
+        pair.v2.setSubagentBinding({ id, agentType: 'explore', binding: { model: 'missing-model' } }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      const [v1Unchanged, v2Unchanged] = await Promise.all([
+        pair.v1.getSubagentBindings({ sessionId: id }),
+        pair.v2.getSubagentBindings({ sessionId: id }),
+      ]);
+      expect(v2Unchanged).toEqual(v1Unchanged);
+      expect(Object.keys(v1Unchanged)).toEqual(['coder']);
+
+      // Clearing round-trips on both engines.
+      await pair.v1.setSubagentBinding({ id, agentType: 'coder', binding: undefined });
+      await pair.v2.setSubagentBinding({ id, agentType: 'coder', binding: undefined });
+      await pair.v1.setSubagentSlotBinding({ id, slot: 'review', binding: undefined });
+      await pair.v2.setSubagentSlotBinding({ id, slot: 'review', binding: undefined });
+      const [v1Cleared, v2Cleared] = await Promise.all([
+        pair.v1.getSubagentBindings({ sessionId: id }),
+        pair.v2.getSubagentBindings({ sessionId: id }),
+      ]);
+      const [v1ClearedSlots, v2ClearedSlots] = await Promise.all([
+        pair.v1.getSubagentSlotBindings({ sessionId: id }),
+        pair.v2.getSubagentSlotBindings({ sessionId: id }),
+      ]);
+      expect(v2Cleared).toEqual(v1Cleared);
+      expect(v1Cleared).toEqual({});
+      expect(v2ClearedSlots).toEqual(v1ClearedSlots);
+      expect(v1ClearedSlots).toEqual({});
+
+      // v1 requires the active session on both engines.
+      await expect(pair.v1.getSubagentBindings({ sessionId: 'session_missing' })).rejects
+        .toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+      await expect(pair.v2.getSubagentBindings({ sessionId: 'session_missing' })).rejects
+        .toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+    } finally {
+      await closeSessionPair(pair);
+      restoreEnv();
+    }
+  });
+
+  it('global bindings and slots round-trip identically against each engine’s own home', async () => {
+    const restoreEnv = scrubConfigEnv();
+    const osHome = await makeTempDir('kimi-sdk-parity-oshome-');
+    const restoreHome = redirectOsHome(osHome);
+    const pair = await makeSessionParityPair(SUBAGENT_BINDING_CONFIG_TOML);
+    try {
+      await createOnBoth(pair, { id: 'session_parity_subagent_global' });
+      const id = 'session_parity_subagent_global';
+
+      const [v1Empty, v2Empty] = await Promise.all([
+        pair.v1.getGlobalSubagentBindings({ sessionId: id }),
+        pair.v2.getGlobalSubagentBindings({ sessionId: id }),
+      ]);
+      expect(v2Empty).toEqual(v1Empty);
+      expect(v1Empty).toEqual({});
+
+      // The global file lives at different absolute paths per engine by
+      // construction (v1: `<osHome>/.omkc/local.toml` through the kaos OS
+      // home — redirected to a temp dir above; v2: `<v2Home>/local.toml`
+      // through the resolved client home), so the records compare
+      // cross-engine while each configPath is asserted against its own
+      // engine's layout.
+      const v1Set = await pair.v1.setGlobalSubagentBinding({
+        id,
+        agentType: 'coder',
+        binding: { model: 'fixture-model', thinkingEffort: 'high' },
+      });
+      const v2Set = await pair.v2.setGlobalSubagentBinding({
+        id,
+        agentType: 'coder',
+        binding: { model: 'fixture-model', thinkingEffort: 'high' },
+      });
+      expect(toPosix(v1Set.configPath)).toBe(toPosix(join(osHome, '.omkc', 'local.toml')));
+      expect(toPosix(v2Set.configPath)).toBe(toPosix(join(pair.v2Home.raw, 'local.toml')));
+
+      const [v1Bindings, v2Bindings] = await Promise.all([
+        pair.v1.getGlobalSubagentBindings({ sessionId: id }),
+        pair.v2.getGlobalSubagentBindings({ sessionId: id }),
+      ]);
+      expect(v2Bindings).toEqual(v1Bindings);
+      expect(v1Bindings).toEqual({
+        coder: { model: 'fixture-model', thinkingEffort: 'high', inherit: undefined },
+      });
+
+      // Global writes leave the workspace layer empty on both engines.
+      const [v1Ws, v2Ws] = await Promise.all([
+        pair.v1.getSubagentBindings({ sessionId: id }),
+        pair.v2.getSubagentBindings({ sessionId: id }),
+      ]);
+      expect(v2Ws).toEqual(v1Ws);
+      expect(v1Ws).toEqual({});
+
+      await pair.v1.setGlobalSubagentSlotBinding({
+        id,
+        slot: 'review',
+        binding: { model: 'fixture-model' },
+      });
+      await pair.v2.setGlobalSubagentSlotBinding({
+        id,
+        slot: 'review',
+        binding: { model: 'fixture-model' },
+      });
+      const [v1Slots, v2Slots] = await Promise.all([
+        pair.v1.getGlobalSubagentSlotBindings({ sessionId: id }),
+        pair.v2.getGlobalSubagentSlotBindings({ sessionId: id }),
+      ]);
+      expect(v2Slots).toEqual(v1Slots);
+      expect(v1Slots).toEqual({
+        review: { model: 'fixture-model', thinkingEffort: undefined, inherit: undefined },
+      });
+
+      await expect(
+        pair.v1.setGlobalSubagentBinding({ id, agentType: 'explore', binding: { model: 'missing-model' } }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      await expect(
+        pair.v2.setGlobalSubagentBinding({ id, agentType: 'explore', binding: { model: 'missing-model' } }),
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+
+      await pair.v1.setGlobalSubagentBinding({ id, agentType: 'coder', binding: undefined });
+      await pair.v2.setGlobalSubagentBinding({ id, agentType: 'coder', binding: undefined });
+      await pair.v1.setGlobalSubagentSlotBinding({ id, slot: 'review', binding: undefined });
+      await pair.v2.setGlobalSubagentSlotBinding({ id, slot: 'review', binding: undefined });
+      const [v1Cleared, v2Cleared] = await Promise.all([
+        pair.v1.getGlobalSubagentBindings({ sessionId: id }),
+        pair.v2.getGlobalSubagentBindings({ sessionId: id }),
+      ]);
+      const [v1ClearedSlots, v2ClearedSlots] = await Promise.all([
+        pair.v1.getGlobalSubagentSlotBindings({ sessionId: id }),
+        pair.v2.getGlobalSubagentSlotBindings({ sessionId: id }),
+      ]);
+      expect(v2Cleared).toEqual(v1Cleared);
+      expect(v1Cleared).toEqual({});
+      expect(v2ClearedSlots).toEqual(v1ClearedSlots);
+      expect(v1ClearedSlots).toEqual({});
+    } finally {
+      await closeSessionPair(pair);
+      restoreHome();
+      restoreEnv();
+    }
+  });
+
+  it('listSubagentProfiles matches on the profiles both engines share', async () => {
+    const restoreEnv = scrubConfigEnv();
+    const pair = await makeSessionParityPair(SUBAGENT_BINDING_CONFIG_TOML);
+    try {
+      // Same file-defined fixtures on both sides: a user profile in each
+      // engine's own home and a project profile in the shared workDir (both
+      // engines scan `<home>/agents` and `<projectRoot>/.kimi-code/agents`).
+      for (const home of [pair.v1Home.raw, pair.v2Home.raw]) {
+        await mkdir(join(home, 'agents'), { recursive: true });
+        await writeFile(
+          join(home, 'agents', 'debater.md'),
+          '---\nname: debater\ndescription: A debate agent\nwhen_to_use: When you need a debate\n---\nArgue both sides.\n',
+          'utf8',
+        );
+      }
+      await mkdir(join(pair.workDir, '.git'), { recursive: true });
+      await mkdir(join(pair.workDir, '.kimi-code', 'agents'), { recursive: true });
+      await writeFile(
+        join(pair.workDir, '.kimi-code', 'agents', 'test.md'),
+        '---\nname: test\ndescription: A project agent\nslot: project-review\n---\nReview the project.\n',
+        'utf8',
+      );
+      await createOnBoth(pair, { id: 'session_parity_subagent_profiles' });
+
+      const [v1Profiles, v2Profiles] = await Promise.all([
+        pair.v1.listSubagentProfiles({ sessionId: 'session_parity_subagent_profiles' }),
+        pair.v2.listSubagentProfiles({ sessionId: 'session_parity_subagent_profiles' }),
+      ]);
+      const project = KNOWN_DIFFS.listSubagentProfiles;
+      expect(normalize(project(v2Profiles, v1Profiles), 'name')).toEqual(
+        normalize(project(v1Profiles, v2Profiles), 'name'),
+      );
+      // Non-vacuous: the fixture profiles and the shared builtins are present
+      // on both engines, and the v2 side reports them in the v1 source
+      // vocabulary.
+      for (const profiles of [v1Profiles, v2Profiles]) {
+        const names = profiles.map((profile) => profile.name);
+        expect(names).toContain('coder');
+        expect(names).toContain('debater');
+        expect(names).toContain('test');
+      }
+      const v2ByName = new Map(v2Profiles.map((profile) => [profile.name, profile]));
+      expect(v2ByName.get('coder')?.source).toBe('builtin');
+      expect(v2ByName.get('debater')?.source).toBe('user');
+      expect(v2ByName.get('test')?.source).toBe('project');
+      expect(v2ByName.get('test')?.slot).toBe('project-review');
+      // v1 never lists the default profile itself as a delegatable type.
+      expect(v2ByName.has('agent')).toBe(false);
+    } finally {
+      await closeSessionPair(pair);
+      restoreEnv();
     }
   });
 });
