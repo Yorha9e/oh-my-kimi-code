@@ -99,7 +99,10 @@ import {
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
-import { readWorkspaceThenGlobalSlotBinding } from '#/session/subagent/slotBinding';
+import {
+  readWorkspaceThenGlobalSlotBinding,
+  readWorkspaceThenGlobalTypeBinding,
+} from '#/session/subagent/slotBinding';
 import {
   BACKGROUND_AGENT_UNAVAILABLE,
   DEFAULT_PROFILE_NAME,
@@ -320,6 +323,7 @@ export class SubagentTool implements ISubagentTool {
       }
       const requestedModel = args.model ?? profile.modelPreference;
       const slotBinding = await this.readProfileSlotBinding(profile, requestedModel);
+      const typeBinding = await this.readProfileTypeBinding(profile, requestedModel);
       const binding = resolveSubagentBinding(
         this.config,
         this.flags,
@@ -327,6 +331,7 @@ export class SubagentTool implements ISubagentTool {
         requestedModel,
         profile.name,
         slotBinding,
+        typeBinding,
       );
       let created: IAgentScopeHandle;
       try {
@@ -417,6 +422,32 @@ export class SubagentTool implements ISubagentTool {
     if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
       this.log.warn('ignoring slot binding with unknown model alias', {
         slot: profile.slot,
+        modelAlias: binding.model,
+      });
+      return undefined;
+    }
+    return { model: binding.model, thinking: binding.thinkingEffort };
+  }
+
+  /**
+   * Stored per-type binding (`[subagent.<type>]` in local.toml, keyed by the
+   * profile name) — the v1 workspace-local type layer sitting below the
+   * named slot in the spawn chain, with the same skip policy as
+   * `readProfileSlotBinding`: a missing binding, an explicit `inherit:
+   * true`, or a stored alias the model catalog no longer resolves drops the
+   * whole level (the last with a log warning). Only read when no explicit
+   * model choice exists — an explicit choice never touches the filesystem.
+   */
+  private async readProfileTypeBinding(
+    profile: AgentProfile,
+    requestedModel: string | undefined,
+  ): Promise<{ readonly model?: string; readonly thinking?: string } | undefined> {
+    if (requestedModel !== undefined) return undefined;
+    const binding = await readWorkspaceThenGlobalTypeBinding(this.workspace.workDir, profile.name);
+    if (binding === undefined || binding.inherit === true) return undefined;
+    if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
+      this.log.warn('ignoring per-type binding with unknown model alias', {
+        type: profile.name,
         modelAlias: binding.model,
       });
       return undefined;

@@ -1,11 +1,16 @@
 /**
- * `subagent` domain — registers the `secondary-model` experimental flag
- * into `flag`.
+ * `subagent` domain — registers the subagent experimental flags
+ * (`secondary-model`, `subagent-model-selection`) into `flag`.
  *
- * Gates secondary-model selection for newly spawned subagents, including the
- * agent-facing model choices and startup validation warning. Off by default;
- * enable via `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL`, the master
- * `KIMI_CODE_EXPERIMENTAL_FLAG`, or the `[experimental]` config section.
+ * `secondary-model` gates secondary-model selection for newly spawned
+ * subagents, including the agent-facing model choices and startup validation
+ * warning. Off by default; enable via `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL`,
+ * the master `KIMI_CODE_EXPERIMENTAL_FLAG`, or the `[experimental]` config
+ * section. `subagent-model-selection` gates the TUI's binding-management
+ * surfaces (the `/subagent-model` command reads the flag over RPC); the
+ * binding mechanism itself is always applied at spawn. Released in the
+ * community edition: on by default, disable via
+ * `KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION` or the config section.
  */
 
 import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
@@ -24,3 +29,18 @@ export const secondaryModelFlag: FlagDefinitionInput = {
 };
 
 registerFlagDefinition(secondaryModelFlag);
+
+export const SUBAGENT_MODEL_SELECTION_FLAG_ID = 'subagent-model-selection';
+export const SUBAGENT_MODEL_SELECTION_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION';
+
+export const subagentModelSelectionFlag: FlagDefinitionInput = {
+  id: SUBAGENT_MODEL_SELECTION_FLAG_ID,
+  title: 'Subagent model selection',
+  description:
+    'Bind configured model aliases and thinking efforts to subagent types and named slots per workspace (.kimi-code/local.toml) or globally; bindings are applied mechanically at spawn. Released in the community edition: on by default.',
+  env: SUBAGENT_MODEL_SELECTION_FLAG_ENV,
+  default: true,
+  surface: 'core',
+};
+
+registerFlagDefinition(subagentModelSelectionFlag);

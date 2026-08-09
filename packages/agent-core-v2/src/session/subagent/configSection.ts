@@ -31,14 +31,19 @@
  * no-op `model` parameter from their advertised schemas via
  * `stripSubagentModelParameter`.
  *
- * One more binding level slots into the chain between the per-type and
- * secondary layers: a profile declaring `slot` in its frontmatter binds
- * `[subagent-slot.<slot>]` from local.toml (read by the `slotBinding`
- * module), passed into `resolveSubagentBinding` as pure data with
- * `source: 'slot'`; the caller drops the level on `inherit: true` or an
- * unknown alias before it ever reaches the resolver. A slot setting only
- * `thinking_effort` keeps the model on the chain below (secondary → own)
- * while the slot's thinking level wins. Spawn reporting reads the display-facing
+ * Two more binding levels slot into the chain between the `[agent_types]`
+ * and secondary layers, both read from local.toml by the `slotBinding`
+ * module and passed into `resolveSubagentBinding` as pure data (the caller
+ * drops the level on `inherit: true` or an unknown alias before it ever
+ * reaches the resolver): first the named slot — a profile declaring `slot`
+ * in its frontmatter binds `[subagent-slot.<slot>]` with `source: 'slot'`,
+ * and a slot setting only `thinking_effort` keeps the model on the chain
+ * below while the slot's thinking level wins; then the v1 per-type layer —
+ * `[subagent.<type>]` from the same files (workspace first, global fallback)
+ * with `source: 'local_type'`, sitting below the named slot exactly like
+ * v1's `workspace slot > workspace type` order. The full chain is explicit
+ * choice > `[agent_types]` > slot > local type > secondary > caller. Spawn
+ * reporting reads the display-facing
  * alias from `subagentDisplayModel`: the derived entry id means nothing to a
  * user, so it resolves back to the recipe's base alias — flag-independent on
  * purpose, since interpreting an already-persisted derived binding (resume)
@@ -213,7 +218,7 @@ export function resolveSubagentTimeoutMs(config: IConfigService): number {
 export type SubagentModelChoice = AgentModelPreference;
 
 /** Where a resolved subagent model binding came from. */
-export type SubagentBindingSource = 'agent_types' | 'slot' | 'secondary' | 'own';
+export type SubagentBindingSource = 'agent_types' | 'slot' | 'local_type' | 'secondary' | 'own';
 
 /** A resolved subagent model binding, with provenance for error attribution. */
 export interface SubagentBinding {
@@ -238,6 +243,7 @@ export function resolveSubagentBinding(
   requested?: SubagentModelChoice,
   profileType?: string,
   slotBinding?: { readonly model?: string; readonly thinking?: string },
+  typeBinding?: { readonly model?: string; readonly thinking?: string },
 ): SubagentBinding {
   // Explicit 'primary': always the caller's model, skipping all config.
   if (requested === 'primary') {
@@ -292,20 +298,41 @@ export function resolveSubagentBinding(
   }
 
   // Slot with thinking only: the model keeps resolving down the chain
-  // (secondary → own) while the slot's thinking level wins, with `source`
-  // tracking the model's actual layer — mirroring v1's independent
-  // thinking chain.
+  // (local type → secondary → own) while the slot's thinking level wins,
+  // with `source` tracking the model's actual layer — mirroring v1's
+  // independent thinking chain.
   if (
     requested === undefined &&
     slotBinding?.model === undefined &&
     slotBinding?.thinking !== undefined
   ) {
-    const fallback = resolveSubagentBinding(config, flags, own);
+    const fallback = resolveSubagentBinding(
+      config,
+      flags,
+      own,
+      undefined,
+      undefined,
+      undefined,
+      typeBinding,
+    );
     return {
       model: fallback.model,
       thinking: slotBinding.thinking,
       displayModel: fallback.displayModel,
       source: fallback.source,
+    };
+  }
+
+  // No explicit choice: the v1 per-type layer (`[subagent.<type>]` in the
+  // same local.toml files, workspace first with a global fallback), sitting
+  // below the named slot exactly like v1's `workspace slot > workspace
+  // type` order. Same digested-data contract as the slot ring.
+  if (requested === undefined && typeBinding?.model !== undefined) {
+    return {
+      model: typeBinding.model,
+      thinking: typeBinding.thinking,
+      displayModel: subagentDisplayModel(config, typeBinding.model),
+      source: 'local_type',
     };
   }
 
@@ -468,6 +495,25 @@ export function wrapSubagentModelError(
           boundModel,
           slotBindingConfig: {
             section: `subagent-slot.${slotName}.model`,
+            file: 'local.toml',
+          },
+        },
+      },
+    );
+  }
+
+  if (source === 'local_type' && profileType !== undefined) {
+    return new Error2(
+      error.code,
+      `${error.message} (model "${boundModel}" comes from [subagent.${profileType}].model in local.toml — check that it names a valid [models] entry)`,
+      {
+        cause: error,
+        name: error.name,
+        details: {
+          ...error.details,
+          boundModel,
+          typeBindingConfig: {
+            section: `subagent.${profileType}.model`,
             file: 'local.toml',
           },
         },
