@@ -37,7 +37,7 @@ export const subagentModelSelectionFlag: FlagDefinitionInput = {
   id: SUBAGENT_MODEL_SELECTION_FLAG_ID,
   title: 'Subagent model selection',
   description:
-    'Bind configured model aliases and thinking efforts to subagent types and named slots per workspace (.kimi-code/local.toml) or globally; bindings are applied mechanically at spawn. Released in the community edition: on by default.',
+    'Bind configured model aliases and thinking efforts to subagent types per workspace (.kimi-code/local.toml); bindings are applied mechanically at spawn.',
   env: SUBAGENT_MODEL_SELECTION_FLAG_ENV,
   default: true,
   surface: 'core',
