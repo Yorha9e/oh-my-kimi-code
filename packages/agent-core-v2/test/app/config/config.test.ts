@@ -1688,6 +1688,33 @@ describe('subagent config section', () => {
     disposables.dispose();
   });
 
+  it('treats a 0 env override as no timeout (v1 parity)', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createConfig(env);
+
+    env[SUBAGENT_TIMEOUT_ENV] = '0';
+    expect(resolveSubagentTimeoutMs(config)).toBe(0);
+
+    env[SUBAGENT_TIMEOUT_ENV] = '45000';
+    expect(resolveSubagentTimeoutMs(config)).toBe(45000);
+
+    env[SUBAGENT_TIMEOUT_ENV] = '-5';
+    expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+
+    env[SUBAGENT_TIMEOUT_ENV] = 'abc';
+    expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+
+    // Empty / whitespace-only values count as unset (v1 parity: without the
+    // trim guard `Number('') === 0` would arm the no-timeout timer).
+    env[SUBAGENT_TIMEOUT_ENV] = '';
+    expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+
+    env[SUBAGENT_TIMEOUT_ENV] = '   ';
+    expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+
+    disposables.dispose();
+  });
+
   it('reads timeout_ms from config.toml and lets the env var win', async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');

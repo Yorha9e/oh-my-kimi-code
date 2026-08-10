@@ -547,6 +547,19 @@ describe('resolveSubagentBinding (slot layer)', () => {
     });
     expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
+
+  it('applies the profile slot binding even when the subagent-model-selection flag is off', () => {
+    const { config } = setup({ secondary: { model: 'provider/secondary' } });
+    // secondary-model on, subagent-model-selection off (the stub returns
+    // false for every id but secondary-model): the local.toml profile-slot
+    // binding is applied mechanically regardless of the flag (deliberate v2
+    // divergence from v1's gating).
+    const flags = stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID);
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
+      model: 'provider/slot',
+    });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
+  });
 });
 
 describe('resolveSubagentBinding (local type layer)', () => {
@@ -687,6 +700,63 @@ describe('resolveSubagentBinding (local type layer)', () => {
       source: 'local_type',
       displayModel: 'provider/local-type',
     });
+  });
+
+  it('applies the local type binding even when the subagent-model-selection flag is off', () => {
+    const { config } = setup({ secondary: { model: 'provider/secondary' } });
+    // secondary-model on, subagent-model-selection off (the stub returns
+    // false for every id but secondary-model): the local.toml
+    // [subagent.<type>] binding is applied mechanically regardless of the
+    // flag (deliberate v2 divergence from v1's gating).
+    const flags = stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID);
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      model: 'provider/local-type',
+    });
+    expect(binding).toEqual({
+      model: 'provider/local-type',
+      thinking: undefined,
+      source: 'local_type',
+      displayModel: 'provider/local-type',
+    });
+  });
+
+  it('keeps the model on the chain below when the local type sets thinking but no model', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      thinking: 'high',
+    });
+    // Model resolves to the secondary layer; the local type's thinking wins.
+    expect(binding).toEqual({
+      model: 'provider/secondary',
+      thinking: 'high',
+      source: 'secondary',
+      displayModel: 'provider/secondary',
+    });
+  });
+
+  it('falls back to the caller model with the local type thinking when no secondary is set', () => {
+    const { config, flags } = setup({});
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      thinking: 'low',
+    });
+    // Local type thinking ('low') differs from the caller's own level ('high').
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own', displayModel: 'caller-model' });
+  });
+
+  it('keeps the slot model when the local type sets thinking but no model (slot > type order)', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(
+      config,
+      flags,
+      OWN,
+      undefined,
+      'coder',
+      { model: 'provider/slot' },
+      { thinking: 'high' },
+    );
+    // The slot model wins outright; the type's thinking-only entry is below
+    // the slot in the chain and does not apply.
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
 });
 

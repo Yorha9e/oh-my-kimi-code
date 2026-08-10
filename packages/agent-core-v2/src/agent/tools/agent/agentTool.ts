@@ -835,7 +835,7 @@ function formatBackgroundAgentResult(
       allowBackground
         ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
         : 'next_step: The completion arrives automatically in a later turn.',
-      `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
+      `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up. If its model is rate-limited (429) or refused by safety policy, add binding_slot="<slot>" to resume it on that slot's model without losing context.`,
     ].join('\n'),
   );
 }
@@ -868,7 +868,7 @@ function formatForegroundAgentFailure(
   ];
   if (timedOut) {
     lines.push(
-      `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost.`,
+      `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost. If it was rate-limited (429) or refused by safety policy, add binding_slot="<slot>" to resume it on that slot's model.`,
     );
   }
   return withResumeWarning(handle, lines.join('\n'));

@@ -29,6 +29,8 @@ export type SubagentHandle = {
   readonly profileName: string;
   readonly model?: string;
   readonly thinkingEffort?: string;
+  /** Resume-slot "keeps its original model" warning to surface on the tool output. */
+  readonly warning?: string;
   readonly completion: Promise<SubagentCompletion>;
 };
 

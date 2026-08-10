@@ -4,7 +4,7 @@
  *
  * Owns the `[subagent]` configuration section (`timeout_ms` on disk) together
  * with the `KIMI_SUBAGENT_TIMEOUT_MS` env override (precedence: env >
- * config.toml > 2h default). While
+ * config.toml > 2h default; `0` means no timeout). While
  * the env var is set, `stripEnvBoundFields` restores the env-free raw value
  * before persistence, so the override never leaks into `config.toml`. Per-run
  * timeouts resolve through `resolveSubagentTimeoutMs`, and the timeout
@@ -105,8 +105,12 @@ export const DEFAULT_SUBAGENT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 export const SUBAGENT_TIMEOUT_ENV = 'KIMI_SUBAGENT_TIMEOUT_MS';
 
 function parseTimeoutMsEnv(raw: string): number | undefined {
+  // Empty / whitespace-only values count as unset (v1 parity:
+  // `Number('') === 0` would otherwise arm the no-timeout timer).
+  if (raw.trim().length === 0) return undefined;
   const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
+  // `0` means no timeout (v1 parity): the value arms no per-task timer.
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(
@@ -401,6 +405,23 @@ export function resolveSubagentBinding(
       thinking: typeBinding.thinking,
       displayModel: subagentDisplayModel(config, typeBinding.model),
       source: 'local_type',
+    };
+  }
+
+  // Local type with thinking only: the model keeps resolving down the chain
+  // (secondary → own) while the type's thinking level wins — mirroring the
+  // slot's independent-thinking rule, exactly like v1's per-type layer.
+  if (
+    requested === undefined &&
+    typeBinding?.model === undefined &&
+    typeBinding?.thinking !== undefined
+  ) {
+    const fallback = resolveSubagentBinding(config, flags, own, undefined, undefined, undefined);
+    return {
+      model: fallback.model,
+      thinking: typeBinding.thinking,
+      displayModel: fallback.displayModel,
+      source: fallback.source,
     };
   }
 
