@@ -140,6 +140,27 @@ omkc --version
 
 > Kimi Code 的工作目录跟随**启动时所在的文件夹**：在哪个项目里启动 `omkc`，就操作哪个项目。
 
+### 安装验证（防陈旧构建）
+
+`npm pack` **没有构建钩子**，它原样打包 `dist/` 的现状——跳过 `pnpm -C apps/kimi-code run build` 直接 pack，装进去的就是上一次构建的旧代码，而 `omkc --version` 照样显示新版本号（2026-08-10 的 0.34.0-omkc.3 初装就踩过：装入的是前一晚的 dist）。固定流程：
+
+```bash
+pnpm -C apps/kimi-code run build
+# ① 打包前验证：本次新特性的专属符号必须出现在 bundle 里
+grep -c "<新特性专属符号>" apps/kimi-code/dist/main.mjs
+
+cd apps/kimi-code && npm pack
+npm install -g ./oh-my-kimi-code-<version>.tgz   # EBUSY = 还有 omkc 窗口在跑，全关后重试
+
+# ② 安装后验证：安装目录里的标记 + 版本号
+grep -c "<新特性专属符号>" "$APPDATA/npm/node_modules/oh-my-kimi-code/dist/main.mjs"
+omkc --version
+```
+
+- **标记必须选该特性独有的符号**（如本次新增的函数名）；不要用 v1 引擎里早已存在的字符串（例：`binding_slot` v1 一直有，拿它验证 v2 移植会得到假阳性）。
+- EBUSY 文件锁来自运行中的 omkc 进程，关掉全部 omkc 窗口再装。
+- 已运行的会话内存里是旧代码，新功能要**重开窗口**才生效。
+
 ### 免安装直接跑（试用 / 开发）
 
 ```bash
