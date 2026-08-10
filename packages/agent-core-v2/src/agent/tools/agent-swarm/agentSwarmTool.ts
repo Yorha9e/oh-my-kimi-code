@@ -12,7 +12,15 @@
  * `ISessionAgentProfileCatalog`, and the caller's `IAgentProfileService`) and
  * threads it through the swarm tasks; otherwise binding is left to the
  * service, which keeps its own "no model bound" check and inherit-caller
- * fallback. A target profile declaring `slot` in its frontmatter binds
+ * fallback — the slot name/alias itself is still validated in that case, so
+ * an unconfigured slot raises a clear tool error even without a caller
+ * model. A `binding_slot` tool argument (an instance-level named slot)
+ * sits between the explicit choice and the profile's model preference,
+ * applied to every item-spawned subagent in the batch — a missing slot or an
+ * unknown alias raises a clear tool error instead of silently inheriting; a
+ * resume-only batch (no items) reports the slot as a warning rather than
+ * silently ignoring it, since resumed members keep their own models. A target profile
+ * declaring `slot` in its frontmatter binds
  * `[subagent-slot.<slot>]` from local.toml — read once up front like the
  * model preference itself, and dropped (with a log warning) on
  * `inherit: true` or an alias the model catalog no longer resolves. The
@@ -33,7 +41,7 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { Error2, ErrorCodes } from '#/errors';
+import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
@@ -52,11 +60,17 @@ import {
   buildSubagentModelDescriptions,
   resolveSubagentBinding,
   resolveSubagentTimeoutMs,
+  stripSubagentBindingSlotParameter,
   stripSubagentModelParameter,
+  wrapSubagentModelError,
   type SubagentBinding,
 } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
+  SECONDARY_MODEL_FLAG_ID,
+  SUBAGENT_MODEL_SELECTION_FLAG_ID,
+} from '#/session/subagent/flag';
+import {
+  listSlotNames,
   readWorkspaceThenGlobalSlotBinding,
   readWorkspaceThenGlobalTypeBinding,
 } from '#/session/subagent/slotBinding';
@@ -76,6 +90,12 @@ const DEFAULT_SUBAGENT_TYPE = 'coder';
 
 const AGENT_SWARM_PARAMETERS = toInputJsonSchema(AgentSwarmToolInputSchema);
 const AGENT_SWARM_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_SWARM_PARAMETERS);
+const AGENT_SWARM_PARAMETERS_NO_BINDING_SLOT = stripSubagentBindingSlotParameter(
+  AGENT_SWARM_PARAMETERS,
+);
+const AGENT_SWARM_PARAMETERS_NO_MODEL_NO_BINDING_SLOT = stripSubagentBindingSlotParameter(
+  AGENT_SWARM_PARAMETERS_NO_MODEL,
+);
 
 interface AgentSwarmSpawnSpec {
   readonly kind: 'spawn';
@@ -108,9 +128,12 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   readonly name = 'AgentSwarm' as const;
 
   get parameters(): Record<string, unknown> {
-    return this.flags.enabled(SECONDARY_MODEL_FLAG_ID)
-      ? AGENT_SWARM_PARAMETERS
-      : AGENT_SWARM_PARAMETERS_NO_MODEL;
+    const secondaryEnabled = this.flags.enabled(SECONDARY_MODEL_FLAG_ID);
+    const bindingSlotEnabled = this.flags.enabled(SUBAGENT_MODEL_SELECTION_FLAG_ID);
+    if (secondaryEnabled && bindingSlotEnabled) return AGENT_SWARM_PARAMETERS;
+    if (secondaryEnabled) return AGENT_SWARM_PARAMETERS_NO_BINDING_SLOT;
+    if (bindingSlotEnabled) return AGENT_SWARM_PARAMETERS_NO_MODEL;
+    return AGENT_SWARM_PARAMETERS_NO_MODEL_NO_BINDING_SLOT;
   }
 
   private readonly callerAgentId: string;
@@ -181,7 +204,9 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     toolCallId: string,
   ): Promise<string> {
     const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
+    const bindingSlot = normalizeOptionalString(args.binding_slot);
     let binding: SubagentBinding | undefined;
+    let resumeOnlyWarning: string | undefined;
     if ((args.items?.length ?? 0) > 0) {
       await this.catalog.ready;
       const own = this.profile.data();
@@ -199,20 +224,52 @@ export class AgentSwarmTool implements IAgentSwarmTool {
           details: { profileName },
         });
       }
+      // Slot existence/alias validation runs even when the caller has no model
+      // to bind: an unconfigured slot name is a contract error ("reported as an
+      // error" in the parameter description), never something to silently drop.
+      const explicitModel = args.model;
+      const toolSlotBinding = await this.resolveToolSlotBinding(bindingSlot, explicitModel);
       if (own.modelAlias !== undefined) {
-        const requestedModel = args.model ?? targetProfile.modelPreference;
-        const slotBinding = await this.readProfileSlotBinding(targetProfile, requestedModel);
-        const typeBinding = await this.readProfileTypeBinding(targetProfile, requestedModel);
+        // The profile's modelPreference is demoted below the tool binding_slot:
+        // it applies only when no explicit choice and no tool slot binding are
+        // in play, so a declared preference never suppresses a tool slot. When
+        // the tool slot already resolved a model, the profile-slot and per-type
+        // layers below can never win — skip their local.toml reads entirely
+        // (and their dangling-alias warnings along with them).
+        const requestedModel =
+          explicitModel ??
+          (toolSlotBinding === undefined ? targetProfile.modelPreference : undefined);
+        const slotBinding =
+          toolSlotBinding?.model !== undefined
+            ? undefined
+            : await this.readProfileSlotBinding(targetProfile, requestedModel);
+        const typeBinding =
+          toolSlotBinding?.model !== undefined
+            ? undefined
+            : await this.readProfileTypeBinding(targetProfile, requestedModel);
         binding = resolveSubagentBinding(
           this.config,
           this.flags,
           { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-          requestedModel,
+          explicitModel,
           profileName,
           slotBinding,
           typeBinding,
+          toolSlotBinding,
+          targetProfile.modelPreference,
         );
       }
+    } else if (
+      bindingSlot !== undefined &&
+      this.flags.enabled(SUBAGENT_MODEL_SELECTION_FLAG_ID)
+    ) {
+      // Resume-only batch: binding_slot binds item-spawned subagents only, so
+      // it has no target here — say so instead of silently ignoring it.
+      // Resumed members keep their own models (v1 parity), so no override.
+      resumeOnlyWarning =
+        `warning: binding_slot "${bindingSlot}" has no effect because this AgentSwarm call ` +
+        `only resumes existing subagents without spawning new ones from items; resumed ` +
+        `subagents keep their own models.`;
     }
     const timeoutMs = resolveSubagentTimeoutMs(this.config);
     const specs = await createAgentSwarmSpecs(args, (agentId) =>
@@ -249,9 +306,10 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       callerAgentId: this.callerAgentId,
       tasks,
     });
-    return renderSwarmResults(
+    const rendered = renderSwarmResults(
       results.map(({ task, ...result }) => ({ spec: task.data as AgentSwarmSpec, ...result })),
     );
+    return resumeOnlyWarning === undefined ? rendered : `${resumeOnlyWarning}\n${rendered}`;
   }
 
   /**
@@ -314,6 +372,66 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Tool-level binding_slot (an instance-level named slot passed through the
+   * `binding_slot` tool argument): resolved once per batch when no explicit
+   * model choice exists and the subagent-model-selection flag is on. A
+   * missing slot or a stored alias the model catalog no longer resolves
+   * raises a clear tool error (listing the available slots / attributing the
+   * alias) — never a silent fall-through to the caller's model. `inherit:
+   * true` or an empty entry drops the level so the chain below applies.
+   */
+  private async resolveToolSlotBinding(
+    bindingSlot: string | undefined,
+    explicitModel: string | undefined,
+  ): Promise<{ readonly model?: string; readonly thinking?: string } | undefined> {
+    if (bindingSlot === undefined || explicitModel !== undefined) return undefined;
+    if (!this.flags.enabled(SUBAGENT_MODEL_SELECTION_FLAG_ID)) return undefined;
+    const binding = await readWorkspaceThenGlobalSlotBinding(this.workspace.workDir, bindingSlot);
+    if (binding === undefined) {
+      throw await this.slotNotConfiguredError(bindingSlot);
+    }
+    if (binding.inherit === true) return undefined;
+    if (binding.model === undefined && binding.thinkingEffort === undefined) return undefined;
+    if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
+      throw this.slotUnknownAliasError(bindingSlot, binding.model);
+    }
+    return { model: binding.model, thinking: binding.thinkingEffort };
+  }
+
+  private async slotNotConfiguredError(slot: string): Promise<Error2> {
+    const available = await listSlotNames(this.workspace.workDir);
+    const availableText =
+      available.length === 0
+        ? 'none configured'
+        : available
+            .map((entry) => (entry.source === 'global' ? `${entry.name} (global)` : entry.name))
+            .join(', ');
+    return new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      `Binding slot "${slot}" is not configured. Available slots: ${availableText}. ` +
+        `Configure it in .kimi-code/local.toml under [subagent-slot.${slot}].`,
+      { details: { slot, available: available.map((entry) => entry.name) } },
+    );
+  }
+
+  private slotUnknownAliasError(slot: string, model: string): Error2 {
+    const cause = new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      `Model "${model}" is not configured in config.toml.`,
+      { details: { model } },
+    );
+    const wrapped = wrapSubagentModelError(
+      cause,
+      model,
+      this.profile.data().modelAlias,
+      'slot',
+      undefined,
+      slot,
+    );
+    return isError2(wrapped) ? wrapped : cause;
   }
 }
 

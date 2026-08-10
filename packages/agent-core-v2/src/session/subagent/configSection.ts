@@ -42,7 +42,13 @@
  * `[subagent.<type>]` from the same files (workspace first, global fallback)
  * with `source: 'local_type'`, sitting below the named slot exactly like
  * v1's `workspace slot > workspace type` order. The full chain is explicit
- * choice > `[agent_types]` > slot > local type > secondary > caller. Spawn
+ * choice > tool binding_slot > profile modelPreference > [agent_types] >
+ * slot > local type > secondary > caller, where the tool binding_slot is an
+ * instance-level named slot passed through the Agent / AgentSwarm tool args
+ * (`binding_slot`) that outranks the type binding like v1's instance-level
+ * slot, and the profile's `model_preference` frontmatter resolves like an
+ * explicit choice but sits below the tool slot (a tool slot must not be
+ * suppressed by a declared preference). Spawn
  * reporting reads the display-facing
  * alias from `subagentDisplayModel`: the derived entry id means nothing to a
  * user, so it resolves back to the recipe's base alias — flag-independent on
@@ -244,6 +250,8 @@ export function resolveSubagentBinding(
   profileType?: string,
   slotBinding?: { readonly model?: string; readonly thinking?: string },
   typeBinding?: { readonly model?: string; readonly thinking?: string },
+  toolSlotBinding?: { readonly model?: string; readonly thinking?: string },
+  modelPreference?: SubagentModelChoice,
 ): SubagentBinding {
   // Explicit 'primary': always the caller's model, skipping all config.
   if (requested === 'primary') {
@@ -253,6 +261,66 @@ export function resolveSubagentBinding(
       displayModel: subagentDisplayModel(config, own.modelAlias),
       source: 'own',
     };
+  }
+
+  // Tool-level binding_slot (an instance-level named slot passed through the
+  // Agent / AgentSwarm tool args): sits between an explicit model choice and
+  // the profile model preference, mirroring v1's "instance-level slot outranks
+  // the type binding" order. The caller digested the slot — a missing slot or
+  // an unknown alias already raised a tool error, and `inherit: true` / an
+  // empty entry dropped the level — so a `model` here is authoritative.
+  if (requested === undefined && toolSlotBinding?.model !== undefined) {
+    return {
+      model: toolSlotBinding.model,
+      thinking: toolSlotBinding.thinking,
+      displayModel: subagentDisplayModel(config, toolSlotBinding.model),
+      source: 'slot',
+    };
+  }
+
+  // Tool-level slot with thinking only: the model keeps resolving down the
+  // chain (model preference → agent_types → profile slot → local type →
+  // secondary → own) while the slot's thinking wins — the same
+  // independent-thinking rule the profile slot follows below.
+  if (
+    requested === undefined &&
+    toolSlotBinding?.model === undefined &&
+    toolSlotBinding?.thinking !== undefined
+  ) {
+    const fallback = resolveSubagentBinding(
+      config,
+      flags,
+      own,
+      undefined,
+      profileType,
+      slotBinding,
+      typeBinding,
+      undefined,
+      modelPreference,
+    );
+    return {
+      model: fallback.model,
+      thinking: toolSlotBinding.thinking,
+      displayModel: fallback.displayModel,
+      source: fallback.source,
+    };
+  }
+
+  // Profile model preference (`model_preference` in the agent profile's
+  // frontmatter): resolves like the explicit tool choice ('primary' → the
+  // caller's model, 'secondary' → the secondary model) but sits BELOW the tool
+  // binding_slot and ABOVE the [agent_types] layer — a tool slot must not be
+  // silently suppressed just because the profile declares a preference.
+  if (requested === undefined && modelPreference !== undefined) {
+    if (modelPreference === 'primary') {
+      return {
+        model: own.modelAlias,
+        thinking: own.thinkingLevel,
+        displayModel: subagentDisplayModel(config, own.modelAlias),
+        source: 'own',
+      };
+    }
+    return resolveSecondaryOrOwn(config, flags, own);
   }
 
   // No explicit choice: check the per-type binding first.
@@ -339,6 +407,14 @@ export function resolveSubagentBinding(
   // Explicit 'secondary' or undefined fallback: the global secondary model.
   // ('primary' already returned above, so the upstream `requested !==
   // 'primary'` guard is redundant here and trips TS2367 narrowing.)
+  return resolveSecondaryOrOwn(config, flags, own);
+}
+
+function resolveSecondaryOrOwn(
+  config: IConfigService,
+  flags: IFlagService,
+  own: { modelAlias: string; thinkingLevel: string },
+): SubagentBinding {
   const secondary = resolveSecondaryModel(config, flags);
   if (secondary?.model !== undefined) {
     const model =
@@ -446,6 +522,21 @@ export function stripSubagentModelParameter(
   const required = parameters['required'];
   if (Array.isArray(required) && required.includes('model')) {
     next['required'] = required.filter((entry) => entry !== 'model');
+  }
+  return next;
+}
+
+export function stripSubagentBindingSlotParameter(
+  parameters: Record<string, unknown>,
+): Record<string, unknown> {
+  const properties = parameters['properties'];
+  if (!isPlainObject(properties) || !('binding_slot' in properties)) return parameters;
+  const nextProperties = { ...properties };
+  delete nextProperties['binding_slot'];
+  const next: Record<string, unknown> = { ...parameters, properties: nextProperties };
+  const required = parameters['required'];
+  if (Array.isArray(required) && required.includes('binding_slot')) {
+    next['required'] = required.filter((entry) => entry !== 'binding_slot');
   }
   return next;
 }

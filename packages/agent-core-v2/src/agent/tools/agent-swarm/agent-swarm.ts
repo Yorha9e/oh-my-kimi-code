@@ -59,6 +59,12 @@ export const AgentSwarmToolInputSchema = z
       .describe(
         'Which model to run the item-spawned subagents on: "secondary" = the configured secondary model; "primary" = the main model you are running on (for hard, quality-sensitive tasks). This explicit choice overrides the selected agent type\'s model_preference; without either, secondary is the default when configured. Only effective when a secondary model is configured; otherwise subagents inherit your model. Resumed subagents always keep their own model.',
       ),
+    binding_slot: z
+      .string()
+      .optional()
+      .describe(
+        'Named binding slot pre-configured by the user for this workspace (.kimi-code/local.toml under [subagent-slot.<name>]); applied to every subagent spawned from items in this batch. Set ONLY when the user, the task, or a preset explicitly names a slot — pass the name through verbatim; never invent slot names. An unconfigured slot name, or a slot referencing a model that is not configured, is reported as an error — subagents never silently inherit another model.',
+      ),
   })
   .strict();
 

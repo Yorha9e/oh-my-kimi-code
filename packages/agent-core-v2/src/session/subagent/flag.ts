@@ -7,8 +7,13 @@
  * warning. Off by default; enable via `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL`,
  * the master `KIMI_CODE_EXPERIMENTAL_FLAG`, or the `[experimental]` config
  * section. `subagent-model-selection` gates the TUI's binding-management
- * surfaces (the `/subagent-model` command reads the flag over RPC); the
- * binding mechanism itself is always applied at spawn. Released in the
+ * surfaces (the `/subagent-model` command reads the flag over RPC) and the
+ * tool-level `binding_slot` parameter — the Agent / AgentSwarm tools strip it
+ * from their advertised schemas and ignore it at spawn and resume while the
+ * flag is off, mirroring v1's gating of the tool argument. The local.toml
+ * profile-slot and per-type bindings, by contrast, are applied mechanically
+ * at spawn regardless of this flag — a deliberate v2 divergence, since v1
+ * gates those bindings too (subagent-host.ts:505,533). Released in the
  * community edition: on by default, disable via
  * `KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION` or the config section.
  */

@@ -12,7 +12,11 @@
  *
  * Spawn bindings use an explicit tool choice first, then the target profile's
  * symbolic model preference, before `resolveSubagentBinding` falls back to the
- * configured secondary model or the caller's model. A profile declaring `slot`
+ * configured secondary model or the caller's model. A `binding_slot` tool
+ * argument (an instance-level named slot) sits between the explicit choice and
+ * the profile's model preference — a declared preference never suppresses a
+ * tool slot — and a missing slot or an unknown alias raises a clear tool
+ * error instead of silently inheriting. A profile declaring `slot`
  * in its frontmatter binds `[subagent-slot.<slot>]` from local.toml — read
  * only when no explicit choice exists, and dropped (with a log warning) on
  * `inherit: true` or an alias the model catalog no longer resolves. The
@@ -20,7 +24,9 @@
  * allocation. A resumed
  * agent keeps the model recorded in its own wire journal — with per-subagent
  * models there is no "child follows the parent's current model" invariant to
- * enforce.
+ * enforce; a `binding_slot` on resume overrides the resumed agent's model
+ * (persisted, so later resumes keep it); an `inherit: true` or empty slot
+ * keeps the original model with a warning.
  *
  * Registered via the module-level `registerAgentToolService(ISubagentTool,
  * SubagentTool)` at the bottom of this file — the same "import = register"
@@ -94,12 +100,17 @@ import {
   formatSubagentTimeoutDescription,
   resolveSubagentBinding,
   resolveSubagentTimeoutMs,
+  stripSubagentBindingSlotParameter,
   stripSubagentModelParameter,
   subagentBindingDisplayModel,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
+  SECONDARY_MODEL_FLAG_ID,
+  SUBAGENT_MODEL_SELECTION_FLAG_ID,
+} from '#/session/subagent/flag';
+import {
+  listSlotNames,
   readWorkspaceThenGlobalSlotBinding,
   readWorkspaceThenGlobalTypeBinding,
 } from '#/session/subagent/slotBinding';
@@ -122,15 +133,24 @@ import AGENT_DESCRIPTION_BASE from './agent.md?raw';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);
+const SUBAGENT_TOOL_PARAMETERS_NO_BINDING_SLOT = stripSubagentBindingSlotParameter(
+  SUBAGENT_TOOL_PARAMETERS,
+);
+const SUBAGENT_TOOL_PARAMETERS_NO_MODEL_NO_BINDING_SLOT = stripSubagentBindingSlotParameter(
+  SUBAGENT_TOOL_PARAMETERS_NO_MODEL,
+);
 
 export class SubagentTool implements ISubagentTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string = 'Agent';
 
   get parameters(): Record<string, unknown> {
-    return this.flags.enabled(SECONDARY_MODEL_FLAG_ID)
-      ? SUBAGENT_TOOL_PARAMETERS
-      : SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
+    const secondaryEnabled = this.flags.enabled(SECONDARY_MODEL_FLAG_ID);
+    const bindingSlotEnabled = this.flags.enabled(SUBAGENT_MODEL_SELECTION_FLAG_ID);
+    if (secondaryEnabled && bindingSlotEnabled) return SUBAGENT_TOOL_PARAMETERS;
+    if (secondaryEnabled) return SUBAGENT_TOOL_PARAMETERS_NO_BINDING_SLOT;
+    if (bindingSlotEnabled) return SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
+    return SUBAGENT_TOOL_PARAMETERS_NO_MODEL_NO_BINDING_SLOT;
   }
 
   private readonly callerAgentId: string;
@@ -280,6 +300,7 @@ export class SubagentTool implements ISubagentTool {
     let agentId: string;
     let profileName: string;
     let displayModel: string | undefined;
+    let resumeWarning: string | undefined;
     let promptText = args.prompt;
     if (isResume) {
       const target = this.lifecycle.get(resumeAgentId);
@@ -290,6 +311,10 @@ export class SubagentTool implements ISubagentTool {
       }
       await this.ensureOwnedIdleSubagent(resumeAgentId, target);
       agentId = target.id;
+      const bindingSlot = normalizeBindingSlot(args.binding_slot);
+      if (bindingSlot !== undefined && this.flags.enabled(SUBAGENT_MODEL_SELECTION_FLAG_ID)) {
+        resumeWarning = await this.applyResumeSlotOverride(target, bindingSlot);
+      }
       const resumed = target.accessor.get(IAgentProfileService).data();
       profileName = resumed.profileName ?? RESUMED_LABEL;
       displayModel =
@@ -321,17 +346,35 @@ export class SubagentTool implements ISubagentTool {
           details: { agentId: this.callerAgentId },
         });
       }
-      const requestedModel = args.model ?? profile.modelPreference;
-      const slotBinding = await this.readProfileSlotBinding(profile, requestedModel);
-      const typeBinding = await this.readProfileTypeBinding(profile, requestedModel);
+      const explicitModel = args.model;
+      const bindingSlot = normalizeBindingSlot(args.binding_slot);
+      const toolSlotBinding = await this.resolveToolSlotBinding(bindingSlot, explicitModel);
+      // The profile's modelPreference is demoted below the tool binding_slot:
+      // it applies only when no explicit choice and no tool slot binding are
+      // in play, so a declared preference never suppresses a tool slot. When
+      // the tool slot already resolved a model, the profile-slot and per-type
+      // layers below can never win — skip their local.toml reads entirely
+      // (and their dangling-alias warnings along with them).
+      const requestedModel =
+        explicitModel ?? (toolSlotBinding === undefined ? profile.modelPreference : undefined);
+      const slotBinding =
+        toolSlotBinding?.model !== undefined
+          ? undefined
+          : await this.readProfileSlotBinding(profile, requestedModel);
+      const typeBinding =
+        toolSlotBinding?.model !== undefined
+          ? undefined
+          : await this.readProfileTypeBinding(profile, requestedModel);
       const binding = resolveSubagentBinding(
         this.config,
         this.flags,
         { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-        requestedModel,
+        explicitModel,
         profile.name,
         slotBinding,
         typeBinding,
+        toolSlotBinding,
+        profile.modelPreference,
       );
       let created: IAgentScopeHandle;
       try {
@@ -345,13 +388,20 @@ export class SubagentTool implements ISubagentTool {
           labels: subagentLabels(this.callerAgentId),
         });
       } catch (error) {
+        // Attribute a 'slot' source to the level that actually produced it:
+        // the tool binding_slot when its model won, the profile frontmatter
+        // slot otherwise — never a mismatched or undefined slot name.
+        const bindingSlotName =
+          binding.source === 'slot' && toolSlotBinding?.model === binding.model
+            ? bindingSlot
+            : profile.slot;
         throw wrapSubagentModelError(
           error,
           binding.model,
           own.modelAlias,
           binding.source,
           profile.name,
-          profile.slot,
+          bindingSlotName,
         );
       }
       created.accessor.get(IAgentPermissionModeService).setMode(this.permissionMode.mode);
@@ -398,6 +448,7 @@ export class SubagentTool implements ISubagentTool {
         .get(agentId)
         ?.accessor.get(IAgentProfileService)
         .getEffectiveThinkingLevel(),
+      warning: resumeWarning,
       completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
     };
   }
@@ -462,6 +513,105 @@ export class SubagentTool implements ISubagentTool {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Tool-level binding_slot (an instance-level named slot passed through the
+   * `binding_slot` tool argument): resolved only when no explicit model
+   * choice exists and the subagent-model-selection flag is on. A missing slot
+   * or a stored alias the model catalog no longer resolves raises a clear
+   * tool error (listing the available slots / attributing the alias) — never
+   * a silent fall-through to the caller's model. `inherit: true` or an empty
+   * entry drops the level so the chain below (type binding etc.) applies.
+   */
+  private async resolveToolSlotBinding(
+    bindingSlot: string | undefined,
+    explicitModel: string | undefined,
+  ): Promise<{ readonly model?: string; readonly thinking?: string } | undefined> {
+    if (bindingSlot === undefined || explicitModel !== undefined) return undefined;
+    if (!this.flags.enabled(SUBAGENT_MODEL_SELECTION_FLAG_ID)) return undefined;
+    const binding = await readWorkspaceThenGlobalSlotBinding(this.workspace.workDir, bindingSlot);
+    if (binding === undefined) {
+      throw await this.slotNotConfiguredError(bindingSlot);
+    }
+    if (binding.inherit === true) return undefined;
+    if (binding.model === undefined && binding.thinkingEffort === undefined) return undefined;
+    if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
+      throw this.slotUnknownAliasError(bindingSlot, binding.model);
+    }
+    return { model: binding.model, thinking: binding.thinkingEffort };
+  }
+
+  /**
+   * One-off binding-slot model override for a resume: recovers a subagent
+   * whose model was rate-limited or refused by switching it to the slot's
+   * model, persisted into the resumed agent's config (subsequent resumes keep
+   * the new model). A missing slot or an unknown alias raises a clear tool
+   * error — never a silent keep-original. `inherit: true` or an empty entry
+   * keeps the sticky model and returns a "keeps its original model" warning
+   * (v1 parity) instead of a silent no-op.
+   */
+  private async applyResumeSlotOverride(
+    target: IAgentScopeHandle,
+    slot: string,
+  ): Promise<string | undefined> {
+    const binding = await readWorkspaceThenGlobalSlotBinding(this.workspace.workDir, slot);
+    if (binding === undefined) {
+      throw await this.slotNotConfiguredError(slot);
+    }
+    if (
+      binding.inherit === true ||
+      (binding.model === undefined && binding.thinkingEffort === undefined)
+    ) {
+      return (
+        `warning: binding slot "${slot}" has no model binding; the resumed subagent keeps its ` +
+        `original model. Set one with /subagent-model set slot ${slot} or in .kimi-code/local.toml.`
+      );
+    }
+    const profileService = target.accessor.get(IAgentProfileService);
+    if (binding.model !== undefined) {
+      if (!this.isModelAliasKnown(binding.model)) {
+        throw this.slotUnknownAliasError(slot, binding.model);
+      }
+      await profileService.setModel(binding.model);
+    }
+    if (binding.thinkingEffort !== undefined) {
+      profileService.setThinking(binding.thinkingEffort);
+    }
+    return undefined;
+  }
+
+  private async slotNotConfiguredError(slot: string): Promise<Error2> {
+    const available = await listSlotNames(this.workspace.workDir);
+    const availableText =
+      available.length === 0
+        ? 'none configured'
+        : available
+            .map((entry) => (entry.source === 'global' ? `${entry.name} (global)` : entry.name))
+            .join(', ');
+    return new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      `Binding slot "${slot}" is not configured. Available slots: ${availableText}. ` +
+        `Configure it in .kimi-code/local.toml under [subagent-slot.${slot}].`,
+      { details: { slot, available: available.map((entry) => entry.name) } },
+    );
+  }
+
+  private slotUnknownAliasError(slot: string, model: string): Error2 {
+    const cause = new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      `Model "${model}" is not configured in config.toml.`,
+      { details: { model } },
+    );
+    const wrapped = wrapSubagentModelError(
+      cause,
+      model,
+      this.profile.data().modelAlias,
+      'slot',
+      undefined,
+      slot,
+    );
+    return isError2(wrapped) ? wrapped : cause;
   }
 
   private async ensureOwnedIdleSubagent(
@@ -609,6 +759,12 @@ export class SubagentTool implements ISubagentTool {
 
 registerAgentToolService(ISubagentTool, SubagentTool, { name: 'Agent', domain: 'subagent' });
 
+function normalizeBindingSlot(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 
 function buildProfileDescriptions(
   profiles: readonly AgentProfile[],
@@ -665,31 +821,37 @@ function formatBackgroundAgentResult(
   description: string,
   allowBackground: boolean,
 ): string {
-  return [
-    `task_id: ${taskId}`,
-    'status: running',
-    `agent_id: ${handle.agentId}`,
-    `actual_subagent_type: ${handle.profileName}`,
-    'automatic_notification: true',
-    '',
-    `description: ${description}`,
-    '',
-    allowBackground
-      ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
-      : 'next_step: The completion arrives automatically in a later turn.',
-    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
-  ].join('\n');
+  return withResumeWarning(
+    handle,
+    [
+      `task_id: ${taskId}`,
+      'status: running',
+      `agent_id: ${handle.agentId}`,
+      `actual_subagent_type: ${handle.profileName}`,
+      'automatic_notification: true',
+      '',
+      `description: ${description}`,
+      '',
+      allowBackground
+        ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
+        : 'next_step: The completion arrives automatically in a later turn.',
+      `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
+    ].join('\n'),
+  );
 }
 
 function formatForegroundAgentSuccess(handle: SubagentHandle, result: string): string {
-  return [
-    `agent_id: ${handle.agentId}`,
-    `actual_subagent_type: ${handle.profileName}`,
-    'status: completed',
-    '',
-    '[summary]',
-    result,
-  ].join('\n');
+  return withResumeWarning(
+    handle,
+    [
+      `agent_id: ${handle.agentId}`,
+      `actual_subagent_type: ${handle.profileName}`,
+      'status: completed',
+      '',
+      '[summary]',
+      result,
+    ].join('\n'),
+  );
 }
 
 function formatForegroundAgentFailure(
@@ -709,7 +871,12 @@ function formatForegroundAgentFailure(
       `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost.`,
     );
   }
-  return lines.join('\n');
+  return withResumeWarning(handle, lines.join('\n'));
+}
+
+/** Prepend a resume-slot "keeps its original model" warning to the tool output. */
+function withResumeWarning(handle: SubagentHandle, output: string): string {
+  return handle.warning === undefined ? output : `${handle.warning}\n${output}`;
 }
 
 function launchErrorMessage(error: unknown, signal: AbortSignal): string {

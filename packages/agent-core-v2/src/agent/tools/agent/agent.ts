@@ -61,6 +61,12 @@ export const SubagentToolInputSchema = z.preprocess(
       .describe(
         'Which model to run the subagent on: "secondary" = the configured secondary model; "primary" = the main model you are running on (for hard, quality-sensitive tasks). This explicit choice overrides the selected agent type\'s model_preference; without either, secondary is the default when configured. Only effective when a secondary model is configured; otherwise the subagent inherits your model. Ignored when resuming — resumed subagents keep their own model.',
       ),
+    binding_slot: z
+      .string()
+      .optional()
+      .describe(
+        'Named binding slot pre-configured by the user for this workspace (.kimi-code/local.toml under [subagent-slot.<name>]). Set ONLY when the user, the task, or a preset explicitly names a slot — pass the name through verbatim; never invent slot names. The slot\'s model takes precedence over the subagent type binding. On resume, the slot overrides the resumed agent\'s model. An unconfigured slot name, or a slot referencing a model that is not configured, is reported as an error — the subagent never silently inherits another model.',
+      ),
   }),
 );
 

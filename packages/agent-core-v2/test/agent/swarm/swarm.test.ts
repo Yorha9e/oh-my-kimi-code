@@ -416,7 +416,7 @@ describe('AgentSwarmTool', () => {
       'Subagent type used for every new subagent spawned from items; defaults to coder when omitted. Resumed subagents always keep their original type, so passing subagent_type together with resume_agent_ids is allowed — it only affects the item-based spawns.',
     );
     expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>).at(-1)).toBe(
-      'model',
+      'binding_slot',
     );
 
     const result = await executeTool(tool, context(input));

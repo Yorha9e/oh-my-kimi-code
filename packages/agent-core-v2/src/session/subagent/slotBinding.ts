@@ -106,6 +106,36 @@ export async function readWorkspaceThenGlobalSlotBinding(
   return workspace ?? (await readGlobalSlotBinding(slot));
 }
 
+/** A configured slot name and the layer(s) it comes from. */
+export interface SlotNameEntry {
+  readonly name: string;
+  /** `workspace` = local to the project, `global` = user/omkc home layer, `both` = in both. */
+  readonly source: 'workspace' | 'global' | 'both';
+}
+
+/** All configured slot names across the workspace + global local.toml layers (union, sorted), annotated with their source layer. */
+export async function listSlotNames(workDir: string): Promise<SlotNameEntry[]> {
+  const projectRoot = await findProjectRoot(workDir);
+  const [workspace, global] = await Promise.all([
+    readLocalToml(join(projectRoot, '.kimi-code', 'local.toml')),
+    readLocalToml(join(resolveKimiHome(), 'local.toml')),
+  ]);
+  const workspaceNames = new Set(Object.keys(workspace?.['subagent-slot'] ?? {}));
+  const globalNames = new Set(Object.keys(global?.['subagent-slot'] ?? {}));
+  const entries: SlotNameEntry[] = [...new Set([...workspaceNames, ...globalNames])].map(
+    (name) => ({
+      name,
+      source: workspaceNames.has(name)
+        ? globalNames.has(name)
+          ? 'both'
+          : 'workspace'
+        : 'global',
+    }),
+  );
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return entries;
+}
+
 async function readBindingAtPath(
   configPath: string,
   section: BindingSection,
