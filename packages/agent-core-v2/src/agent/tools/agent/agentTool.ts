@@ -1,46 +1,3 @@
-/**
- * `tools` domain — `SubagentTool` implementation (the `Agent` tool).
- *
- * The LLM-facing wrapper over the `subagent` domain: translates the tool args
- * into a Profile + Model binding, creates (or resumes) an agent through
- * `IAgentLifecycleService`, drives one turn via `ISessionSubagentService.run`,
- * and mirrors the run onto the calling agent's record stream
- * (`mirrorAgentRun`). The tool also owns the JSON schema + description,
- * approval rule, background-task registration (so the LLM can see the run
- * under TaskList/TaskOutput/TaskStop when `run_in_background=true` or after
- * detach), and terminal text formatting.
- *
- * Spawn bindings use an explicit tool choice first, then the target profile's
- * symbolic model preference, before `resolveSubagentBinding` falls back to the
- * configured secondary model or the caller's model. A `binding_slot` tool
- * argument (an instance-level named slot) sits between the explicit choice and
- * the profile's model preference — a declared preference never suppresses a
- * tool slot — and a missing slot or an unknown alias raises a clear tool
- * error instead of silently inheriting. A profile declaring `slot`
- * in its frontmatter binds `[subagent-slot.<slot>]` from local.toml — read
- * only when no explicit choice exists, and dropped (with a log warning) on
- * `inherit: true` or an alias the model catalog no longer resolves. The
- * selected alias is resolved through the model catalog before lifecycle
- * allocation. A resumed
- * agent keeps the model recorded in its own wire journal — with per-subagent
- * models there is no "child follows the parent's current model" invariant to
- * enforce; a `binding_slot` on resume overrides the resumed agent's model
- * (persisted, so later resumes keep it); an `inherit: true` or empty slot
- * keeps the original model with a warning.
- *
- * Registered via the module-level `registerAgentToolService(ISubagentTool,
- * SubagentTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. The per-profile tool listings in the
- * description read the full contribution table (not the runtime registry,
- * which only holds tools the caller's own Profile activated), plus any
- * dynamically registered tools. The description's catalog profile list is
- * snapshotted once the session catalog has loaded and frozen for the agent's
- * lifetime: plugin install / enable / disable / remove re-contributes
- * profiles mid-session, and a live read would rewrite the tools payload of
- * every later request — breaking the provider's prompt cache for a change a
- * live agent must not see (new profiles take effect on `/new` or `/reload`).
- * Bound at Agent scope.
- */
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import {
@@ -230,8 +187,6 @@ export class SubagentTool implements ISubagentTool {
   private catalogProfiles(): readonly AgentProfile[] {
     if (this.frozenCatalogProfiles !== undefined) return this.frozenCatalogProfiles;
     const profiles = this.catalog.list();
-    // Freeze only on a loaded catalog — a pre-ready read could pin a partial
-    // listing for the agent's lifetime.
     if (this.catalogReady) this.frozenCatalogProfiles = profiles;
     return profiles;
   }
@@ -370,12 +325,6 @@ export class SubagentTool implements ISubagentTool {
       const explicitModel = args.model;
       const bindingSlot = normalizeBindingSlot(args.binding_slot);
       const toolSlotBinding = await this.resolveToolSlotBinding(bindingSlot, explicitModel);
-      // The profile's modelPreference is demoted below the tool binding_slot:
-      // it applies only when no explicit choice and no tool slot binding are
-      // in play, so a declared preference never suppresses a tool slot. When
-      // the tool slot already resolved a model, the profile-slot and per-type
-      // layers below can never win — skip their local.toml reads entirely
-      // (and their dangling-alias warnings along with them).
       const requestedModel =
         explicitModel ?? (toolSlotBinding === undefined ? profile.modelPreference : undefined);
       const slotBinding =
@@ -893,7 +842,6 @@ function formatForegroundAgentFailure(
   return withResumeWarning(handle, lines.join('\n'));
 }
 
-/** Prepend a resume-slot "keeps its original model" warning to the tool output. */
 function withResumeWarning(handle: SubagentHandle, output: string): string {
   return handle.warning === undefined ? output : `${handle.warning}\n${output}`;
 }

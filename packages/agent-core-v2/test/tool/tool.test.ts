@@ -3046,8 +3046,6 @@ describe('Agent tool slot binding wiring', () => {
   it('keeps the model on the chain below with the slot thinking when the slot sets thinking but no model', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createSlotContext(lifecycle, 'coder', {
-      // Slot thinking ('medium') differs from the secondary default effort
-      // ('low'), proving the level comes from the slot, not the model layer.
       localToml: '[subagent-slot.coder]\nthinking_effort = "medium"\n',
       secondary: true,
     });
@@ -3070,7 +3068,6 @@ describe('Agent tool slot binding wiring', () => {
   it('uses the slot thinking with the caller model when no model layer below is configured', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createSlotContext(lifecycle, 'coder', {
-      // Slot thinking ('medium') differs from the caller's own level ('off').
       localToml: '[subagent-slot.coder]\nthinking_effort = "medium"\n',
     });
 
@@ -3090,10 +3087,6 @@ describe('Agent tool slot binding wiring', () => {
   });
 
   it('binds the profile slot model at spawn even when the subagent-model-selection flag is off', async () => {
-    // The harness runs with secondary-model on and subagent-model-selection
-    // off (secondaryModelFlags()), pinning the spawn read layer: local.toml
-    // [subagent-slot.<slot>] is read and applied mechanically regardless of
-    // the flag (deliberate v2 divergence from v1's gating).
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createSlotContext(lifecycle, 'coder', {
       localToml: '[subagent-slot.coder]\nmodel = "provider/slot"\nthinking_effort = "medium"\n',
@@ -3116,9 +3109,6 @@ describe('Agent tool slot binding wiring', () => {
   });
 
   it('binds the [subagent.<type>] local type model at spawn even when the subagent-model-selection flag is off', async () => {
-    // Same read-layer pin for the v1 per-type layer: with the flag off the
-    // harness still reads [subagent.coder] from local.toml and binds its
-    // model mechanically (deliberate v2 divergence from v1's gating).
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createSlotContext(lifecycle, undefined, {
       localToml: '[subagent.coder]\nmodel = "provider/type"\nthinking_effort = "low"\n',
@@ -3536,8 +3526,6 @@ describe('Agent tool binding_slot wiring', () => {
       binding_slot: 'debater_a',
     });
 
-    // inherit: true keeps the sticky model — with a v1-parity warning, never
-    // a silent no-op — and the resume still proceeds.
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('warning:');
     expect(result.output).toContain('binding slot "debater_a" has no model binding');
@@ -3684,9 +3672,6 @@ describe('Agent tool binding_slot wiring', () => {
     const logs = captureLogs();
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createBindingSlotContext(lifecycle, {
-      // The profile slot 'coder' points at an alias the catalog cannot
-      // resolve: if the tool binding_slot wins and its local.toml reads are
-      // skipped, that dangling alias is never consulted and never warned about.
       localToml: [
         '[subagent-slot.debater_a]',
         'model = "provider/slot"',
@@ -3797,7 +3782,6 @@ describe('Agent tool binding_slot wiring', () => {
     );
     lifecycle.addHandle('main', 'agent');
 
-    // First resume switches the child onto the slot's model...
     await executeAgentTool(ctx, {
       prompt: 'Continue A',
       description: 'Continue work',
@@ -3808,7 +3792,6 @@ describe('Agent tool binding_slot wiring', () => {
     expect(targetProfile.setModel).toHaveBeenCalledWith('provider/slot');
     expect(targetProfile.data().modelAlias).toBe('provider/slot');
 
-    // ...and a later resume without binding_slot keeps that persisted model.
     (targetProfile.setModel as ReturnType<typeof vi.fn>).mockClear();
     await executeAgentTool(ctx, {
       prompt: 'Continue B',
@@ -5192,7 +5175,6 @@ describe('AgentSwarm tool binding_slot wiring', () => {
       signal,
     });
 
-    // Flag off = binding_slot is entirely ignored, warning included.
     expect(result.isError).toBeUndefined();
     expect(result.output).not.toContain('warning: binding_slot');
     const tasks = (runSwarm as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
@@ -5220,8 +5202,6 @@ describe('AgentSwarm tool binding_slot wiring', () => {
       signal,
     });
 
-    // Slot existence is validated before the caller-model guard, so a
-    // model-less caller still gets the contract error instead of a silent drop.
     expect(result.isError).toBe(true);
     expect(result.output).toContain('Binding slot "debater_a" is not configured');
     expect(result.output).toContain('Available slots:');

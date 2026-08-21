@@ -72,13 +72,6 @@ export class TowerWorkerWriteGuardPermissionPolicyService implements PermissionP
     const entry = findEntryByAgentId(mirror, this.scopeContext.agentId);
     if (entry === undefined) return;
     const worktree = entry.worktree;
-    // B3-4: a matched entry with a null/empty worktree has no confinement →
-    // treat it as no entry and fail open.
-    // B3R-1: a non-absolute worktree likewise has no usable confinement —
-    // access paths are canonicalized absolute, so a relative base could
-    // never contain them and the guard would deny everything (fail-closed).
-    // The tower controller always writes absolute worktrees; any other
-    // shape is anomalous, and we prefer fail-open over wrongly denying.
     if (typeof worktree !== 'string' || worktree.length === 0 || !pathe.isAbsolute(worktree)) {
       return;
     }
@@ -97,7 +90,6 @@ export class TowerWorkerWriteGuardPermissionPolicyService implements PermissionP
   }
 }
 
-/** Reverse-locate the repo root from a worker cwd per the worktree layout. */
 function reverseRepoRoot(cwd: string): string | undefined {
   if (cwd.length === 0) return undefined;
   const worktreesDir = dirname(cwd);
@@ -107,7 +99,6 @@ function reverseRepoRoot(cwd: string): string | undefined {
   return join(dirname(worktreesDir), base.slice(0, -suffix.length));
 }
 
-/** Scan the mirror's agents map by agentId; pending (null) ids never match. */
 function findEntryByAgentId(
   mirror: TowerGuardMirror,
   agentId: string,

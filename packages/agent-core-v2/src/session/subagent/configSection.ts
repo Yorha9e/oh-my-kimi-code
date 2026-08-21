@@ -1,43 +1,3 @@
-/**
- * `subagent` domain — subagent config-section schema, env binding, and
- * timeout / model resolution.
- *
- * Owns the `[subagent]` configuration section (`timeout_ms` on disk) together
- * with the `KIMI_SUBAGENT_TIMEOUT_MS` env override (precedence: env >
- * config.toml > 2h default; `0` means no timeout). While
- * the env var is set, `stripEnvBoundFields` restores the env-free raw value
- * before persistence, so the override never leaks into `config.toml`. Per-run
- * timeouts resolve through `resolveSubagentTimeoutMs`, and the timeout
- * message renders with `formatSubagentTimeoutDescription`.
- *
- * The model half of the spawn binding is the secondary model pool (the
- * `[secondary_model]` section on disk): when its experiment is enabled, newly
- * spawned subagents bind to the pool's `default_model` (or a pool alias picked
- * per spawn via the Agent/AgentSwarm `model` parameter) instead of inheriting
- * the caller's model. `force = true` removes the choice entirely. Without a
- * pool, spawning behavior is unchanged (subagents inherit the caller's model).
- *
- * OMKC extension — three more binding levels slot into the chain between the
- * `[agent_types]` and secondary layers, both read from local.toml by the
- * `slotBinding` module and passed into `resolveSubagentBinding` as pure data
- * (the caller drops the level on `inherit: true` or an unknown alias before
- * it ever reaches the resolver): first the named slot — a profile declaring
- * `slot` in its frontmatter binds `[subagent-slot.<slot>]` with
- * `source: 'slot'`, and a slot setting only `thinking_effort` keeps the model
- * on the chain below while the slot's thinking level wins; then the v1
- * per-type layer — `[subagent.<type>]` from the same files (workspace first,
- * global fallback) with `source: 'local_type'`, sitting below the named slot
- * exactly like v1's `workspace slot > workspace type` order. The full chain is
- * explicit choice > tool binding_slot > profile modelPreference >
- * [agent_types] > slot > local type > secondary pool > caller, where the tool
- * binding_slot is an instance-level named slot passed through the Agent /
- * AgentSwarm tool args (`binding_slot`) that outranks the type binding like
- * v1's instance-level slot, and the profile's `model_preference` frontmatter
- * resolves like an explicit choice but sits below the tool slot (a tool slot
- * must not be suppressed by a declared preference). Spawn reporting reads the
- * display-facing alias from `subagentDisplayModel`. Self-registered at module
- * load via `registerConfigSection`.
- */
 
 import { z } from 'zod';
 
@@ -97,11 +57,8 @@ export const DEFAULT_SUBAGENT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 export const SUBAGENT_TIMEOUT_ENV = 'KIMI_SUBAGENT_TIMEOUT_MS';
 
 function parseTimeoutMsEnv(raw: string): number | undefined {
-  // Empty / whitespace-only values count as unset (v1 parity:
-  // `Number('') === 0` would otherwise arm the no-timeout timer).
   if (raw.trim().length === 0) return undefined;
   const parsed = Number(raw);
-  // `0` means no timeout (v1 parity): the value arms no per-task timer.
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
@@ -120,19 +77,11 @@ registerConfigSection(SUBAGENT_SECTION, SubagentConfigSchema, {
   stripEnv: stripSubagentEnv,
 });
 
-// `agentTypes` - per-type subagent model binding ([agent_types.<type>] on
-// disk): `model` (a [models] entry id), `thinking` (a binding-layer effort
-// level), and any `ModelOverride` field as a patch. resolveSubagentBinding
-// checks the per-type entry before the secondary model and the caller's model
-// when no explicit choice is made; patch-bearing entries bind a synthesized
-// derived entry (`__agent_type_<type>__`) via `agentTypesOverlay`. Record keys
-// are user-defined type names preserved verbatim through the toml transforms.
 export const AGENT_TYPES_SECTION = 'agentTypes';
 
 export const AgentTypeBindingSchema = ModelOverrideSchema.extend({
   model: z.string().min(1).optional(),
-  thinking: z.string().optional(), // binding-layer thinking, not a ModelOverride field
-});
+  thinking: z.string().optional(),});
 
 export type AgentTypeBinding = z.infer<typeof AgentTypeBindingSchema>;
 
@@ -140,9 +89,6 @@ export const AgentTypesConfigSchema = z.record(z.string(), AgentTypeBindingSchem
 
 export type AgentTypesConfig = z.infer<typeof AgentTypesConfigSchema>;
 
-// Derived-id convention for per-type patch entries: `__agent_type_<type>__`.
-// The id is reserved (never user-configured on disk); `agentTypesOverlay`
-// synthesizes it into the effective `models` view and strips it on write.
 export const AGENT_TYPE_DERIVED_PREFIX = '__agent_type_';
 export const AGENT_TYPE_DERIVED_SUFFIX = '__';
 
@@ -162,8 +108,6 @@ export function agentTypeFromDerivedModelId(id: string): string | undefined {
   return id.slice(AGENT_TYPE_DERIVED_PREFIX.length, -AGENT_TYPE_DERIVED_SUFFIX.length);
 }
 
-// The patch half of a per-type binding (every field except `model` /
-// `thinking`); undefined when no patch field is set.
 export function agentTypePatch(
   binding: AgentTypeBinding | undefined,
 ): ModelOverride | undefined {
@@ -172,8 +116,6 @@ export function agentTypePatch(
   return Object.keys(patch).length > 0 ? (patch as ModelOverride) : undefined;
 }
 
-// Preserve record keys (subagent type names) while converting each entry's
-// inner field names via the standard snake→camel transform.
 export const agentTypesFromToml = (rawSnake: unknown): unknown => {
   if (!isPlainObject(rawSnake)) return rawSnake;
   const out: Record<string, unknown> = {};
@@ -183,9 +125,6 @@ export const agentTypesFromToml = (rawSnake: unknown): unknown => {
   return out;
 };
 
-// Preserve record keys while converting each entry's inner field names back
-// to snake_case, merging over the raw on-disk sub-record to preserve unknown
-// keys through a round-trip.
 export const agentTypesToToml = (value: unknown, rawSnake: unknown): unknown => {
   if (!isPlainObject(value)) return value;
   const rawSub = cloneRecord(rawSnake);
@@ -376,14 +315,13 @@ export function resolveSubagentBinding(
   config: IConfigService,
   flags: IFlagService,
   own: { modelAlias: string; thinkingLevel: string },
-  requested?: SubagentModelChoice,
+  requested?: string,
   profileType?: string,
   slotBinding?: { readonly model?: string; readonly thinking?: string },
   typeBinding?: { readonly model?: string; readonly thinking?: string },
   toolSlotBinding?: { readonly model?: string; readonly thinking?: string },
-  modelPreference?: SubagentModelChoice,
+  modelPreference?: AgentModelPreference,
 ): SubagentBinding {
-  // Explicit 'primary': always the caller's model, skipping all config.
   if (requested === 'primary') {
     return {
       model: own.modelAlias,
@@ -393,12 +331,6 @@ export function resolveSubagentBinding(
     };
   }
 
-  // Tool-level binding_slot (an instance-level named slot passed through the
-  // Agent / AgentSwarm tool args): sits between an explicit model choice and
-  // the profile model preference, mirroring v1's "instance-level slot outranks
-  // the type binding" order. The caller digested the slot — a missing slot or
-  // an unknown alias already raised a tool error, and `inherit: true` / an
-  // empty entry dropped the level — so a `model` here is authoritative.
   if (requested === undefined && toolSlotBinding?.model !== undefined) {
     return {
       model: toolSlotBinding.model,
@@ -408,10 +340,6 @@ export function resolveSubagentBinding(
     };
   }
 
-  // Tool-level slot with thinking only: the model keeps resolving down the
-  // chain (model preference → agent_types → profile slot → local type →
-  // secondary → own) while the slot's thinking wins — the same
-  // independent-thinking rule the profile slot follows below.
   if (
     requested === undefined &&
     toolSlotBinding?.model === undefined &&
@@ -436,11 +364,6 @@ export function resolveSubagentBinding(
     };
   }
 
-  // Profile model preference (`model_preference` in the agent profile's
-  // frontmatter): resolves like the explicit tool choice ('primary' → the
-  // caller's model, 'secondary' → the secondary model) but sits BELOW the tool
-  // binding_slot and ABOVE the [agent_types] layer — a tool slot must not be
-  // silently suppressed just because the profile declares a preference.
   if (requested === undefined && modelPreference !== undefined) {
     if (modelPreference === 'primary') {
       return {
@@ -453,39 +376,21 @@ export function resolveSubagentBinding(
     return resolveSecondaryOrOwn(config, flags, own);
   }
 
-  // No explicit choice: check the per-type binding first.
   if (requested === undefined && profileType !== undefined) {
     const agentTypes = config.get<AgentTypesConfig | undefined>(AGENT_TYPES_SECTION);
     const perType = agentTypes?.[profileType];
     if (perType?.model !== undefined) {
       const patch = agentTypePatch(perType);
-      // A patch-bearing entry binds the synthesized derived entry
-      // (`__agent_type_<type>__`); a pointer-only entry binds the pointed
-      // entry directly - identical to the pre-patch behavior. The binding-
-      // layer `thinking` always wins over a patch `default_effort`: it is
-      // the explicit spawn-time level, while `default_effort` only affects
-      // the derived entry's natural-resolution fallback.
-      //
-      // Mirror `agentTypesOverlay`'s chain guard: the overlay refuses to
-      // synthesize a derived entry whose base is itself a derived id, so a
-      // patch-bearing entry pointing at `__agent_type_*__` binds the pointed
-      // (already-derived) entry directly instead of producing a dangling id.
       const synthesize = patch !== undefined && !isAgentTypeDerivedModelId(perType.model);
       return {
         model: synthesize ? agentTypeDerivedModelId(profileType) : perType.model,
         thinking: perType.thinking,
-        // The derived `__agent_type_<type>__` id means nothing to a user;
-        // report the entry's base alias, mirroring `subagentDisplayModel`.
         displayModel: subagentDisplayModel(config, perType.model),
         source: 'agent_types',
       };
     }
   }
 
-  // No explicit choice: the profile's declared slot
-  // (`[subagent-slot.<slot>]` in local.toml, read by the `slotBinding`
-  // module). The caller passes digested data — `inherit: true` or an
-  // unknown alias already dropped the whole level.
   if (requested === undefined && slotBinding?.model !== undefined) {
     return {
       model: slotBinding.model,
@@ -495,10 +400,6 @@ export function resolveSubagentBinding(
     };
   }
 
-  // Slot with thinking only: the model keeps resolving down the chain
-  // (local type → secondary → own) while the slot's thinking level wins,
-  // with `source` tracking the model's actual layer — mirroring v1's
-  // independent thinking chain.
   if (
     requested === undefined &&
     slotBinding?.model === undefined &&
@@ -521,10 +422,6 @@ export function resolveSubagentBinding(
     };
   }
 
-  // No explicit choice: the v1 per-type layer (`[subagent.<type>]` in the
-  // same local.toml files, workspace first with a global fallback), sitting
-  // below the named slot exactly like v1's `workspace slot > workspace
-  // type` order. Same digested-data contract as the slot ring.
   if (requested === undefined && typeBinding?.model !== undefined) {
     return {
       model: typeBinding.model,
@@ -534,9 +431,6 @@ export function resolveSubagentBinding(
     };
   }
 
-  // Local type with thinking only: the model keeps resolving down the chain
-  // (secondary → own) while the type's thinking level wins — mirroring the
-  // slot's independent-thinking rule, exactly like v1's per-type layer.
   if (
     requested === undefined &&
     typeBinding?.model === undefined &&
@@ -551,15 +445,14 @@ export function resolveSubagentBinding(
     };
   }
 
-  // Explicit non-primary alias or undefined fallback: the secondary model
-  // pool (official semantics — force short-circuits, default_model binds).
-  return resolveSecondaryOrOwn(config, flags, own);
+  return resolveSecondaryOrOwn(config, flags, own, requested);
 }
 
 function resolveSecondaryOrOwn(
   config: IConfigService,
   flags: IFlagService,
   own: { modelAlias: string; thinkingLevel: string },
+  requested?: string,
 ): SubagentBinding {
   const enabled = flags.enabled(SECONDARY_MODEL_FLAG_ID);
   const section = config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION);
@@ -568,6 +461,13 @@ function resolveSecondaryOrOwn(
       throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE, {
         details: { section: SECONDARY_MODEL_SECTION, field: 'force' },
       });
+    }
+    if (requested !== undefined) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid model "${requested}": [secondary_model].force is set, so every subagent binds "${section.defaultModel ?? section.model}" (omit the model parameter).`,
+        { details: { model: requested } },
+      );
     }
     const forcedModel = section.defaultModel ?? section.model;
     if (forcedModel === undefined) {
@@ -583,6 +483,13 @@ function resolveSecondaryOrOwn(
   }
   const pool = enabled ? resolveSubagentModelPool(config) : undefined;
   if (pool === undefined) {
+    if (requested !== undefined) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid model "${requested}": no [secondary_model.models] pool is configured, so subagents inherit the caller's model (pass "primary" or omit the model parameter).`,
+        { details: { model: requested } },
+      );
+    }
     return {
       model: own.modelAlias,
       thinking: own.thinkingLevel,
@@ -590,7 +497,16 @@ function resolveSecondaryOrOwn(
       source: 'own',
     };
   }
-  const choice = pool.defaultModel;
+  if (Object.hasOwn(pool.models, PRIMARY_SUBAGENT_MODEL_CHOICE)) {
+    throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE, {
+      details: {
+        section: SECONDARY_MODEL_SECTION,
+        field: 'models',
+        model: PRIMARY_SUBAGENT_MODEL_CHOICE,
+      },
+    });
+  }
+  const choice = (requested === undefined || requested === 'secondary') ? pool.defaultModel : requested;
   if (choice === undefined) {
     throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE, {
       details: { section: SECONDARY_MODEL_SECTION, field: 'defaultModel' },

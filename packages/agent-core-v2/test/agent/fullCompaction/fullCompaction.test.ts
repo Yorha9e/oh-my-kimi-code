@@ -1668,10 +1668,6 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         source: 'auto',
         tokens_before: 6_575,
-        // 6529 estimated request-overhead tokens (system prompt + tools) +
-        // 9 measured summary output tokens (scripted compaction exchange) +
-        // 21 estimated tokens for the kept user messages — the summary
-        // component is the REAL provider count, not a text estimate.
         tokens_after: 6_559,
         compacted_count: 7,
         retry_count: 0,

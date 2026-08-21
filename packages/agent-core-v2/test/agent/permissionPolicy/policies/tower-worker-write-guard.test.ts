@@ -18,7 +18,6 @@ interface Layout {
   readonly mirrorFile: string;
 }
 
-/** Layout per the tower convention: `<repoRoot>` sibling `<repoName>-worktrees/<slot>`. */
 function makeLayout(repoName = 'my-repo'): Layout {
   const root = mkdtempSync(join(tmpdir(), 'tower-guard-v2-'));
   const repoRoot = join(root, repoName);
@@ -270,7 +269,6 @@ describe('TowerWorkerWriteGuardPermissionPolicyService', () => {
     cleanup.push(layout.root);
     writeMirror(layout, 'worker-1', layout.slot);
 
-    // workDir is a plain checkout, not under a `-worktrees` sibling dir.
     const policy = makePolicy({ workDir: layout.repoRoot, agentId: 'worker-1' });
     const escape = join(layout.repoRoot, 'src', 'main.ts');
     await expect(

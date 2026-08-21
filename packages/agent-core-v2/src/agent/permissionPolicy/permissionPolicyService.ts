@@ -37,9 +37,6 @@ export class AgentPermissionPolicyService
     this.policies = [
       this.instantiation.createInstance(AutoModeAskUserQuestionDenyPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredDenyPermissionPolicyService),
-      // tower workers: Write/Edit escaping their own worktree → deny. Must run
-      // before auto-mode approval (B3-3) — auto mode unconditionally approves
-      // everything, so the guard would be dead code behind it.
       this.instantiation.createInstance(TowerWorkerWriteGuardPermissionPolicyService),
       this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
       this.instantiation.createInstance(SessionApprovalHistoryPermissionPolicyService),

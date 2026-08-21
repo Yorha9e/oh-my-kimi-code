@@ -92,7 +92,7 @@ describe('SessionTipSaveService', () => {
     const id = await svc.start();
 
     expect(id).toBe('agent-tip-save-1');
-    expect(fork).toHaveBeenCalledWith('main', {
+    expect(fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
       binding: { model: 'k2', thinking: 'off' },
     });
     expect(readSlotBinding).toHaveBeenCalledWith('/tmp/proj-a', TIP_SAVE_SLOT);
@@ -103,15 +103,12 @@ describe('SessionTipSaveService', () => {
     const svc = ix.get(ISessionTipSaveService);
     await svc.start();
 
-    expect(fork).toHaveBeenCalledWith('main', {
+    expect(fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
       binding: { model: 'cheap-model', thinking: 'low' },
     });
   });
 
   it('keeps every tool on the child (no veto listener is installed)', async () => {
-    // The lifecycle stub's accessor only answers IAgentProfileService; any
-    // attempt to reach a tool-executor veto would throw here, so a passing
-    // start() proves the service installs no tool denial on the child.
     const svc = ix.get(ISessionTipSaveService);
     const id = await svc.start();
 
@@ -124,7 +121,7 @@ describe('SessionTipSaveService', () => {
     const svc = ix.get(ISessionTipSaveService);
     await svc.start();
 
-    expect(fork).toHaveBeenCalledWith('main', {
+    expect(fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
       binding: { model: 'k2', thinking: 'off' },
     });
   });
@@ -142,7 +139,7 @@ describe('SessionTipSaveService', () => {
       'ignoring tip-save slot binding with unknown model alias',
       expect.objectContaining({ slot: TIP_SAVE_SLOT, modelAlias: 'ghost-model' }),
     );
-    expect(fork).toHaveBeenCalledWith('main', {
+    expect(fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
       binding: { model: 'k2', thinking: 'off' },
     });
   });
@@ -156,7 +153,7 @@ describe('SessionTipSaveService', () => {
     onTurnEnded({ type: 'turn.ended' } as never);
 
     await vi.waitFor(() => {
-      expect(remove).toHaveBeenCalledWith('agent-tip-save-1');
+      expect(remove).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-tip-save-1' }));
     });
   });
 
@@ -174,7 +171,7 @@ describe('SessionTipSaveService', () => {
 
     const onTurnEnded = subscribe.mock.calls[0]?.[1] as (event: { type: 'turn.ended' }) => void;
     const assertRemoved = (): void => {
-      expect(remove).toHaveBeenCalledWith('agent-tip-save-1');
+      expect(remove).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'agent-tip-save-1' }));
     };
     for (const reason of ['failed', 'cancelled'] as const) {
       remove.mockClear();

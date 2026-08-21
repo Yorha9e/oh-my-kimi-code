@@ -1683,8 +1683,6 @@ describe('subagent config section', () => {
     env[SUBAGENT_TIMEOUT_ENV] = 'abc';
     expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
 
-    // Empty / whitespace-only values count as unset (v1 parity: without the
-    // trim guard `Number('') === 0` would arm the no-timeout timer).
     env[SUBAGENT_TIMEOUT_ENV] = '';
     expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
 

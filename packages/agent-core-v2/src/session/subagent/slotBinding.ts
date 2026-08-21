@@ -1,19 +1,3 @@
-/**
- * `subagent` domain — local.toml subagent binding access (`[subagent.<type>]`
- * per-type bindings and `[subagent-slot.<slot>]` named slots).
- *
- * A profile's frontmatter may declare a `slot`, and every profile name is
- * also a per-type key; the spawn chain resolves both against the matching
- * section of `.kimi-code/local.toml` (workspace layer: the nearest `.git`
- * ancestor of the work dir, or the work dir itself) and, falling back,
- * `<home>/local.toml` (global layer; home via `resolveKimiHome`:
- * `OMKC_HOME` > `KIMI_CODE_HOME` > `~/.omkc`). Field names, file layout, and
- * malformed-input behavior mirror the v1 `workspace-local` reader: a missing
- * file/section/entry is `undefined` and an empty file is an empty config,
- * while malformed TOML or a schema-violating entry raises `CONFIG_INVALID`.
- * The read layer is deliberately dumb — `inherit: true` and alias validity
- * are consumed by the spawn-side caller, never here.
- */
 
 import { lstat, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
@@ -36,8 +20,6 @@ const SubagentSlotBindingSchema = z.object({
   inherit: z.boolean().optional(),
 });
 
-// Whole-file schema matching the v1 `WorkspaceLocalTomlSchema`, so a
-// schema-violating entry anywhere in local.toml fails the same way v1 does.
 const LocalTomlSchema = z.object({
   workspace: z
     .object({
@@ -50,7 +32,6 @@ const LocalTomlSchema = z.object({
 
 type LocalToml = z.infer<typeof LocalTomlSchema>;
 
-/** The two local.toml sections that hold subagent bindings. */
 type BindingSection = 'subagent' | 'subagent-slot';
 
 /** The per-type binding shape is identical to the slot one; the alias documents the call site. */

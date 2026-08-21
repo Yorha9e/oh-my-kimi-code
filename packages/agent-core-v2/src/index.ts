@@ -190,9 +190,6 @@ export {
   ModelCatalogConfigSchema,
   type ModelCatalogConfig,
 } from '#/app/kosongConfig/configSection';
-// The per-type derived-entry overlay: the edge (kap-server's `GET /models`
-// route) hides the reserved ids from pickers, and tests drive the overlay
-// directly - re-export from the package root.
 export {
   agentTypesOverlay,
 } from '#/app/kosongConfig/agentTypesOverlay';

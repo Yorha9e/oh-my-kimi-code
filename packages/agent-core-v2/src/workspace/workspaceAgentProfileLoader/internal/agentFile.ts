@@ -24,6 +24,14 @@ export interface ParseAgentFileOptions {
 
 const AGENT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+function parseModelPreference(value: unknown, path: string): 'primary' | 'secondary' | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === 'primary' || value === 'secondary') return value;
+  throw new AgentFileParseError(
+    `Frontmatter field "model_preference" in ${path} must be "primary" or "secondary", got ${JSON.stringify(value)}`,
+  );
+}
+
 export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDefinition {
   let parsed;
   try {
@@ -97,7 +105,6 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
   return {
     name,
     description,
-    // `when_to_use` is accepted as a legacy alias (OMKC v1 user-profile format).
     whenToUse:
       nonEmptyString(frontmatter['whenToUse']) ??
       nonEmptyString(frontmatter['when_to_use']),

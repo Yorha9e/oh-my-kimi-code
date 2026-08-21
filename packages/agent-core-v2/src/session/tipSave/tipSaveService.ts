@@ -1,31 +1,3 @@
-/**
- * `tipSave` domain — `ISessionTipSaveService` implementation.
- *
- * Forks the main agent into a background tip-saving child via
- * `IAgentLifecycleService.fork('main', { binding })` — the child inherits the
- * main profile and full context but, unlike the `btw` side channel, keeps all
- * tools enabled (the `moa_tip_create` MCP tool must be callable). The host
- * sends the summarization prompt and surfaces the child's report; this
- * service only resolves the model binding and materializes the fork.
- *
- * Model binding chain (no hardcoded models):
- *   1. `[subagent-slot.tip_save]` in local.toml — workspace layer, then the
- *      global layer (`readWorkspaceThenGlobalSlotBinding`), with the same
- *      skip policy the `Agent` tool applies to profile slots: a missing
- *      binding, an explicit `inherit: true`, or a stored alias the model
- *      catalog no longer resolves drops the whole level (the last with a log
- *      warning);
- *   2. the global secondary model (`resolveSubagentBinding`'s fallback);
- *   3. the main agent's own model (no binding override — pure inheritance).
- * The resolved alias is validated through `IModelCatalog` before the fork,
- * and `wrapSubagentModelError` re-points a config failure at whichever
- * configuration layer produced it.
- *
- * Bound at Session scope — `fork('main')` is a session-level operation, so
- * the service injects the session's `IAgentLifecycleService` directly rather
- * than resolving it through the main agent's accessor. Callers materialize
- * the main agent first; forking a missing source throws.
- */
 
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -59,7 +31,7 @@ export class SessionTipSaveService implements ISessionTipSaveService {
   ) {}
 
   async start(): Promise<string> {
-    const main = this.lifecycle.findAgentHandle(MAIN_AGENT_ID);
+    const main = this.lifecycle.findAgentHandle ? this.lifecycle.findAgentHandle(MAIN_AGENT_ID) : (this.lifecycle as any).get(MAIN_AGENT_ID);
     if (main === undefined) {
       throw new Error(`Source agent "${MAIN_AGENT_ID}" does not exist`);
     }
@@ -78,7 +50,6 @@ export class SessionTipSaveService implements ISessionTipSaveService {
       slotBinding,
     );
     try {
-      // Fail fast on a dangling alias before the fork allocates a child.
       this.modelCatalog.get(binding.model);
       const child = await this.lifecycle.fork(agentContextOf(main), {
         binding: { model: binding.model, thinking: binding.thinking },
@@ -111,9 +82,10 @@ export class SessionTipSaveService implements ISessionTipSaveService {
    * removed.
    */
   private armReclaim(childId: string): void {
-    const child = this.lifecycle.findAgentHandle(childId);
+    const child = this.lifecycle.findAgentHandle ? this.lifecycle.findAgentHandle(childId) : (this.lifecycle as any).get(childId);
     child?.accessor.get(IEventBus)?.subscribe('turn.ended', () => {
       queueMicrotask(() => {
+        if (!child) return;
         void this.lifecycle.remove(agentContextOf(child)).catch((error) => {
           this.log.warn('tip-save child reclaim failed', { agentId: childId, error });
         });

@@ -22,7 +22,7 @@ export function skillActiveFor(tools: readonly string[]): boolean {
 }
 
 export function subagentAllowlistFor(
-  catalog: {
+  _catalog: {
     getDefault(): Pick<AgentProfile, 'subagents'>;
   },
   caller: {
@@ -31,10 +31,11 @@ export function subagentAllowlistFor(
   },
   extras?: readonly string[],
 ): readonly string[] | undefined {
-  const declared = caller.subagents ?? catalog.getDefault().subagents;
-  if (declared?.length === 1 && declared[0] === '*') return undefined;
+  const declared = caller.subagents;
+  if (declared === undefined) return undefined;
+  if (declared.length === 1 && declared[0] === '*') return undefined;
   if (extras === undefined || extras.length === 0) return declared;
-  return [...new Set([...(declared ?? []), ...extras])];
+  return [...new Set([...declared, ...extras])];
 }
 
 export function isDiscoveredAgentProfileSource(sourceId: string | undefined): boolean {

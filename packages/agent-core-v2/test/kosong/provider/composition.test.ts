@@ -1324,7 +1324,6 @@ describe('malformed anthropic stream resilience', () => {
         type: 'message_start',
         message: { id: 'msg_probe', usage: { input_tokens: 3, output_tokens: 1 } },
       };
-      // A non-compliant proxy may omit `text` on the block start and on deltas.
       yield { type: 'content_block_start', index: 0, content_block: { type: 'text' } };
       yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta' } };
       yield { type: 'content_block_stop', index: 0 };

@@ -49,6 +49,10 @@ export interface SubagentSpawnPlanInput {
   readonly profileName?: string;
   readonly model?: string;
   readonly fork?: boolean;
+  readonly bindingSlot?: string;
+  readonly slotBinding?: { readonly model?: string; readonly thinking?: string };
+  readonly typeBinding?: { readonly model?: string; readonly thinking?: string };
+  readonly toolSlotBinding?: { readonly model?: string; readonly thinking?: string };
 }
 
 export interface SubagentSpawnPlan {

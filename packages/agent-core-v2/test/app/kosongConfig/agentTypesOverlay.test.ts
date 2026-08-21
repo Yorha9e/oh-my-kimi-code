@@ -1,14 +1,3 @@
-/**
- * `app/kosongConfig` agentTypesOverlay tests - the `[agent_types.<type>]`
- * derived-entry synthesis:
- *
- *  - an entry with patch fields synthesizes `__agent_type_<type>__`
- *    (base copy, patch merged into `overrides` with patch winning conflicts,
- *    `aliases` dropped); a pointer-only entry, a missing model, and a
- *    dangling pointer synthesize nothing;
- *  - multiple patch-bearing entries each synthesize their own derived id;
- *  - `strip` keeps the synthesized entries out of `config.toml`.
- */
 
 import { describe, expect, it } from 'vitest';
 
@@ -78,7 +67,6 @@ describe('agentTypesOverlay.apply', () => {
         maxOutputSize: 8192,
       },
     });
-    // The pointed entry stays untouched.
     expect(models['k2']).toEqual(baseEntry);
   });
 
@@ -94,10 +82,8 @@ describe('agentTypesOverlay.apply', () => {
     const models = effective[MODELS_SECTION] as Record<string, unknown>;
     expect(models[agentTypeDerivedModelId('coder')]).toBeDefined();
     expect(models[agentTypeDerivedModelId('reviewer')]).toBeDefined();
-    // The coder derived entry has the patched maxOutputSize.
     const coderDerived = models[agentTypeDerivedModelId('coder')] as Record<string, unknown>;
     expect((coderDerived['overrides'] as Record<string, unknown>)['maxOutputSize']).toBe(4096);
-    // The reviewer derived entry has the patched defaultEffort.
     const reviewerDerived = models[agentTypeDerivedModelId('reviewer')] as Record<string, unknown>;
     expect((reviewerDerived['overrides'] as Record<string, unknown>)['defaultEffort']).toBe('high');
   });
@@ -133,9 +119,7 @@ describe('agentTypesOverlay.apply', () => {
     const effective: Record<string, unknown> = {
       [MODELS_SECTION]: { k2: baseEntry },
       [AGENT_TYPES_SECTION]: {
-        coder: { model: 'k2' }, // pointer-only: no derivation
-        reviewer: { model: 'k2', maxOutputSize: 2048 }, // patch: derive
-      },
+        coder: { model: 'k2' },        reviewer: { model: 'k2', maxOutputSize: 2048 },      },
     };
     expect(apply(effective)).toEqual([MODELS_SECTION]);
     const models = effective[MODELS_SECTION] as Record<string, unknown>;
@@ -163,9 +147,7 @@ describe('agentTypesOverlay.strip', () => {
   it('rolls back a defaultModel pointer set to a derived id', () => {
     const coderId = agentTypeDerivedModelId('coder');
     expect(strip('defaultModel', 'k2', {})).toBe('k2');
-    // Restore the raw pointer when one exists...
     expect(strip('defaultModel', coderId, { default_model: 'k2' })).toBe('k2');
-    // ...or drop the section when the raw config never had one.
     expect(strip('defaultModel', coderId, {})).toBeUndefined();
   });
 });

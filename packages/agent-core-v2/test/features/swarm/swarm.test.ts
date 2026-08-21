@@ -211,7 +211,18 @@ const SWARM_MODEL_ALIASES: ReadonlySet<string> = new Set([
   'provider/smart',
 ]);
 
-function stubWorkspace(workDir = '/tmp/swarm-test'): ISessionWorkspaceContext {
+import { mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
+function stubWorkspace(workDir = mkdtempSync(join(tmpdir(), 'swarm-test-'))): ISessionWorkspaceContext {
+  mkdirSync(join(workDir, '.git'), { recursive: true });
+  mkdirSync(join(workDir, '.kimi-code'), { recursive: true });
+  writeFileSync(
+    join(workDir, '.kimi-code', 'local.toml'),
+    '[subagent.coder]\ninherit = true\n[subagent.explore]\ninherit = true\n',
+    'utf8',
+  );
   return { _serviceBrand: undefined, workDir } as unknown as ISessionWorkspaceContext;
 }
 
@@ -717,7 +728,7 @@ describe('AgentSwarmTool', () => {
       'Subagent type used for every new subagent spawned from items; defaults to coder when omitted. Resumed subagents always keep their original type, so passing subagent_type together with resume_agent_ids is allowed — it only affects the item-based spawns.',
     );
     expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>).at(-1)).toBe(
-      'model',
+      'binding_slot',
     );
 
     const result = await executeTool(tool, context(input));
@@ -1167,8 +1178,8 @@ describe('AgentSwarmTool', () => {
     const configured = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), realSubagents(stubSwarmCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }), stubSwarmCatalog(), stubModelCatalog(), stubWorkspace(), stubLog());
 
     expect(configured.description).toContain('Available models');
-    expect(configured.description).toContain('- provider/fast [default]: fast and cheap');
-    expect(configured.description).toContain('- main-model [main model]: the main model');
+    expect(configured.description).toContain('- provider/fast [default]; capabilities: none: fast and cheap');
+    expect(configured.description).toContain('- main-model [main model]; capabilities: none: the main model');
     expect(configured.description).toContain('- primary (main-model)');
 
     const unconfigured = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), stubConfig(), stubFlag(true), realSubagents(stubSwarmCatalog(), stubConfig(), stubFlag(true), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }), stubSwarmCatalog(), stubModelCatalog(), stubWorkspace(), stubLog());
@@ -1302,7 +1313,7 @@ describe('AgentSwarmTool', () => {
 
   it('rejects fork with a model override', async () => {
     const host = mockSwarmHost();
-    const callerProfile = stubCallerProfile({ profileName: 'orchestrator', modelAlias: 'main-model' });
+    const callerProfile = stubCallerProfile({ profileName: 'coder', modelAlias: 'main-model' });
     const tool = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), stubConfig(), stubFlag(true), realSubagents(stubSwarmCatalog(), stubConfig(), stubFlag(true), callerProfile), callerProfile, stubSwarmCatalog(), stubModelCatalog(), stubWorkspace(), stubLog());
 
     const result = await executeTool(
@@ -1341,7 +1352,7 @@ describe('AgentSwarmTool', () => {
   it('spawns item subagents with a fork plan when fork is true', async () => {
     const host = mockSwarmHost();
     const callerProfile = stubCallerProfile({
-      profileName: 'orchestrator',
+      profileName: 'coder',
       modelAlias: 'main-model',
       thinkingLevel: 'high',
     });
@@ -1362,10 +1373,10 @@ describe('AgentSwarmTool', () => {
       expect.objectContaining({
         tasks: [
           expect.objectContaining({
-            plan: { profileName: 'orchestrator', model: 'main-model', thinking: 'high', fork: true },
+            plan: { profileName: 'coder', model: 'main-model', thinking: 'high', fork: true },
           }),
           expect.objectContaining({
-            plan: { profileName: 'orchestrator', model: 'main-model', thinking: 'high', fork: true },
+            plan: { profileName: 'coder', model: 'main-model', thinking: 'high', fork: true },
           }),
         ],
       }),

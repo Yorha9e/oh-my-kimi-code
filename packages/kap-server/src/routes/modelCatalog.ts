@@ -160,9 +160,6 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
     },
     async (req, reply) => {
       const items = await (await loadCatalog(core)).listModels();
-      // Presentation filter: agent-type derived model ids are synthesized
-      // runtime state, not configured aliases — keep them out of pickers (the
-      // catalog still resolves them by id).
       reply.send(
         okEnvelope(
           {

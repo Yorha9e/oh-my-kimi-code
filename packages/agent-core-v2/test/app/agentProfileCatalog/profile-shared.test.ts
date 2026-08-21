@@ -451,13 +451,11 @@ describe('subagentAllowlistFor', () => {
     getDefault: () => ({ subagents }),
   });
 
-  it('inherits the default profile allowlist when the caller declares none', () => {
-    expect(subagentAllowlistFor(catalogWithDefault(['coder']), { profileName: 'custom' })).toEqual([
-      'coder',
-    ]);
+  it('treats an undeclared caller allowlist as unrestricted', () => {
+    expect(subagentAllowlistFor(catalogWithDefault(['coder']), { profileName: 'custom' })).toBeUndefined();
   });
 
-  it('keeps an explicit empty caller allowlist instead of inheriting', () => {
+  it('keeps an explicit empty caller allowlist', () => {
     expect(
       subagentAllowlistFor(catalogWithDefault(['coder']), { profileName: 'custom', subagents: [] }),
     ).toEqual([]);
@@ -482,7 +480,7 @@ describe('subagentAllowlistFor', () => {
     ).toEqual(['coder', 'reviewer']);
   });
 
-  it('stays unrestricted for a lone "*" even with root extras', () => {
+  it('stays unrestricted when no allowlist is declared even with root extras', () => {
     expect(
       subagentAllowlistFor(catalogWithDefault(['*']), { profileName: 'agent' }, ['reviewer']),
     ).toBeUndefined();

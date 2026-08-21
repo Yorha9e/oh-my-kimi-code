@@ -107,7 +107,6 @@ describe('readWorkspaceSlotBinding / readGlobalSlotBinding (local.toml read path
       });
       const sub = join(root, 'sub');
       await mkdir(sub, { recursive: true });
-      // No .git anywhere: the work dir itself is the project root.
       expect(await readWorkspaceSlotBinding(sub, 'coder')).toBeUndefined();
       expect(await readWorkspaceSlotBinding(root, 'coder')).toEqual({
         model: 'provider/slot-coder',
@@ -164,7 +163,6 @@ describe('readWorkspaceSlotBinding / readGlobalSlotBinding (local.toml read path
       await writeFiles(root, {
         '.kimi-code/local.toml': '[subagent-slot.empty]\n',
       });
-      // v1 parity: the entry exists, so an all-undefined binding is returned.
       expect(await readWorkspaceSlotBinding(root, 'empty')).toEqual({});
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -379,8 +377,6 @@ describe('readWorkspaceTypeBinding / readGlobalTypeBinding (local.toml read path
       expect(await readWorkspaceThenGlobalTypeBinding(root, 'coder')).toEqual({
         model: 'provider/ws-type',
       });
-      // A workspace `inherit: true` entry shadows the global model entry
-      // (v1 parity: the workspace choice is the merged result).
       await writeFiles(root, { '.kimi-code/local.toml': '[subagent.coder]\ninherit = true\n' });
       expect(await readWorkspaceThenGlobalTypeBinding(root, 'coder')).toEqual({ inherit: true });
     } finally {
@@ -498,7 +494,6 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       thinking: 'high',
     });
-    // Model resolves to the secondary layer; the slot's thinking wins.
     expect(binding).toEqual({
       model: 'provider/secondary',
       thinking: 'high',
@@ -512,7 +507,6 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       thinking: 'low',
     });
-    // Slot thinking ('low') differs from the caller's own level ('high').
     expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own', displayModel: 'caller-model' });
   });
 
@@ -550,10 +544,6 @@ describe('resolveSubagentBinding (slot layer)', () => {
 
   it('applies the profile slot binding even when the subagent-model-selection flag is off', () => {
     const { config } = setup({ secondary: { model: 'provider/secondary' } });
-    // secondary-model on, subagent-model-selection off (the stub returns
-    // false for every id but secondary-model): the local.toml profile-slot
-    // binding is applied mechanically regardless of the flag (deliberate v2
-    // divergence from v1's gating).
     const flags = stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID);
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       model: 'provider/slot',
@@ -666,7 +656,6 @@ describe('resolveSubagentBinding (local type layer)', () => {
       { thinking: 'max' },
       { model: 'provider/local-type', thinking: 'low' },
     );
-    // Model resolves to the local type layer; the slot's thinking wins.
     expect(binding).toEqual({
       model: 'provider/local-type',
       thinking: 'max',
@@ -704,10 +693,6 @@ describe('resolveSubagentBinding (local type layer)', () => {
 
   it('applies the local type binding even when the subagent-model-selection flag is off', () => {
     const { config } = setup({ secondary: { model: 'provider/secondary' } });
-    // secondary-model on, subagent-model-selection off (the stub returns
-    // false for every id but secondary-model): the local.toml
-    // [subagent.<type>] binding is applied mechanically regardless of the
-    // flag (deliberate v2 divergence from v1's gating).
     const flags = stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID);
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
       model: 'provider/local-type',
@@ -725,7 +710,6 @@ describe('resolveSubagentBinding (local type layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
       thinking: 'high',
     });
-    // Model resolves to the secondary layer; the local type's thinking wins.
     expect(binding).toEqual({
       model: 'provider/secondary',
       thinking: 'high',
@@ -739,7 +723,6 @@ describe('resolveSubagentBinding (local type layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
       thinking: 'low',
     });
-    // Local type thinking ('low') differs from the caller's own level ('high').
     expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own', displayModel: 'caller-model' });
   });
 
@@ -754,8 +737,6 @@ describe('resolveSubagentBinding (local type layer)', () => {
       { model: 'provider/slot' },
       { thinking: 'high' },
     );
-    // The slot model wins outright; the type's thinking-only entry is below
-    // the slot in the chain and does not apply.
     expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
 });

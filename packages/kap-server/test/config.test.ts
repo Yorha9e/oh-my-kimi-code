@@ -176,8 +176,6 @@ describe('server-v2 /api/v1/config', () => {
 
   it('GET hides synthesized __agent_type_*__ derived entries from models', async () => {
     await boot('[models.k2-test]\nprovider = "example"\nmodel = "example-model"\n');
-    // `max_output_size` is a patch field, so the overlay synthesizes the
-    // `__agent_type_coder__` derived entry into the effective `models` view.
     const cfg = await patchConfig({
       agent_types: { coder: { model: 'k2-test', max_output_size: 4096 } },
     });
