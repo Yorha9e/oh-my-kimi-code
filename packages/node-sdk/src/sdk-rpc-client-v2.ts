@@ -256,6 +256,7 @@ import {
   resolvePrintBackgroundMode,
   rootDelegationExtras,
   subagentAllowlistFor,
+  withoutDelegatingTargets,
   summarizeSkill,
   type IAgentScopeHandle,
   type IDisposable,
@@ -1709,17 +1710,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await catalog.ready;
     const caller = agent.accessor.get(IAgentProfileService).data();
     const profiles = catalog.list();
-    // Mirror the Agent tool's `effectiveAllowlist`: the main agent may also
-    // delegate to discovered custom profiles (user / project / plugin), so the
-    // declared subagent set is widened with `rootDelegationExtras`; a caller
+    // Mirror the Agent tool's `effectiveAllowlist`: only the root main agent
+    // may additionally delegate to discovered custom profiles (user / project /
+    // plugin), so the declared subagent set is widened with
+    // `rootDelegationExtras` exactly when `agent.agentId === 'main'`; a caller
     // with no declared set opens up completely.
-    const allowlist = subagentAllowlistFor(
-      catalog,
-      caller,
-      caller.profileName !== undefined && caller.profileName !== DEFAULT_AGENT_PROFILE_NAME
-        ? undefined
-        : rootDelegationExtras(catalog, caller, profiles),
-    );
+    const extras =
+      agent.id === 'main'
+        ? rootDelegationExtras(catalog, caller, profiles)
+        : undefined;
+    let allowlist = subagentAllowlistFor(catalog, caller, extras);
+    if (allowlist !== undefined && caller.subagents === undefined) {
+      allowlist = withoutDelegatingTargets(catalog, allowlist);
+    }
     const delegatable =
       allowlist === undefined
         ? profiles.filter((profile) => profile.name !== DEFAULT_AGENT_PROFILE_NAME)

@@ -12,8 +12,10 @@ import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentP
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import {
+  rootDelegationExtras,
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
+  withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -48,6 +50,20 @@ import {
   type SubagentSpawnPlan,
   type SubagentSpawnPlanInput,
 } from './spawn';
+
+function effectiveAllowlist(
+  catalog: ISessionAgentProfileCatalog,
+  callerAgentId: string,
+  own: {
+    readonly profileName?: string;
+    readonly subagents?: readonly string[];
+  },
+): readonly string[] | undefined {
+  const extras = callerAgentId === 'main' ? rootDelegationExtras(catalog, own, catalog.list()) : undefined;
+  const allowlist = subagentAllowlistFor(catalog, own, extras);
+  if (allowlist === undefined || own.subagents !== undefined) return allowlist;
+  return withoutDelegatingTargets(catalog, allowlist);
+}
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;
@@ -103,8 +119,10 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
         details: { profileName: requestedProfileName },
       });
     }
-    const allowlist = subagentAllowlistFor(this.catalog, own);
-    if (!fork && allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
+    const allowlist = fork
+      ? undefined
+      : effectiveAllowlist(this.catalog, input.callerAgentId, own);
+    if (allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
       throw new Error2(
         ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
         subagentTypeNotAllowedMessage(requestedProfileName, allowlist),

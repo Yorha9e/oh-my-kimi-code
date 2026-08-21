@@ -544,7 +544,6 @@ async function startBackgroundInstall(
   try {
     const freshState = await readUpdateInstallState().catch(() => state);
     if (
-      (await hasInstallInFlight(source, freshState, target)) ||
       failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
     ) {
       return;
