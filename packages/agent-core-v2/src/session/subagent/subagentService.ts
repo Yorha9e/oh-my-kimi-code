@@ -156,7 +156,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
         own.modelAlias,
         binding.source,
         profile?.name,
-        binding.source === 'slot' ? input.bindingSlot : undefined,
+        binding.source === 'slot' ? (input.bindingSlot ?? profile?.slot) : undefined,
       );
     }
     return {

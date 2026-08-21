@@ -5848,6 +5848,7 @@ function encodeHookScript(script: string): string {
 
 function hookErrorMessageAssertCommand(expected: string): string {
   const script = [
+    "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",
     "let input = '';",
     "process.stdin.on('data', (chunk) => { input += chunk; });",
     "process.stdin.on('end', () => {",

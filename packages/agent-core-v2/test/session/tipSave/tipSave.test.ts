@@ -9,6 +9,7 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { readWorkspaceThenGlobalSlotBinding } from '#/session/subagent/slotBinding';
@@ -40,6 +41,7 @@ describe('SessionTipSaveService', () => {
       accessor: {
         get: (id: unknown) => {
           if (id === IEventBus) return { subscribe };
+          if (id === IAgentScopeContext) return { agentContext: { agentId: 'agent-tip-save-1' } };
           return undefined;
         },
       },
@@ -58,6 +60,7 @@ describe('SessionTipSaveService', () => {
           if (id === IAgentProfileService) {
             return { data: () => ({ modelAlias: 'k2', thinkingLevel: 'off' }) };
           }
+          if (id === IAgentScopeContext) return { agentContext: { agentId: MAIN_AGENT_ID } };
           return undefined;
         },
       },

@@ -1725,7 +1725,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     }
     const delegatable =
       allowlist === undefined
-        ? profiles.filter((profile) => profile.name !== DEFAULT_AGENT_PROFILE_NAME)
+        ? profiles
         : profiles.filter((profile) => allowlist.includes(profile.name));
     return delegatable.map((profile) => ({
       name: profile.name,
