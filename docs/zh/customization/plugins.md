@@ -97,7 +97,7 @@ Kimi WebBridge 分两步安装：完成上述步骤后，还需要[安装浏览�
 
 官方插件更新后会在使用旧版时提示更新，不会自动更新，要升级到新版本，重复上述安装步骤即可。
 
-### Kimi Datasource <Badge type="tip" text="v3.3.0" />
+### Kimi Datasource <Badge type="tip" text="v3.4.0" />
 
 Kimi Datasource 是 Kimi Code 官方数据插件，让你用自然语言直接查询金融行情、宏观经济、企业工商、学术文献和中国法律法规，无需手动调用接口或申请数据账号。
 
@@ -131,6 +131,10 @@ Kimi Datasource 是 Kimi Code 官方数据插件，让你用自然语言直接�
 | 企业数据 | 中国大陆境内企业工商信息、股权穿透、司法风险、关联图谱 |
 | 学术文献 | 物理、数学、计算机、金融、经济等领域百万量级论文，支持预印本查询 |
 | 法律法规 | 中国法律法规与司法案例：各效力层次的法规检索与详情，普通及权威判例检索 |
+| 中国政府统计 | 国家数据局开放数据目录与国家统计局宏观指标（全国、省、主要城市时间序列） |
+| 中国标准 | 国家标准（GB）、行业标准（HB）、地方标准（DB）、团体标准（TT）检索 |
+| 国际组织 | WHO、FAO、UNSD、ECB、Eurostat、UNICEF、OECD、FRED 官方开放数据集：全球健康、农业粮食、金融与宏观时间序列 |
+| 财经资讯 | 新华财经公告、快讯与政策新闻；财新数据库 600+ 数据接口 |
 | 智能筛选 | 恒生聚源等知名数据库，能力涵盖自然语言选股、选基金、选基金经理，以及宏观行业数据、研报、公告与新闻 |
 
 #### 计费与限制
@@ -254,7 +258,7 @@ Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以�
 | `interface` | 在 `/plugins` 中展示的字段：`displayName`、`shortDescription`、`longDescription`、`developerName`、`websiteURL` |
 | `skills` | 一个或多个 `./` 路径，必须位于 plugin 根目录内。省略时根目录的 `SKILL.md` 被当作单个 Skill root |
 | `agents` | 一个或多个 `./` 路径，必须位于 plugin 根目录内，指向含有 [Agent 文件](./agents.md#自定义-agent)的目录。省略时根下的 `agents/` 目录（若存在）被自动采用 |
-| `sessionStart.skill` | 在新会话或恢复会话开始时，把指定 plugin Skill 加载到主 Agent |
+| `sessionStart.skill` | 在新会话或恢复会话开始时，把指定 plugin Skill 加载到 main agent |
 | `skillInstructions` | 每次加载此 plugin 的 Skill 时一并附带的额外说明 |
 | `systemPrompt` | plugin 启用期间提供给 Agent 系统提示词的内联指令 |
 | `systemPromptPath` | 指向 UTF-8 文本文件的 `./` 路径；同时设置 `systemPrompt` 时，文件内容拼接在内联指令之后 |
@@ -281,7 +285,7 @@ Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以�
 
 新会话和新建 Agent 会读取当前已启用 plugin 的指令。正在进行的请求会继续使用已有的系统提示词。`/plugins reload` 会刷新 plugin Skill 列表，并请求重建活跃 Agent 的提示词；如果需要让变更在下一轮前明确收敛，请使用这个命令。在 v2 引擎中，安装、启用、禁用或移除 plugin 会立即更新 catalog，后续的提示词重建（例如压缩上下文或修改工具策略后）可能会读取新的指令。legacy 引擎会让每个活跃 session 保留自己的 plugin 快照，直到 `/plugins reload` 或创建新 session。从磁盘恢复的 session 会先使用持久化的提示词，后续重建再遵循对应引擎的行为。切换 plugin 的 MCP server 不会改变系统提示词指令。
 
-内置 Agent 提示词会自动包含已启用 plugin 的指令。自定义 `SYSTEM.md` 或 Agent 文件完全拥有自己的模板，因此应在希望出现 plugin 指令的位置加入 `${plugin_sections}`。如果自定义模板包含 `${base_prompt}`，且该有效默认提示词已经包含 plugin 块，就不要再重复加入 `${plugin_sections}`。完整变量表见 [自定义 Agent 与 SYSTEM.md](./agents.md#用-system-md-覆盖主-agent-的系统提示词)。
+内置 Agent 提示词会自动包含已启用 plugin 的指令。自定义 `SYSTEM.md` 或 Agent 文件完全拥有自己的模板，因此应在希望出现 plugin 指令的位置加入 `${plugin_sections}`。如果自定义模板包含 `${base_prompt}`，且该有效默认提示词已经包含 plugin 块，就不要再重复加入 `${plugin_sections}`。完整变量表见 [自定义 Agent 与 SYSTEM.md](./agents.md#用-system-md-覆盖-main-agent-的系统提示词)。
 
 ## 插件斜杠命令
 
@@ -359,13 +363,13 @@ my-plugin/
       SKILL.md
 ```
 
-`sessionStart.skill` 在会话启动时把一个 plugin Skill 加载到主 Agent，适合放置初始化说明、工作流规则，或把其他工具中的术语映射到 Kimi Code CLI。它只注入文本，不执行代码。
+`sessionStart.skill` 在会话启动时把一个 plugin Skill 加载到 main agent，适合放置初始化说明、工作流规则，或把其他工具中的术语映射到 Kimi Code CLI。它只注入文本，不执行代码。
 
 无论 Skill 通过哪种方式加载（`sessionStart.skill`、`/skill:<name>` 或模型自动调用），`skillInstructions` 都会随该 plugin 的 Skill 一起出现。
 
 ## 插件 Agent
 
-Plugin 可以携带自定义 Agent：在 manifest 的 `agents` 字段里声明一个或多个 `./` 目录（或直接在 plugin 根下放置 `agents/` 目录），其中的 Agent 文件与[自定义 Agent](./agents.md#自定义-agent) 格式相同，会在 plugin 启用期间作为子 Agent 被主 Agent 自动发现和委派。
+Plugin 可以携带自定义 Agent：在 manifest 的 `agents` 字段里声明一个或多个 `./` 目录（或直接在 plugin 根下放置 `agents/` 目录），其中的 Agent 文件与[自定义 Agent](./agents.md#自定义-agent) 格式相同，会在 plugin 启用期间作为 subagent 被 main agent 自动发现和委派。
 
 ```text
 my-plugin/

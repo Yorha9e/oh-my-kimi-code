@@ -35,6 +35,7 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
@@ -58,7 +59,7 @@ export class SessionTipSaveService implements ISessionTipSaveService {
   ) {}
 
   async start(): Promise<string> {
-    const main = this.lifecycle.get(MAIN_AGENT_ID);
+    const main = this.lifecycle.findAgentHandle(MAIN_AGENT_ID);
     if (main === undefined) {
       throw new Error(`Source agent "${MAIN_AGENT_ID}" does not exist`);
     }
@@ -79,7 +80,7 @@ export class SessionTipSaveService implements ISessionTipSaveService {
     try {
       // Fail fast on a dangling alias before the fork allocates a child.
       this.modelCatalog.get(binding.model);
-      const child = await this.lifecycle.fork('main', {
+      const child = await this.lifecycle.fork(agentContextOf(main), {
         binding: { model: binding.model, thinking: binding.thinking },
       });
       this.armReclaim(child.id);
@@ -110,10 +111,10 @@ export class SessionTipSaveService implements ISessionTipSaveService {
    * removed.
    */
   private armReclaim(childId: string): void {
-    const child = this.lifecycle.get(childId);
+    const child = this.lifecycle.findAgentHandle(childId);
     child?.accessor.get(IEventBus)?.subscribe('turn.ended', () => {
       queueMicrotask(() => {
-        void this.lifecycle.remove(childId).catch((error) => {
+        void this.lifecycle.remove(agentContextOf(child)).catch((error) => {
           this.log.warn('tip-save child reclaim failed', { agentId: childId, error });
         });
       });

@@ -16,6 +16,24 @@ export interface UpdateTarget {
   readonly version: string;
 }
 
+/** One gradual-rollout cohort: `percent` of devices delayed by `delaySeconds`. */
+export interface RolloutBatch {
+  readonly percent: number;
+  readonly delaySeconds: number;
+}
+
+/**
+ * Parsed CDN `latest.json` (the official upstream feed; the community edition
+ * checks GitHub Releases instead). `rollout` batches claim bucket ranges in
+ * array order; an empty array means the release is fully rolled out
+ * immediately.
+ */
+export interface UpdateManifest {
+  readonly version: string;
+  readonly publishedAt: string;
+  readonly rollout: readonly RolloutBatch[];
+}
+
 /** One downloadable asset attached to a GitHub Release. */
 export interface ReleaseAsset {
   readonly name: string;

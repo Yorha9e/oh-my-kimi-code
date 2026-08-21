@@ -5,7 +5,7 @@ import { dirname, join } from 'pathe';
 
 import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IFlagService } from '#/app/flag/flag';
-import { SECONDARY_MODEL_SECTION } from '#/app/kosongConfig/configSection';
+import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
 import {
   AGENT_TYPES_SECTION,
   resolveSubagentBinding,

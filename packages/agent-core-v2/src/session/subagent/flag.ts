@@ -1,6 +1,7 @@
 /**
  * `subagent` domain — registers the subagent experimental flags
- * (`secondary-model`, `subagent-model-selection`) into `flag`.
+ * (`secondary-model`, `subagent-model-selection`, `subagent_fork`) into
+ * `flag`.
  *
  * `secondary-model` gates secondary-model selection for newly spawned
  * subagents, including the agent-facing model choices and startup validation
@@ -17,6 +18,8 @@
  * (subagent-host.ts:505,533). Released in the
  * community edition: on by default, disable via
  * `KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION` or the config section.
+ * `subagent_fork` gates the `fork` parameter on the Agent / AgentSwarm tools
+ * (a subagent seeded with the caller's conversation history); off by default.
  */
 
 import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
@@ -50,3 +53,18 @@ export const subagentModelSelectionFlag: FlagDefinitionInput = {
 };
 
 registerFlagDefinition(subagentModelSelectionFlag);
+
+export const SUBAGENT_FORK_FLAG_ID = 'subagent_fork';
+export const SUBAGENT_FORK_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK';
+
+export const subagentForkFlag: FlagDefinitionInput = {
+  id: SUBAGENT_FORK_FLAG_ID,
+  title: 'Fork context for subagents',
+  description:
+    "Let the Agent and AgentSwarm tools start a subagent with a snapshot of the calling agent's conversation history via the fork parameter.",
+  env: SUBAGENT_FORK_FLAG_ENV,
+  default: false,
+  surface: 'core',
+};
+
+registerFlagDefinition(subagentForkFlag);

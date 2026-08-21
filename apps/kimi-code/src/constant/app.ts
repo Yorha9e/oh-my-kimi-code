@@ -1,5 +1,7 @@
 import { ErrorCodes } from '@moonshot-ai/kimi-code-sdk';
 
+import { currentKimiProfile } from '#/utils/region';
+
 export const PRODUCT_NAME = 'Oh My Kimi Code';
 export const CLI_COMMAND_NAME = 'omkc';
 export const PROCESS_NAME = 'oh-my-kimi-code';
@@ -58,6 +60,12 @@ export const KIMI_CODE_UPDATE_INSTALL_STATE_FILE_NAME = 'install.json';
 export const KIMI_CODE_UPDATE_INSTALL_LOCK_FILE_NAME = 'install.lock';
 export const KIMI_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME = 'rollout.log';
 export const KIMI_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME = 'plugin-notices.json';
+// Native staged update: the staged binary + metadata live next to the running
+// executable (`<exe dir>/.staging/`); the re-exec guard env breaks the
+// swap → re-exec → swap loop.
+export const KIMI_CODE_NATIVE_STAGING_DIR_NAME = '.staging';
+export const KIMI_CODE_NATIVE_STAGED_STATE_FILE_NAME = 'staged.json';
+export const KIMI_CODE_UPDATE_REEXEC_ENV = 'KIMI_CODE_UPDATE_REEXEC';
 export const KIMI_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const KIMI_CODE_BANNER_DIR_NAME = 'banner';
 export const KIMI_CODE_BANNER_STATE_FILE_NAME = 'state.json';
@@ -77,7 +85,9 @@ export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 export const FEEDBACK_ISSUE_URL = 'https://github.com/Yorha9e/oh-my-kimi-code/issues';
 // Sign-up / sign-in page offered to signed-out users so they can create an
 // account and submit feedback through the authenticated channel next time.
-export const KIMI_CODE_SIGNUP_URL = 'https://www.kimi.com/code';
+export function kimiCodeSignupUrl(): string {
+  return `${currentKimiProfile().siteBase}/code`;
+}
 
 // Sent in the feedback `version` field so the backend can distinguish this
 // TypeScript client from clients that send a bare version.
@@ -86,21 +96,54 @@ export const FEEDBACK_VERSION_PREFIX = 'kimi-code-';
 // Telemetry event name; keep stable for dashboard queries.
 export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 
-// Upstream CDN; still hosts the plugin marketplace and the bundled `fd`
+// Upstream CDN: still hosts the plugin marketplace and the bundled `fd`
 // fallback download. The community edition's self-update channel is GitHub
-// Releases (see OMKC_UPDATE_REPO below), NOT this CDN.
-export const KIMI_CODE_CDN_BASE = 'https://code.kimi.com/kimi-code';
-export const KIMI_CODE_TIPS_BANNER_URL = 'https://cdn.kimi.com/kimi-code-tips/tips.json';
-export const KIMI_CODE_PLUGIN_MARKETPLACE_URL = `${KIMI_CODE_CDN_BASE}/plugins/marketplace.json`;
-export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
+// Releases (see OMKC_UPDATE_REPO below), NOT this CDN; the CDN endpoints here
+// are kept for marketplace, fd and the official install scripts.
+// The off-session endpoints derive from the current region profile so a
+// global login points at the .ai deployment; they are resolved per call so
+// a region switch (login/logout + refreshKimiRegion) takes effect immediately.
+export function kimiCodeCdnBase(): string {
+  return currentKimiProfile().cdnBase;
+}
+export function kimiCodeCdnLatestUrl(): string {
+  return `${kimiCodeCdnBase()}/latest`;
+}
+// Rollout manifest consumed by update checks; the plain-text `/latest` above
+// stays unchanged forever — already-shipped clients hard-fail on non-semver
+// bodies, and the CDN install scripts read it for fresh installs.
+export function kimiCodeCdnLatestJsonUrl(): string {
+  return `${kimiCodeCdnBase()}/latest.json`;
+}
+// Per-release native artifacts: `/binaries/<version>/manifest.json` +
+// `/binaries/<version>/kimi-code-<target>[.exe]` — the bare platform binary
+// (same layout install.ps1 consumes).
+export function kimiCodeCdnBinariesBase(): string {
+  return `${kimiCodeCdnBase()}/binaries`;
+}
+// The marketplace env override name lives in the shared agent-core-v2 plugin
+// domain (kap-server consumes it from there). Deep-path import: this module is
+// evaluated on every CLI invocation, so it must not pull in the engine root.
+export { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '@moonshot-ai/agent-core-v2/app/plugin/marketplace';
+// The CLI-side default catalog derives from the current region profile; the
+// env override above takes priority at the call site.
+export function kimiCodePluginMarketplaceUrl(): string {
+  return `${kimiCodeCdnBase()}/plugins/marketplace.json`;
+}
 // Official plugins whose usage bills against the user's plan quota. Installing
 // one of these shows a quota note after the install result.
 export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ['kimi-datasource'];
-export const KIMI_CODE_INSTALL_SH_URL = `${KIMI_CODE_CDN_BASE}/install.sh`;
-export const KIMI_CODE_INSTALL_PS1_URL = `${KIMI_CODE_CDN_BASE}/install.ps1`;
+export function kimiCodeInstallShUrl(): string {
+  return `${kimiCodeCdnBase()}/install.sh`;
+}
+export function kimiCodeInstallPs1Url(): string {
+  return `${kimiCodeCdnBase()}/install.ps1`;
+}
 // Official download page, referenced by prompt copy that steers users away
 // from third-party install sources.
-export const KIMI_CODE_OFFICIAL_INSTALL_URL = 'https://www.kimi.com/code';
+export function kimiCodeOfficialInstallUrl(): string {
+  return `${currentKimiProfile().siteBase}/code`;
+}
 
 // Community self-update channel: GitHub Releases of the community repository.
 // Version checks query `https://api.github.com/repos/<repo>/releases/latest`;
@@ -109,3 +152,10 @@ export const KIMI_CODE_OFFICIAL_INSTALL_URL = 'https://www.kimi.com/code';
 // the repo for forks and tests.
 export const OMKC_UPDATE_REPO = 'Yorha9e/oh-my-kimi-code';
 export const OMKC_UPDATE_REPO_ENV = 'OMKC_UPDATE_REPO';
+// Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
+export function nativeInstallCommandUnix(): string {
+  return `curl -fsSL ${kimiCodeInstallShUrl()} | bash`;
+}
+export function nativeInstallCommandWin(): string {
+  return `irm ${kimiCodeInstallPs1Url()} | iex`;
+}
