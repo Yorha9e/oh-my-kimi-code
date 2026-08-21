@@ -533,14 +533,12 @@ async function startBackgroundInstall(
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
 ): Promise<void> {
-  // The native self-spawned downloader holds the install lock itself for the
-  // whole download — taking it here too would race the child (it starts before
-  // this function's finally releases) into a false success. Package-manager
-  // installs keep the outer lock, which only guards against duplicate spawns.
-  const lock =
-    source === 'native'
-      ? { filePath: '', release: async (): Promise<void> => {} }
-      : await tryAcquireUpdateInstallLock({ version: target.version });
+  // The community edition installs the native update synchronously (no
+  // self-spawned downloader child), so the outer install lock must be held for
+  // the whole download+replace — it is the only thing that stops two
+  // concurrently preflighting sessions from double-installing. Package-manager
+  // installs use the same lock, which guards against duplicate spawns.
+  const lock = await tryAcquireUpdateInstallLock({ version: target.version });
   if (lock === null) return;
 
   try {

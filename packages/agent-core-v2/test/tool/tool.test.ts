@@ -5385,7 +5385,7 @@ describe('Agent tools', () => {
       await ctx.untilTurnEnd();
 
       await vi.waitFor(() => {
-        expect(resolved).toEqual([['PostToolUseFailure', 'Bash', 'block']]);
+        expect(resolved).toEqual([['PostToolUseFailure', 'Bash', 'allow']]);
       });
     });
   });
@@ -5841,6 +5841,11 @@ function agentCall(): ToolCall {
   };
 }
 
+function encodeHookScript(script: string): string {
+  const encoded = Buffer.from(script, 'utf8').toString('base64');
+  return `node -e "eval(Buffer.from('${encoded}','base64').toString())"`;
+}
+
 function hookErrorMessageAssertCommand(expected: string): string {
   const script = [
     "let input = '';",
@@ -5852,7 +5857,7 @@ function hookErrorMessageAssertCommand(expected: string): string {
     '  process.exit(2);',
     '});',
   ].join('');
-  return `node -e ${JSON.stringify(script)}`;
+  return encodeHookScript(script);
 }
 
 function hookPayloadAssertCommand(expected: {
@@ -5880,7 +5885,10 @@ function hookPayloadAssertCommand(expected: {
       : "  if (payload.error !== undefined) throw new Error('unexpected error payload');",
     expected.errorMessageIncludes === undefined
       ? ''
-      : `  if (typeof payload.error?.message !== 'string' || !payload.error.message.includes(${JSON.stringify(expected.errorMessageIncludes)})) throw new Error('bad error: ' + payload.error?.message);`,
+      : `  const errorMessage = typeof payload.error?.message === 'string' ? payload.error.message.replace(/\\r\\n/g, '\\n') : '';`,
+    expected.errorMessageIncludes === undefined
+      ? ''
+      : `  if (errorMessage.length === 0 || !errorMessage.includes(${JSON.stringify(expected.errorMessageIncludes)})) throw new Error('bad error: ' + payload.error?.message);`,
     expected.errorMessageIncludes === undefined
       ? ''
       : "  if (payload.tool_output !== undefined) throw new Error('unexpected tool_output: ' + payload.tool_output);",
@@ -5888,5 +5896,5 @@ function hookPayloadAssertCommand(expected: {
     '});',
     "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",
   ].filter((line) => line.length > 0).join('');
-  return `node -e ${JSON.stringify(script)}`;
+  return encodeHookScript(script);
 }

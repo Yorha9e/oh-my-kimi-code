@@ -322,6 +322,34 @@ export function resolveSubagentBinding(
   toolSlotBinding?: { readonly model?: string; readonly thinking?: string },
   modelPreference?: AgentModelPreference,
 ): SubagentBinding {
+  const enabled = flags.enabled(SECONDARY_MODEL_FLAG_ID);
+  const section = config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION);
+  if (enabled && section?.force === true) {
+    if (section.models !== undefined) {
+      throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE, {
+        details: { section: SECONDARY_MODEL_SECTION, field: 'force' },
+      });
+    }
+    const forcedModel = section.defaultModel ?? section.model;
+    if (forcedModel === undefined) {
+      throw new Error2(ErrorCodes.CONFIG_INVALID, SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE, {
+        details: { section: SECONDARY_MODEL_SECTION, field: 'defaultModel' },
+      });
+    }
+    if (requested !== undefined) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid model "${requested}": [secondary_model].force is set, so every subagent binds "${forcedModel}" (omit the model parameter).`,
+        { details: { model: requested } },
+      );
+    }
+    return {
+      model: forcedModel,
+      displayModel: subagentDisplayModel(config, forcedModel),
+      source: 'secondary',
+    };
+  }
+
   if (requested === 'primary') {
     return {
       model: own.modelAlias,

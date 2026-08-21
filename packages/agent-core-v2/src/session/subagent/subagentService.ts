@@ -11,6 +11,10 @@ import { Emitter } from '#/_base/event';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import {
+  subagentAllowlistFor,
+  subagentTypeNotAllowedMessage,
+} from '#/app/agentProfileCatalog/profile-shared';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
@@ -98,6 +102,14 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
       throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${requestedProfileName}"`, {
         details: { profileName: requestedProfileName },
       });
+    }
+    const allowlist = subagentAllowlistFor(this.catalog, own);
+    if (!fork && allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
+      throw new Error2(
+        ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
+        subagentTypeNotAllowedMessage(requestedProfileName, allowlist),
+        { details: { profileName: requestedProfileName, allowlist } },
+      );
     }
     if (own.modelAlias === undefined) {
       throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {

@@ -254,6 +254,7 @@ import {
   resolveKimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
+  rootDelegationExtras,
   subagentAllowlistFor,
   summarizeSkill,
   type IAgentScopeHandle,
@@ -1707,8 +1708,18 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const catalog = session.accessor.get(ISessionAgentProfileCatalog);
     await catalog.ready;
     const caller = agent.accessor.get(IAgentProfileService).data();
-    const allowlist = subagentAllowlistFor(catalog, caller);
     const profiles = catalog.list();
+    // Mirror the Agent tool's `effectiveAllowlist`: the main agent may also
+    // delegate to discovered custom profiles (user / project / plugin), so the
+    // declared subagent set is widened with `rootDelegationExtras`; a caller
+    // with no declared set opens up completely.
+    const allowlist = subagentAllowlistFor(
+      catalog,
+      caller,
+      caller.profileName !== undefined && caller.profileName !== DEFAULT_AGENT_PROFILE_NAME
+        ? undefined
+        : rootDelegationExtras(catalog, caller, profiles),
+    );
     const delegatable =
       allowlist === undefined
         ? profiles.filter((profile) => profile.name !== DEFAULT_AGENT_PROFILE_NAME)

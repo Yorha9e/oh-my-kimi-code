@@ -20,6 +20,7 @@ import {
   ISessionApprovalService,
   ISessionQuestionService,
   getLiveSessionById,
+  programForSession,
 } from '@moonshot-ai/agent-core-v2';
 
 import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
@@ -2234,6 +2235,17 @@ describe('v1↔v2 subagent binding parity', () => {
         'utf8',
       );
       await createOnBoth(pair, { id: 'session_parity_subagent_profiles' });
+      // The v2 engine scans user/workspace agent files lazily at loader
+      // startup (user) or on fs-change (workspace); the fixture files were
+      // written after this client's engine booted, so re-run both loaders
+      // explicitly before comparing — v1 rescans lazily per call.
+      const v2Program = await programForSession(
+        pair.v2.engineAccessor,
+        'session_parity_subagent_profiles',
+      );
+      expect(v2Program).toBeDefined();
+      await v2Program!.userAgentProfiles.reload();
+      await v2Program!.agentProfiles.reload();
 
       const [v1Profiles, v2Profiles] = await Promise.all([
         pair.v1.listSubagentProfiles({ sessionId: 'session_parity_subagent_profiles' }),

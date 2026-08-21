@@ -1903,7 +1903,7 @@ describe('subagent config section', () => {
     );
 
     expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own)).toThrow(
-      '[secondary_model].default_model is required when [secondary_model].models is configured',
+      '[secondary_model].default_model is required when [secondary_model.models] is configured',
     );
 
     disposables.dispose();
