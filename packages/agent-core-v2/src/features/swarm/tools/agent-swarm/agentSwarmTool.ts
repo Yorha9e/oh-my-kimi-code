@@ -286,24 +286,12 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     const binding = await readWorkspaceThenGlobalSlotBinding(this.workspace.workDir, profile.slot);
     if (binding === undefined || binding.inherit === true) return undefined;
     if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
-      this.log.warn('ignoring slot binding with unknown model alias', {
-        slot: profile.slot,
-        modelAlias: binding.model,
-      });
-      return undefined;
+      this.log.warn(`Profile slot "${profile.slot}" specifies unknown model "${binding.model}"`);
+      return binding.thinkingEffort !== undefined ? { thinking: binding.thinkingEffort } : undefined;
     }
     return { model: binding.model, thinking: binding.thinkingEffort };
   }
 
-  /**
-   * Stored per-type binding (`[subagent.<type>]` in local.toml, keyed by the
-   * profile name) — the v1 workspace-local type layer sitting below the
-   * named slot in the spawn chain, with the same skip policy as
-   * `readProfileSlotBinding`: a missing binding, an explicit `inherit:
-   * true`, or a stored alias the model catalog no longer resolves drops the
-   * whole level (the last with a log warning). Only read when no explicit
-   * model choice exists — an explicit choice never touches the filesystem.
-   */
   private async readProfileTypeBinding(
     profile: AgentProfile,
     requestedModel: string | undefined,
@@ -312,11 +300,8 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     const binding = await readWorkspaceThenGlobalTypeBinding(this.workspace.workDir, profile.name);
     if (binding === undefined || binding.inherit === true) return undefined;
     if (binding.model !== undefined && !this.isModelAliasKnown(binding.model)) {
-      this.log.warn('ignoring per-type binding with unknown model alias', {
-        type: profile.name,
-        modelAlias: binding.model,
-      });
-      return undefined;
+      this.log.warn(`Type binding "${profile.name}" specifies unknown model "${binding.model}"`);
+      return binding.thinkingEffort !== undefined ? { thinking: binding.thinkingEffort } : undefined;
     }
     return { model: binding.model, thinking: binding.thinkingEffort };
   }
@@ -359,14 +344,17 @@ export class AgentSwarmTool implements IAgentSwarmTool {
 
   private async slotNotConfiguredError(slot: string): Promise<Error2> {
     const available = await listSlotNames(this.workspace.workDir);
-    const listing =
+    const availableText =
       available.length === 0
-        ? 'no [subagent-slot.*] entries are configured'
-        : `available: ${available.join(', ')}`;
+        ? 'none configured'
+        : available
+            .map((entry) => (entry.source === 'global' ? `${entry.name} (global)` : entry.name))
+            .join(', ');
     return new Error2(
-      ErrorCodes.VALIDATION_FAILED,
-      `Unknown binding slot "${slot}" (${listing})`,
-      { details: { slot, availableSlots: available } },
+      ErrorCodes.CONFIG_INVALID,
+      `Binding slot "${slot}" is not configured. Available slots: ${availableText}. ` +
+        `Configure it in .kimi-code/local.toml under [subagent-slot.${slot}].`,
+      { details: { slot, available: available.map((entry) => entry.name) } },
     );
   }
 
