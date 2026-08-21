@@ -357,7 +357,7 @@ export class SubagentTool implements ISubagentTool {
       promptText = spawned.promptText;
     }
 
-    const runInBackground = args.run_in_background === true;
+    const _runInBackground = args.run_in_background === true;
     const terminal = this.lifecycle.findAgentHandle(agentId);
     if (terminal === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" does not exist`, {

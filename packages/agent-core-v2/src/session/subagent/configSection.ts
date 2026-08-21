@@ -183,7 +183,7 @@ export const SECONDARY_MODEL_FORCE_REQUIRES_DEFAULT_MESSAGE =
   '[secondary_model].default_model is required when [secondary_model].force is set';
 
 export const SECONDARY_MODEL_FORCE_EXCLUDES_MODELS_MESSAGE =
-  '[secondary_model].force cannot be combined with [secondary_model].models: the pool table only exists to offer the main agent a choice, and force removes that choice';
+  '[secondary_model].force cannot be combined with [secondary_model.models]: the pool table only exists to offer the main agent a choice, and force removes that choice';
 
 export function isSubagentModelForced(config: IConfigService): boolean {
   return config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION)?.force === true;
@@ -196,7 +196,7 @@ export function exposesSubagentModelChoice(config: IConfigService, flags: IFlagS
 }
 
 export const SECONDARY_MODEL_DEFAULT_MODEL_REQUIRED_MESSAGE =
-  '[secondary_model].default_model is required when [secondary_model].models is configured';
+  '[secondary_model].default_model is required when [secondary_model.models] is configured';
 
 export const SECONDARY_MODEL_PRIMARY_MODEL_RESERVED_MESSAGE = `[secondary_model.models] key "${PRIMARY_SUBAGENT_MODEL_CHOICE}" is reserved: it always binds the caller's own model. Rename the pool entry.`;
 

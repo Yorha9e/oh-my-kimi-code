@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-process.env.OMKC_HOME = mkdtempSync(join(tmpdir(), 'fake-omkc-home-'));
-process.env.KIMI_CODE_HOME = process.env.OMKC_HOME;
+process.env['OMKC_HOME'] = mkdtempSync(join(tmpdir(), 'fake-omkc-home-'));
+process.env['KIMI_CODE_HOME'] = process.env['OMKC_HOME'];
 import { Readable, type Writable } from 'node:stream';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';

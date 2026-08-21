@@ -3,7 +3,6 @@ import {
   PRIMARY_SUBAGENT_MODEL_CHOICE,
   SECONDARY_DERIVED_MODEL_ALIAS,
   type ExperimentalFeatureState,
-  type KimiConfig,
   type ListSubagentProfileEntry,
   type ModelAlias,
   type PermissionMode,
