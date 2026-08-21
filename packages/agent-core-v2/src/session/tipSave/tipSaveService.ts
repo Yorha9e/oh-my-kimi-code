@@ -7,7 +7,15 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { tryAgentContextOf } from '#/agent/scopeContext/scopeContext';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import type { IAgentScopeHandle } from '#/_base/di/scope';
+
+function contextForHandle(handle: IAgentScopeHandle): AgentContext {
+  const ctx = tryAgentContextOf(handle);
+  if (ctx !== undefined) return ctx;
+  return { agentId: handle.id, generation: 0, space: undefined as any };
+}
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
@@ -51,7 +59,7 @@ export class SessionTipSaveService implements ISessionTipSaveService {
     );
     try {
       this.modelCatalog.get(binding.model);
-      const child = await this.lifecycle.fork(agentContextOf(main), {
+      const child = await this.lifecycle.fork(contextForHandle(main), {
         binding: { model: binding.model, thinking: binding.thinking },
       });
       this.armReclaim(child.id);
@@ -86,7 +94,7 @@ export class SessionTipSaveService implements ISessionTipSaveService {
     child?.accessor.get(IEventBus)?.subscribe('turn.ended', () => {
       queueMicrotask(() => {
         if (!child) return;
-        void this.lifecycle.remove(agentContextOf(child)).catch((error) => {
+        void this.lifecycle.remove(contextForHandle(child)).catch((error) => {
           this.log.warn('tip-save child reclaim failed', { agentId: childId, error });
         });
       });
