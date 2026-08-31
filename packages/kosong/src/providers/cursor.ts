@@ -95,9 +95,29 @@ export interface CursorOptions {
    * lock are shared across provider instances.
    */
   tokenStore?: CursorTokenStore;
+  /**
+   * Host-side tool executor. When provided, every mapped custom tool's
+   * `execute` callback forwards to it (the Cursor agent loop awaits the
+   * result in-process, so the tool round-trip stays inside one SDK run).
+   * When omitted, tool calls fail cleanly with `isError` so the loop
+   * observes a tool error instead of hanging.
+   */
+  toolExecutor?: CursorToolExecutor;
   /** Model ids advertised by the shim's synthetic models list. Defaults to the SDK store's `DEFAULT_CURSOR_MODELS`. */
   models?: readonly string[];
 }
+
+/**
+ * Host-side executor for mapped custom tools. Called from inside the Cursor
+ * agent loop's `customTools` execute callback; the returned value (string,
+ * JSON value, or `{content, isError}` shape) is handed back to the model as
+ * the tool result.
+ */
+export type CursorToolExecutor = (
+  name: string,
+  args: Record<string, import('@cursor/sdk').SDKJsonValue>,
+  context: { toolCallId?: string },
+) => import('@cursor/sdk').SDKCustomToolResult | Promise<import('@cursor/sdk').SDKCustomToolResult>;
 
 /**
  * Map Kimi tool definitions onto the SDK's in-process `customTools` record.
@@ -108,25 +128,43 @@ export interface CursorOptions {
  * includes `mcp`; a non-empty allowlist without `"mcp"` would silently disable
  * every mapped tool).
  *
- * L1 wires no host-side executor: the `execute` callback is the seam where one
- * will plug in, and until then it fails the call cleanly with `isError` so the
- * agent loop observes a tool error instead of hanging or crashing.
+ * When the provider was constructed with a {@link CursorToolExecutor}, the
+ * `execute` callback forwards to it and the tool round-trip stays inside one
+ * SDK run. Without one, calls fail cleanly with `isError` so the agent loop
+ * observes a tool error instead of hanging or crashing.
  */
-function toSdkCustomTools(tools: Tool[]): Record<string, SdkCustomTool> {
+function toSdkCustomTools(tools: Tool[], executor: CursorToolExecutor | undefined): Record<string, SdkCustomTool> {
   const record: Record<string, SdkCustomTool> = {};
   for (const tool of tools) {
     record[tool.name] = {
       description: tool.description,
       inputSchema: tool.parameters as Record<string, import('@cursor/sdk').SDKJsonValue>,
-      execute: (_args: Record<string, import('@cursor/sdk').SDKJsonValue>, context: SdkCustomToolContext): SdkCustomToolResult => ({
-        content: [
-          {
-            type: 'text',
-            text: `tool "${tool.name}" has no host-side executor configured; the call was not executed (toolCallId: ${context.toolCallId ?? 'unknown'})`,
-          },
-        ],
-        isError: true,
-      }),
+      execute: async (args: Record<string, import('@cursor/sdk').SDKJsonValue>, context: SdkCustomToolContext): Promise<SdkCustomToolResult> => {
+        if (executor === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `tool "${tool.name}" has no host-side executor configured; the call was not executed (toolCallId: ${context.toolCallId ?? 'unknown'})`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        try {
+          return await executor(tool.name, args, context);
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `tool "${tool.name}" failed: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      },
     };
   }
   return record;
@@ -333,6 +371,7 @@ export class CursorChatProvider implements ChatProvider {
   private readonly _baseURL: string | undefined;
   private readonly _apiKey: string | undefined;
   private readonly _tokenStore: CursorTokenStore;
+  private readonly _toolExecutor: CursorToolExecutor | undefined;
   private readonly _models: readonly string[] | undefined;
   private _thinkingEffort: ThinkingEffort | null = null;
   private _lastAgentId: string | undefined;
@@ -343,6 +382,7 @@ export class CursorChatProvider implements ChatProvider {
     this._baseURL = options.baseURL;
     this._apiKey = options.apiKey;
     this._tokenStore = options.tokenStore ?? defaultCursorTokenStore;
+    this._toolExecutor = options.toolExecutor;
     this._models = options.models;
   }
 
@@ -373,7 +413,7 @@ export class CursorChatProvider implements ChatProvider {
 
     const { Agent } = await import('@cursor/sdk');
 
-    const customTools = tools.length > 0 ? toSdkCustomTools(tools) : undefined;
+    const customTools = tools.length > 0 ? toSdkCustomTools(tools, this._toolExecutor) : undefined;
     const toolResults = trailingToolResults(history);
     const apiKey = this._apiKey ?? PLACEHOLDER_API_KEY;
 
