@@ -31,6 +31,16 @@ export const DEFAULT_MODEL_ID = 'default';
  */
 export const DEFAULT_CURSOR_MODELS: readonly string[] = [DEFAULT_MODEL_ID];
 
+/** One entry of the upstream model list projection served to client validation. */
+export interface CursorModelListEntry {
+  readonly id: string;
+  readonly displayName?: string;
+  readonly aliases?: readonly string[];
+}
+
+/** Milliseconds a fetched upstream model list stays cached (model tables change rarely). */
+const MODEL_LIST_TTL_MS = 5 * 60_000;
+
 export interface CursorAuthShimOptions {
   /**
    * Supplies the Cursor accessToken on demand. Must come from the token
@@ -39,8 +49,9 @@ export interface CursorAuthShimOptions {
    */
   getToken: () => string | Promise<string>;
   /**
-   * Model ids advertised by the synthetic models response. `default` is always
-   * included, even when omitted here. Defaults to {@link DEFAULT_CURSOR_MODELS}.
+   * Model ids advertised by the synthetic fallback response. `default` is
+   * always included, even when omitted here. Defaults to
+   * {@link DEFAULT_CURSOR_MODELS}.
    */
   models?: readonly string[];
   /**
@@ -61,6 +72,14 @@ export interface CursorAuthShimOptions {
    * on both hosts so the shape is always guaranteed.
    */
   backendHost?: string;
+  /**
+   * Pulls the REAL upstream model list (a projection of `GetUsableModels`).
+   * When provided, `/v1/models` interception serves this list — cached for
+   * {@link MODEL_LIST_TTL_MS} with single-flight — falling back to the
+   * synthetic ids on failure so client-side validation never crashes on a
+   * missing `items` array. When omitted, only the synthetic list is served.
+   */
+  fetchModels?: () => Promise<readonly CursorModelListEntry[]>;
 }
 
 export interface CursorAuthShimHandle {
@@ -78,6 +97,9 @@ interface ShimState {
   models: readonly string[];
   passthroughExchange: boolean;
   backendHost: string | undefined;
+  fetchModels: (() => Promise<readonly CursorModelListEntry[]>) | undefined;
+  modelListCache: { items: readonly CursorModelListEntry[]; expires: number } | undefined;
+  modelListInFlight: Promise<readonly CursorModelListEntry[]> | undefined;
 }
 
 /**
@@ -138,6 +160,9 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
     models: normalizeModels(options.models),
     passthroughExchange: options.passthroughExchange === true,
     backendHost: options.backendHost,
+    fetchModels: options.fetchModels,
+    modelListCache: undefined,
+    modelListInFlight: undefined,
   };
   const wrapper: typeof fetch = (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> => {
     const url = requestUrl(args[0]);
@@ -146,7 +171,7 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
         return exchangeUserApiKey(state);
       }
       if (isModelsUrl(url, state.backendHost)) {
-        return Promise.resolve(syntheticModels(state));
+        return modelListResponse(state);
       }
     }
     return originalFetch(...args);
@@ -175,11 +200,41 @@ function exchangeUserApiKey(state: ShimState): Promise<Response> {
   return resolveToken(state).then((accessToken) => jsonResponse({ accessToken }));
 }
 
-/** Build the synthetic `v1/models` response from the configured model ids. */
-function syntheticModels(state: ShimState): Response {
-  return jsonResponse({
-    items: state.models.map((id) => ({ id, displayName: displayNameFor(id) })),
-  });
+/**
+ * Build the `/v1/models` response: the real upstream projection when a
+ * fetcher is configured (cached, single-flight), the synthetic fallback
+ * otherwise or on fetch failure — the shape is ALWAYS a valid `items` array
+ * so the SDK's `undefined.find` crash cannot recur.
+ */
+async function modelListResponse(state: ShimState): Promise<Response> {
+  return jsonResponse({ items: await resolveModelItems(state) });
+}
+
+async function resolveModelItems(state: ShimState): Promise<readonly CursorModelListEntry[]> {
+  if (state.fetchModels === undefined) {
+    return syntheticItems(state);
+  }
+  if (state.modelListCache !== undefined && state.modelListCache.expires > Date.now()) {
+    return state.modelListCache.items;
+  }
+  state.modelListInFlight ??= state
+    .fetchModels()
+    .then((items) => {
+      state.modelListCache = { items, expires: Date.now() + MODEL_LIST_TTL_MS };
+      return items;
+    })
+    .finally(() => {
+      state.modelListInFlight = undefined;
+    });
+  try {
+    return await state.modelListInFlight;
+  } catch {
+    return syntheticItems(state);
+  }
+}
+
+function syntheticItems(state: ShimState): readonly CursorModelListEntry[] {
+  return state.models.map((id) => ({ id, displayName: displayNameFor(id) }));
 }
 
 async function resolveToken(state: ShimState): Promise<string> {

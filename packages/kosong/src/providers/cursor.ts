@@ -22,6 +22,7 @@
  */
 
 import { createAbortError } from '#/errors';
+import { randomUUID } from 'node:crypto';
 import { extractText, type Message, type StreamedMessagePart, type ToolCall } from '#/message';
 import type {
   ChatProvider,
@@ -32,7 +33,7 @@ import type {
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import { DEFAULT_MODEL_ID, installCursorAuthShim } from './cursor-auth-shim';
+import { DEFAULT_MODEL_ID, installCursorAuthShim, type CursorModelListEntry } from './cursor-auth-shim';
 import { defaultCursorTokenStore, type CursorTokenStore } from './cursor-token';
 
 /**
@@ -272,6 +273,7 @@ class CursorStreamedMessage implements StreamedMessage {
 
   private _usage: TokenUsage | null = null;
   private _finishReason: FinishReason | null = null;
+  private _errorMessage: string | undefined;
   private _rawFinishReason: string | null = null;
 
   constructor(
@@ -337,6 +339,12 @@ class CursorStreamedMessage implements StreamedMessage {
             break;
         }
       }
+      // A non-FINISHED terminal status (server-side run error, gateway
+      // rejection, quota) must not masquerade as an empty successful
+      // response — surface the run's own error text to the caller.
+      if (this._finishReason !== 'completed' && this._finishReason !== null && this._errorMessage !== undefined) {
+        throw new Error(`cursor run ${this._rawFinishReason}: ${this._errorMessage}`);
+      }
     } finally {
       signal?.removeEventListener('abort', onAbort);
       // Close the SDK handle whenever the stream ends or is dropped/aborted:
@@ -351,6 +359,12 @@ class CursorStreamedMessage implements StreamedMessage {
   private _captureStatus(message: SdkStatusMessage): void {
     if (message.status === 'CREATING' || message.status === 'RUNNING') {
       return;
+    }
+    if (message.status === 'ERROR') {
+      this._errorMessage =
+        typeof message.message === 'string' && message.message.length > 0
+          ? message.message
+          : JSON.stringify(message.message) ?? 'unknown error';
     }
     this._rawFinishReason = message.status;
     this._finishReason = message.status === 'FINISHED' ? 'completed' : 'other';
@@ -419,6 +433,11 @@ export class CursorChatProvider implements ChatProvider {
       models: this._models,
       passthroughExchange: this._baseURL !== undefined || callApiKey !== undefined,
       backendHost: this._baseURL === undefined ? undefined : new URL(this._baseURL).hostname,
+      // Real model list = a GetUsableModels projection. Works in both modes:
+      // gateway forwards it with the pool JWT (entitlement-accurate), direct
+      // mode accepts the IDE token. Failure falls back to the synthetic list
+      // inside the shim, so client-side validation never crashes.
+      fetchModels: () => this.fetchUpstreamModels(callApiKey),
     });
 
     const { Agent } = await import('@cursor/sdk');
@@ -486,5 +505,43 @@ export class CursorChatProvider implements ChatProvider {
     );
     clone._thinkingEffort = effort;
     return clone;
+  }
+
+  /**
+   * Pull the upstream model catalog as a shim-compatible projection. One code
+   * path serves both modes: the gateway forwards the call with the pool JWT
+   * (entitlement-accurate), direct mode accepts the IDE token on api2. The
+   * request re-enters the installed fetch shim but targets a non-intercepted
+   * path, so it passes through untouched.
+   */
+  private async fetchUpstreamModels(
+    callApiKey: string | undefined,
+  ): Promise<readonly CursorModelListEntry[]> {
+    const auth = callApiKey ?? this._apiKey ?? (await this._tokenStore.getToken());
+    const base = this._baseURL ?? OFFICIAL_BACKEND_URL;
+    const response = await fetch(`${base}/aiserver.v1.AiService/GetUsableModels`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${auth}`,
+        'x-cursor-client-version': 'sdk-1.0.30',
+        'x-cursor-client-type': 'sdk',
+        'x-ghost-mode': 'true',
+        'x-request-id': randomUUID(),
+        'connect-protocol-version': '1',
+      },
+      body: '{}',
+    });
+    if (!response.ok) {
+      throw new Error(`GetUsableModels ${response.status}`);
+    }
+    const body = (await response.json()) as {
+      models?: Array<{ modelId?: string; displayName?: string; aliases?: string[] }>;
+    };
+    return (body.models ?? []).flatMap((model) =>
+      typeof model.modelId === 'string' && model.modelId.length > 0
+        ? [{ id: model.modelId, displayName: model.displayName, aliases: model.aliases }]
+        : [],
+    );
   }
 }
