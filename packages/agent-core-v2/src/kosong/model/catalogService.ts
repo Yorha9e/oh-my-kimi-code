@@ -583,6 +583,8 @@ function buildProtocolProviderOptions(
     case 'openai_responses':
       if (model.offEffort !== undefined) options.offEffort = model.offEffort;
       break;
+    case 'cursor':
+      break;
     default: {
       const exhaustive: never = protocol;
       void exhaustive;

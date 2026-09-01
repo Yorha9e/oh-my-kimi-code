@@ -31,6 +31,11 @@ export type { ProviderConfig, ProviderType } from './providers';
 // backend (instanceof) and apply Kimi-specific request params (generation
 // kwargs, `thinking.keep` extra body).
 export { KimiChatProvider } from './providers/kimi';
+export { CursorChatProvider } from './providers/cursor';
+export type {
+  CursorOptions,
+  CursorToolExecutor,
+} from './providers/cursor';
 export type { ExtraBody, GenerationKwargs, KimiOptions, ThinkingConfig } from './providers/kimi';
 export { classifyKimiQuotaError } from './providers/kimi-errors';
 
