@@ -81,6 +81,16 @@ const OFFICIAL_BACKEND_URL = 'https://api2.cursor.sh';
 const MODEL_CATALOG_TTL_MS = 5 * 60_000;
 
 /**
+ * Cursor's thinking-effort model parameter id. Not `effort` — that is only
+ * the CLI bracket-alias; the wire parameter (and the catalog's own
+ * declaration) is `reasoning`.
+ */
+const EFFORT_PARAMETER_ID = 'reasoning';
+
+/** kosong thinking-effort → Cursor parameter value. */
+const EFFORT_VALUE_BY_KOSONG: Readonly<Record<string, string>> = { xhigh: 'extra-high' };
+
+/**
  * Value handed to the SDK as `apiKey`. The auth shim answers the SDK's
  * `exchange_user_api_key` call with the token-store JWT, so this value is
  * never used for a real request — it only satisfies the SDK's non-empty key
@@ -651,34 +661,45 @@ export class CursorChatProvider implements ChatProvider {
   }
 
   /**
-   * Resolve the wire `ModelSelection` from the configured base model id and
-   * the active thinking effort. Two layers, server data first:
+   * Cursor's thinking-effort knob is a MODEL PARAMETER named `reasoning`
+   * (values low/medium/high/extra-high per the catalog, not the CLI's
+   * `[effort=…]` alias), sent as `ModelSelection.params` and carried to the
+   * backend by the run request's `model_params` field. Resolution order,
+   * server data first:
    *
-   * 1. the catalog entry advertises an `effort` parameter (optionally with a
-   *    value set) → structured `{id, params: [{id: 'effort', value}]}`, which
-   *    rides the run request's `model_params` field;
-   * 2. the catalog contains a suffixed variant id (`base-effort` or
+   * 1. the catalog entry advertises a `reasoning` parameter whose value set
+   *    contains the mapped effort → structured `{id, params}` selection;
+   * 2. the catalog lists a suffixed variant id (`base-effort` or
    *    `base-thinking-effort`) → use that id directly;
-   * 3. otherwise (and always for `off`/`on`, which mean "server default")
-   *    the configured id is used as-is.
+   * 3. otherwise (and always for `off`/`on`, which mean "server default") the
+   *    configured id is used as-is.
+   *
+   * `xhigh` maps to Cursor's `extra-high`; unmappable efforts fall back to
+   * the configured id rather than sending a value the catalog rejects.
    */
   private async resolveWireModel(): Promise<SdkModelSelection> {
     const effort = this._thinkingEffort;
     if (effort === null || effort === 'off' || effort === 'on') {
       return { id: this._model };
     }
+    const cursorEffort = EFFORT_VALUE_BY_KOSONG[effort] ?? effort;
     const catalog = await this.ensureModelCatalog().catch(() => undefined);
     const entry = catalog?.find(
       (model) => model.id === this._model || model.aliases?.includes(this._model),
     );
-    const effortParam = entry?.parameters?.find((parameter) => parameter.id === 'effort');
+    const effortParam = entry?.parameters?.find((parameter) => parameter.id === EFFORT_PARAMETER_ID);
     if (
       effortParam !== undefined &&
-      (effortParam.values === undefined || effortParam.values.some((value) => value.value === effort))
+      (effortParam.values === undefined ||
+        effortParam.values.some((value) => value.value === cursorEffort))
     ) {
-      return { id: this._model, params: [{ id: 'effort', value: effort }] };
+      return { id: this._model, params: [{ id: EFFORT_PARAMETER_ID, value: cursorEffort }] };
     }
-    const candidates = [`${this._model}-${effort}`, `${this._model}-thinking-${effort}`];
+    const candidates = [
+      `${this._model}-${cursorEffort}`,
+      `${this._model}-${effort}`,
+      `${this._model}-thinking-${cursorEffort}`,
+    ];
     const hit = candidates.find((candidate) =>
       catalog?.some((model) => model.id === candidate || model.aliases?.includes(candidate)),
     );
