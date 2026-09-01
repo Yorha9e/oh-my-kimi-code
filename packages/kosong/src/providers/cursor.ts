@@ -144,6 +144,13 @@ export interface CursorOptions {
   toolExecutor?: CursorToolExecutor;
   /** Model ids advertised by the shim's synthetic models list. Defaults to the SDK store's `DEFAULT_CURSOR_MODELS`. */
   models?: readonly string[];
+  /**
+   * Extra model parameters merged into every wire `ModelSelection`
+   * (e.g. `{ fast: "true" }`). Cursor's speed/cost knobs have no kosong-level
+   * counterpart, so they are configured explicitly here rather than inferred.
+   * Declared values win over the resolved thinking effort for the same key.
+   */
+  modelParams?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -279,6 +286,31 @@ function buildFreshPrompt(systemPrompt: string, history: Message[]): string {
   const lastUser = history.findLast((message) => message.role === 'user');
   const text = lastUser === undefined ? '' : extractText(lastUser);
   return systemPrompt.length > 0 ? `${systemPrompt}\n\n${text}` : text;
+}
+
+/**
+ * Merge explicitly configured model parameters into a resolved selection.
+ * Configured keys win over the resolved thinking effort; keys map to the
+ * SDK's `{id, value}` pair shape.
+ */
+function mergeModelParams(
+  selection: SdkModelSelection,
+  modelParams: Readonly<Record<string, string>>,
+): SdkModelSelection {
+  const entries = Object.entries(modelParams);
+  if (entries.length === 0) {
+    return selection;
+  }
+  const params = [...(selection.params ?? [])];
+  for (const [id, value] of entries) {
+    const existing = params.findIndex((param) => param.id === id);
+    if (existing >= 0) {
+      params[existing] = { id, value };
+    } else {
+      params.push({ id, value });
+    }
+  }
+  return { ...selection, params };
 }
 
 /** Normalize a `tool_use` block's `input` into the JSON-arguments string. */
@@ -452,6 +484,7 @@ export class CursorChatProvider implements ChatProvider {
   private readonly _gatewayMode: boolean;
   private readonly _tokenStore: CursorTokenStore;
   private readonly _toolExecutor: CursorToolExecutor | undefined;
+  private readonly _modelParams: Readonly<Record<string, string>>;
   private readonly _models: readonly string[] | undefined;
   private _thinkingEffort: ThinkingEffort | null = null;
   private _lastAgentId: string | undefined;
@@ -467,6 +500,7 @@ export class CursorChatProvider implements ChatProvider {
     this._gatewayMode = options.apiKey !== undefined;
     this._tokenStore = options.tokenStore ?? defaultCursorTokenStore;
     this._toolExecutor = options.toolExecutor;
+    this._modelParams = options.modelParams ?? {};
     this._models = options.models;
   }
 
@@ -599,65 +633,69 @@ export class CursorChatProvider implements ChatProvider {
   }
 
   /**
-   * Pull the upstream model catalog (full entries — `parameters`/`variants`
-   * included for effort resolution). One code path serves both modes: the
-   * gateway forwards the call with the pool JWT (entitlement-accurate),
-   * direct mode accepts the IDE token on api2. The request re-enters the
-   * installed fetch shim but targets a non-intercepted path, so it passes
-   * through untouched. Cached 5 minutes, single-flight.
+   * Pull the upstream PARAMETERIZED model catalog. Cursor exposes parameter
+   * definitions (effort/speed knobs and their value sets) on
+   * `AvailableModels{useModelParameters:true}` — 35 entries — while
+   * `GetUsableModels` (204 entries) lists the full id set with no parameter
+   * data at all. Effort resolution needs the former; the shim's client-side
+   * validation list is fed from this same entry set. Both modes work: the
+   * gateway forwards the call with the pool JWT, direct mode uses the IDE
+   * token. Cached 5 minutes, single-flight.
    */
   private async ensureModelCatalog(): Promise<readonly ModelCatalogEntry[]> {
     if (this._modelCatalog !== undefined && this._modelCatalogExpires > Date.now()) {
       return this._modelCatalog;
     }
-    this._modelCatalogPromise ??= (async () => {
-      const auth = this._apiKey ?? (await this._tokenStore.getToken());
-      const base = this._baseURL ?? OFFICIAL_BACKEND_URL;
-      const response = await fetch(`${base}/aiserver.v1.AiService/GetUsableModels`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${auth}`,
-          'x-cursor-client-version': 'sdk-1.0.30',
-          'x-cursor-client-type': 'sdk',
-          'x-ghost-mode': 'true',
-          'x-request-id': randomUUID(),
-          'connect-protocol-version': '1',
-        },
-        body: '{}',
-      });
-      if (!response.ok) {
-        throw new Error(`GetUsableModels ${response.status}`);
-      }
-      const body = (await response.json()) as {
-        models?: Array<{
-          modelId?: string;
-          displayName?: string;
-          aliases?: string[];
-          parameters?: ModelCatalogEntry['parameters'];
-          variants?: ModelCatalogEntry['variants'];
-        }>;
-      };
-      const entries = (body.models ?? []).flatMap((model) =>
-        typeof model.modelId === 'string' && model.modelId.length > 0
-          ? [
-              {
-                id: model.modelId,
-                displayName: model.displayName,
-                aliases: model.aliases,
-                parameters: model.parameters,
-                variants: model.variants,
-              },
-            ]
-          : [],
-      );
-      this._modelCatalog = entries;
-      this._modelCatalogExpires = Date.now() + MODEL_CATALOG_TTL_MS;
-      return entries;
-    })().finally(() => {
+    this._modelCatalogPromise ??= this.fetchModelCatalog().finally(() => {
       this._modelCatalogPromise = undefined;
     });
     return this._modelCatalogPromise;
+  }
+
+  private async fetchModelCatalog(): Promise<readonly ModelCatalogEntry[]> {
+    const auth = this._apiKey ?? (await this._tokenStore.getToken());
+    const base = this._baseURL ?? OFFICIAL_BACKEND_URL;
+    const response = await fetch(`${base}/aiserver.v1.AiService/AvailableModels`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${auth}`,
+        'x-cursor-client-version': 'sdk-1.0.30',
+        'x-cursor-client-type': 'sdk',
+        'x-ghost-mode': 'true',
+        'x-request-id': randomUUID(),
+        'connect-protocol-version': '1',
+      },
+      body: JSON.stringify({
+        useModelParameters: true,
+        doNotUseMarkdown: true,
+        additionalModelNames: [],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`AvailableModels ${response.status}`);
+    }
+    const body = (await response.json()) as {
+      models?: Array<{
+        name?: string;
+        parameterDefinitions?: ModelCatalogEntry['parameters'];
+        variants?: ModelCatalogEntry['variants'];
+      }>;
+    };
+    const entries = (body.models ?? []).flatMap((model) =>
+      typeof model.name === 'string' && model.name.length > 0
+        ? [
+            {
+              id: model.name,
+              parameters: model.parameterDefinitions,
+              variants: model.variants,
+            },
+          ]
+        : [],
+    );
+    this._modelCatalog = entries;
+    this._modelCatalogExpires = Date.now() + MODEL_CATALOG_TTL_MS;
+    return entries;
   }
 
   /**
@@ -687,25 +725,29 @@ export class CursorChatProvider implements ChatProvider {
     const entry = catalog?.find(
       (model) => model.id === this._model || model.aliases?.includes(this._model),
     );
+    // Layer 1: structured parameter (when the catalog advertises it and the
+    // value is in range). Layer 2 (below): suffixed variant id.
+    let selection: SdkModelSelection = { id: this._model };
     const effortParam = entry?.parameters?.find((parameter) => parameter.id === EFFORT_PARAMETER_ID);
     if (
       effortParam !== undefined &&
       (effortParam.values === undefined ||
         effortParam.values.some((value) => value.value === cursorEffort))
     ) {
-      return { id: this._model, params: [{ id: EFFORT_PARAMETER_ID, value: cursorEffort }] };
+      selection = { id: this._model, params: [{ id: EFFORT_PARAMETER_ID, value: cursorEffort }] };
+    } else {
+      const candidates = [
+        `${this._model}-${cursorEffort}`,
+        `${this._model}-${effort}`,
+        `${this._model}-thinking-${cursorEffort}`,
+      ];
+      const hit = candidates.find((candidate) =>
+        catalog?.some((model) => model.id === candidate || model.aliases?.includes(candidate)),
+      );
+      if (hit !== undefined) {
+        selection = { id: hit };
+      }
     }
-    const candidates = [
-      `${this._model}-${cursorEffort}`,
-      `${this._model}-${effort}`,
-      `${this._model}-thinking-${cursorEffort}`,
-    ];
-    const hit = candidates.find((candidate) =>
-      catalog?.some((model) => model.id === candidate || model.aliases?.includes(candidate)),
-    );
-    if (hit !== undefined) {
-      return { id: hit };
-    }
-    return { id: this._model };
+    return mergeModelParams(selection, this._modelParams);
   }
 }
