@@ -48,9 +48,37 @@ type SdkCustomToolResult = import('@cursor/sdk').SDKCustomToolResult;
 type SdkRun = import('@cursor/sdk').Run;
 type SdkStatusMessage = import('@cursor/sdk').SDKStatusMessage;
 type SdkTokenUsage = import('@cursor/sdk').TokenUsage;
+type SdkModelSelection = import('@cursor/sdk').ModelSelection;
+type SdkUserMessage = import('@cursor/sdk').SDKUserMessage;
+type SdkImage = import('@cursor/sdk').SDKImage;
+
+/**
+ * Shape of one upstream catalog entry — the subset of the SDK's
+ * `ModelListItem` the provider consumes. `parameters`/`variants` feed the
+ * two-layer effort resolution; the shim's REST projection also passes them
+ * through verbatim.
+ */
+type ModelCatalogEntry = {
+  id: string;
+  displayName?: string;
+  aliases?: string[];
+  parameters?: Array<{
+    id: string;
+    displayName?: string;
+    values?: Array<{ value: string; displayName?: string }>;
+  }>;
+  variants?: Array<{
+    params?: Array<{ id: string; value: string }>;
+    displayName?: string;
+    isDefault?: boolean;
+  }>;
+};
 
 /** Official Cursor backend. The SDK falls back to this when the env var is unset. */
 const OFFICIAL_BACKEND_URL = 'https://api2.cursor.sh';
+
+/** Milliseconds the upstream model catalog stays cached (model tables change rarely). */
+const MODEL_CATALOG_TTL_MS = 5 * 60_000;
 
 /**
  * Value handed to the SDK as `apiKey`. The auth shim answers the SDK's
@@ -251,6 +279,30 @@ function toolArguments(input: unknown): string {
   return JSON.stringify(input ?? {});
 }
 
+/**
+ * Map a message's image parts onto the SDK's attachment shape: `data:` URIs
+ * become inline base64 payloads, everything else (https URLs) passes through
+ * as a URL reference.
+ */
+function collectImages(message: Message | undefined): SdkImage[] {
+  if (message === undefined) {
+    return [];
+  }
+  return message.content.flatMap((part): SdkImage[] => {
+    if (part.type !== 'image_url') {
+      return [];
+    }
+    const dataUri = /^data:([^;]+);base64,(.+)$/.exec(part.imageUrl.url);
+    if (dataUri !== null) {
+      const [, mimeType, data] = dataUri;
+      if (mimeType !== undefined && data !== undefined) {
+        return [{ data, mimeType }];
+      }
+    }
+    return [{ url: part.imageUrl.url }];
+  });
+}
+
 /** Map the SDK usage event onto kosong's breakdown. */
 function mapUsage(usage: SdkTokenUsage): TokenUsage {
   return {
@@ -393,6 +445,9 @@ export class CursorChatProvider implements ChatProvider {
   private readonly _models: readonly string[] | undefined;
   private _thinkingEffort: ThinkingEffort | null = null;
   private _lastAgentId: string | undefined;
+  private _modelCatalog: readonly ModelCatalogEntry[] | undefined;
+  private _modelCatalogExpires = 0;
+  private _modelCatalogPromise: Promise<readonly ModelCatalogEntry[]> | undefined;
 
   constructor(options: CursorOptions) {
     this._model = options.model ?? DEFAULT_MODEL_ID;
@@ -434,7 +489,10 @@ export class CursorChatProvider implements ChatProvider {
       passthroughExchange: this._baseURL !== undefined || callApiKey !== undefined,
       // Direct mode only: the gateway serves /v1/models as a real endpoint
       // (see the fetchModels JSDoc), so the interception stays api.cursor.com.
-      fetchModels: () => this.fetchUpstreamModels(callApiKey),
+      fetchModels: () =>
+        this.ensureModelCatalog().then((entries) =>
+          entries.map(({ id, displayName, aliases }) => ({ id, displayName, aliases })),
+        ),
     });
 
     const { Agent } = await import('@cursor/sdk');
@@ -445,6 +503,7 @@ export class CursorChatProvider implements ChatProvider {
 
     let agent: SdkAgent;
     let prompt: string;
+    let outgoing: string | SdkUserMessage;
     if (toolResults.length > 0 && this._lastAgentId !== undefined) {
       // Tool-loop continuation: feed the results back into the SAME Cursor
       // conversation so the backend checkpointed context stays intact.
@@ -452,19 +511,28 @@ export class CursorChatProvider implements ChatProvider {
         apiKey,
         local: { cwd: this._cwd, customTools },
       });
-      prompt = serializeToolResults(toolResults, toolNameLookup(history));
+      outgoing = serializeToolResults(toolResults, toolNameLookup(history));
     } else {
       agent = await Agent.create({
-        model: { id: this._model },
+        model: await this.resolveWireModel(),
         apiKey,
         local: { cwd: this._cwd, customTools },
       });
+      const lastUser = history.findLast((message) => message.role === 'user');
+      const images = collectImages(lastUser);
       prompt = buildFreshPrompt(systemPrompt, history);
+      // The SDK carries images on the user message itself; prompt text stays
+      // text-only. Attachments only apply to the fresh-send path — tool-loop
+      // continuations are pure text by construction.
+      outgoing =
+        images.length > 0 && prompt.length > 0
+          ? { text: prompt, images }
+          : prompt;
       if (toolResults.length > 0) {
         // Degraded path: tool results without a remembered agent id (fresh
         // provider instance). Ship them to a new conversation instead of
         // failing the loop.
-        prompt = `${prompt}\n\n${serializeToolResults(toolResults, toolNameLookup(history))}`;
+        outgoing = `${outgoing}\n\n${serializeToolResults(toolResults, toolNameLookup(history))}`;
       }
     }
     this._lastAgentId = agent.agentId;
@@ -472,7 +540,7 @@ export class CursorChatProvider implements ChatProvider {
     options?.onRequestSent?.();
     let run: SdkRun;
     try {
-      run = await agent.send(prompt);
+      run = await agent.send(outgoing);
     } catch (error) {
       // The handle owns an http2 session and the stream's finally-close cannot
       // run — no CursorStreamedMessage was built — so close it here before the
@@ -492,8 +560,10 @@ export class CursorChatProvider implements ChatProvider {
   }
 
   /**
-   * Cursor's Auto runtime resolves thinking effort server-side; L1 records
-   * the effort for observability and passes nothing extra on the wire.
+   * Record the thinking effort. Unlike the other wires, the effort does not
+   * ride the generate options: `resolveWireModel` translates it into either
+   * a structured `effort` model parameter or a suffixed variant id at
+   * generate time.
    */
   withThinking(effort: ThinkingEffort): ChatProvider {
     const clone = Object.assign(
@@ -505,40 +575,102 @@ export class CursorChatProvider implements ChatProvider {
   }
 
   /**
-   * Pull the upstream model catalog as a shim-compatible projection. One code
-   * path serves both modes: the gateway forwards the call with the pool JWT
-   * (entitlement-accurate), direct mode accepts the IDE token on api2. The
-   * request re-enters the installed fetch shim but targets a non-intercepted
-   * path, so it passes through untouched.
+   * Pull the upstream model catalog (full entries — `parameters`/`variants`
+   * included for effort resolution). One code path serves both modes: the
+   * gateway forwards the call with the pool JWT (entitlement-accurate),
+   * direct mode accepts the IDE token on api2. The request re-enters the
+   * installed fetch shim but targets a non-intercepted path, so it passes
+   * through untouched. Cached 5 minutes, single-flight.
    */
-  private async fetchUpstreamModels(
-    callApiKey: string | undefined,
-  ): Promise<readonly CursorModelListEntry[]> {
-    const auth = callApiKey ?? this._apiKey ?? (await this._tokenStore.getToken());
-    const base = this._baseURL ?? OFFICIAL_BACKEND_URL;
-    const response = await fetch(`${base}/aiserver.v1.AiService/GetUsableModels`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${auth}`,
-        'x-cursor-client-version': 'sdk-1.0.30',
-        'x-cursor-client-type': 'sdk',
-        'x-ghost-mode': 'true',
-        'x-request-id': randomUUID(),
-        'connect-protocol-version': '1',
-      },
-      body: '{}',
-    });
-    if (!response.ok) {
-      throw new Error(`GetUsableModels ${response.status}`);
+  private async ensureModelCatalog(): Promise<readonly ModelCatalogEntry[]> {
+    if (this._modelCatalog !== undefined && this._modelCatalogExpires > Date.now()) {
+      return this._modelCatalog;
     }
-    const body = (await response.json()) as {
-      models?: Array<{ modelId?: string; displayName?: string; aliases?: string[] }>;
-    };
-    return (body.models ?? []).flatMap((model) =>
-      typeof model.modelId === 'string' && model.modelId.length > 0
-        ? [{ id: model.modelId, displayName: model.displayName, aliases: model.aliases }]
-        : [],
+    this._modelCatalogPromise ??= (async () => {
+      const auth = this._apiKey ?? (await this._tokenStore.getToken());
+      const base = this._baseURL ?? OFFICIAL_BACKEND_URL;
+      const response = await fetch(`${base}/aiserver.v1.AiService/GetUsableModels`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${auth}`,
+          'x-cursor-client-version': 'sdk-1.0.30',
+          'x-cursor-client-type': 'sdk',
+          'x-ghost-mode': 'true',
+          'x-request-id': randomUUID(),
+          'connect-protocol-version': '1',
+        },
+        body: '{}',
+      });
+      if (!response.ok) {
+        throw new Error(`GetUsableModels ${response.status}`);
+      }
+      const body = (await response.json()) as {
+        models?: Array<{
+          modelId?: string;
+          displayName?: string;
+          aliases?: string[];
+          parameters?: ModelCatalogEntry['parameters'];
+          variants?: ModelCatalogEntry['variants'];
+        }>;
+      };
+      const entries = (body.models ?? []).flatMap((model) =>
+        typeof model.modelId === 'string' && model.modelId.length > 0
+          ? [
+              {
+                id: model.modelId,
+                displayName: model.displayName,
+                aliases: model.aliases,
+                parameters: model.parameters,
+                variants: model.variants,
+              },
+            ]
+          : [],
+      );
+      this._modelCatalog = entries;
+      this._modelCatalogExpires = Date.now() + MODEL_CATALOG_TTL_MS;
+      return entries;
+    })().finally(() => {
+      this._modelCatalogPromise = undefined;
+    });
+    return this._modelCatalogPromise;
+  }
+
+  /**
+   * Resolve the wire `ModelSelection` from the configured base model id and
+   * the active thinking effort. Two layers, server data first:
+   *
+   * 1. the catalog entry advertises an `effort` parameter (optionally with a
+   *    value set) → structured `{id, params: [{id: 'effort', value}]}`, which
+   *    rides the run request's `model_params` field;
+   * 2. the catalog contains a suffixed variant id (`base-effort` or
+   *    `base-thinking-effort`) → use that id directly;
+   * 3. otherwise (and always for `off`/`on`, which mean "server default")
+   *    the configured id is used as-is.
+   */
+  private async resolveWireModel(): Promise<SdkModelSelection> {
+    const effort = this._thinkingEffort;
+    if (effort === null || effort === 'off' || effort === 'on') {
+      return { id: this._model };
+    }
+    const catalog = await this.ensureModelCatalog().catch(() => undefined);
+    const entry = catalog?.find(
+      (model) => model.id === this._model || model.aliases?.includes(this._model),
     );
+    const effortParam = entry?.parameters?.find((parameter) => parameter.id === 'effort');
+    if (
+      effortParam !== undefined &&
+      (effortParam.values === undefined || effortParam.values.some((value) => value.value === effort))
+    ) {
+      return { id: this._model, params: [{ id: 'effort', value: effort }] };
+    }
+    const candidates = [`${this._model}-${effort}`, `${this._model}-thinking-${effort}`];
+    const hit = candidates.find((candidate) =>
+      catalog?.some((model) => model.id === candidate || model.aliases?.includes(candidate)),
+    );
+    if (hit !== undefined) {
+      return { id: hit };
+    }
+    return { id: this._model };
   }
 }
