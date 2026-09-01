@@ -80,6 +80,34 @@ interface ShimState {
   backendHost: string | undefined;
 }
 
+/**
+ * Whether the process-level warning filter is installed. The Cursor SDK sets
+ * `NODE_TLS_REJECT_UNAUTHORIZED=0` by itself whenever its backend URL is
+ * localhost/127.0.0.1 (an official convenience for self-signed local
+ * backends), which makes Node print a one-time warning banner. Node's default
+ * warning printer is a bootstrap-registered `'warning'` listener — adding our
+ * own listener does NOT suppress it, so we remove ALL `'warning'` listeners
+ * (dropping the default printer) and re-print every non-matching warning
+ * ourselves in the default format; only the SDK's TLS banner is dropped.
+ */
+let warningFilterInstalled = false;
+
+function installWarningFilter(): void {
+  if (warningFilterInstalled) return;
+  warningFilterInstalled = true;
+  process.removeAllListeners('warning');
+  process.on('warning', (warning) => {
+    if (warning.message.includes('NODE_TLS_REJECT_UNAUTHORIZED')) return;
+    const code = (warning as NodeJS.ErrnoException).code;
+    const header = `(node:${process.pid})`;
+    if (code !== undefined) {
+      console.error(`${header} [${code}] ${warning.message}`);
+    } else {
+      console.error(`${header} ${warning.name}: ${warning.message}`);
+    }
+  });
+}
+
 let installed:
   | {
       originalFetch: typeof fetch;
@@ -97,6 +125,7 @@ let installed:
  * forwarded with their arguments unchanged.
  */
 export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAuthShimHandle {
+  installWarningFilter();
   if (installed !== undefined) {
     installed.state.getToken = options.getToken;
     installed.state.models = normalizeModels(options.models);
