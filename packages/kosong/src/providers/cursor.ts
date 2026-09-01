@@ -418,6 +418,7 @@ export class CursorChatProvider implements ChatProvider {
       getToken: () => this._tokenStore.getToken(),
       models: this._models,
       passthroughExchange: this._baseURL !== undefined || callApiKey !== undefined,
+      backendHost: this._baseURL === undefined ? undefined : new URL(this._baseURL).hostname,
     });
 
     const { Agent } = await import('@cursor/sdk');

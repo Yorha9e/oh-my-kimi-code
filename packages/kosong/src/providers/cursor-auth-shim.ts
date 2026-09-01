@@ -51,6 +51,16 @@ export interface CursorAuthShimOptions {
    * hardcoded to api.cursor.com and unreachable by a gateway anyway.
    */
   passthroughExchange?: boolean;
+  /**
+   * Hostname of the pinned backend (gateway mode). When set, the synthetic
+   * `/v1/models` interception also covers this host: the SDK's local platform
+   * derives its cloud-client base from the backend URL, so with a gateway
+   * pinned the models call lands on the gateway host instead of
+   * api.cursor.com — and a gateway response without an `items` array crashes
+   * the SDK's model validation (`undefined.find`). L1 answers synthetically
+   * on both hosts so the shape is always guaranteed.
+   */
+  backendHost?: string;
 }
 
 export interface CursorAuthShimHandle {
@@ -67,6 +77,7 @@ interface ShimState {
   getToken: () => string | Promise<string>;
   models: readonly string[];
   passthroughExchange: boolean;
+  backendHost: string | undefined;
 }
 
 let installed:
@@ -97,6 +108,7 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
     getToken: options.getToken,
     models: normalizeModels(options.models),
     passthroughExchange: options.passthroughExchange === true,
+    backendHost: options.backendHost,
   };
   const wrapper: typeof fetch = (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> => {
     const url = requestUrl(args[0]);
@@ -104,7 +116,7 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
       if (!state.passthroughExchange && isExchangeUserApiKeyUrl(url)) {
         return exchangeUserApiKey(state);
       }
-      if (isModelsUrl(url)) {
+      if (isModelsUrl(url, state.backendHost)) {
         return Promise.resolve(syntheticModels(state));
       }
     }
@@ -194,8 +206,12 @@ function isExchangeUserApiKeyUrl(url: URL): boolean {
   return url.pathname.endsWith(EXCHANGE_USER_API_KEY_SUFFIX);
 }
 
-function isModelsUrl(url: URL): boolean {
-  return url.hostname === MODELS_HOSTNAME && trimTrailingSlash(url.pathname) === MODELS_PATHNAME;
+function isModelsUrl(url: URL, backendHost: string | undefined): boolean {
+  if (url.hostname === MODELS_HOSTNAME) return true;
+  if (backendHost !== undefined && url.hostname === backendHost) {
+    return trimTrailingSlash(url.pathname) === MODELS_PATHNAME;
+  }
+  return false;
 }
 
 function trimTrailingSlash(pathname: string): string {
