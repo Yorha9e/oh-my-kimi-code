@@ -1,6 +1,7 @@
 import type { Message, StreamedMessagePart, VideoURLPart } from '#/kosong/contract/message';
 import type {
   FinishReason,
+  HostToolExecutor,
   ResponseFormat,
   SamplingOptions,
   ThinkingEffort,
@@ -49,6 +50,12 @@ export interface ModelRequestParams {
   readonly usedContextTokens?: number;
   readonly maxContextTokens?: number;
   readonly onTraceId?: (traceId: string | null) => void;
+  /**
+   * Host tool invoker for protocols that execute tool calls in-process
+   * (cursor). Built per request by the agent loop from the agent-scope tool
+   * executor so permission gating stays on the host side.
+   */
+  readonly toolInvoker?: HostToolExecutor;
 }
 
 export interface ModelRequester {

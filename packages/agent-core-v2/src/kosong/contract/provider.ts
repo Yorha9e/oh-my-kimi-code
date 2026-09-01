@@ -1,6 +1,9 @@
 import type { Message, StreamedMessagePart, VideoURLPart } from './message';
 import type { Tool } from './tool';
 import type { TokenUsage } from './usage';
+import type { HostToolExecutor } from '@moonshot-ai/kosong';
+
+export type { HostToolExecutor };
 
 export type ThinkingEffort = 'off' | 'on' | (string & {});
 
@@ -73,6 +76,12 @@ export interface VideoUploadInput {
 export interface GenerateOptions {
   signal?: AbortSignal;
   auth?: ProviderRequestAuth;
+  /**
+   * Per-request host tool executor (kosong HostToolExecutor). Only consumed
+   * by protocols that run tool calls in-process (cursor); other protocols
+   * ignore it.
+   */
+  toolExecutor?: HostToolExecutor;
   responseFormat?: ResponseFormat;
   cacheKey?: string;
   sampling?: SamplingOptions;

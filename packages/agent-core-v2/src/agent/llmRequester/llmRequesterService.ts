@@ -24,10 +24,16 @@ import {
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
 } from '#/kosong/contract/errors';
-import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
+import { isToolCall, type Message, type StreamedMessagePart, type ToolCall } from '#/kosong/contract/message';
 import { type ThinkingEffort } from '#/kosong/contract/provider';
 import { type Tool } from '#/kosong/contract/tool';
 import { emptyUsage, inputTotal, type TokenUsage } from '#/kosong/contract/usage';
+import { type HostToolExecutor } from '@moonshot-ai/kosong';
+import { randomUUID } from 'node:crypto';
+import {
+  IAgentToolExecutorService,
+  type ToolExecutionResult,
+} from '#/agent/toolExecutor/toolExecutor';
 import { ILogService, type LogContext } from '#/_base/log/log';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import {
@@ -157,6 +163,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
   ) {
     this.states.contributeState(llmRequestTraceKey);
     this.states.contributeState(llmRequesterLastConfigLogSignatureKey);
@@ -300,6 +307,38 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
   }
 
+  private buildToolInvoker(turnId: number, signal: AbortSignal | undefined): HostToolExecutor {
+    return async (name, args) => {
+      const call: ToolCall = {
+        type: 'function',
+        id: `cursor-host-${randomUUID()}`,
+        name,
+        arguments: JSON.stringify(args),
+      };
+      let last: ToolExecutionResult | undefined;
+      for await (const result of this.toolExecutor.execute([call], {
+        signal: signal ?? new AbortController().signal,
+        turnId,
+      })) {
+        last = result;
+      }
+      if (last === undefined) {
+        return {
+          content: [{ type: 'text', text: `tool "${name}" returned no result` }],
+          isError: true,
+        };
+      }
+      const output = last.result.output;
+      const text =
+        typeof output === 'string'
+          ? output
+          : output
+              .map((part) => (part.type === 'text' ? part.text : JSON.stringify(part)))
+              .join('\n');
+      return { content: [{ type: 'text', text }], isError: last.result.isError === true };
+    };
+  }
+
   private async runRequest(
     request: ResolvedLLMRequest,
     onPart: AgentLLMRequestPartHandler,
@@ -366,6 +405,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       try {
         for await (const event of request.requester.request(input, signal, {
           ...request.params,
+          toolInvoker: this.buildToolInvoker(request.source?.turnId ?? 0, signal),
           onTraceId: setTraceId,
         })) {
           switch (event.type) {

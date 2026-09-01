@@ -497,7 +497,21 @@ export class CursorChatProvider implements ChatProvider {
 
     const { Agent } = await import('@cursor/sdk');
 
-    const customTools = tools.length > 0 ? toSdkCustomTools(tools, this._toolExecutor) : undefined;
+    // Per-request host executor (v2 auth/params path) wins over the
+    // constructor-level seam; a HostToolResult maps onto the SDK's
+    // custom-tool result shape (mutable content array, text-only parts).
+    const hostExecutor = options?.toolExecutor;
+    const executor: CursorToolExecutor | undefined =
+      hostExecutor !== undefined
+        ? async (name, args, _context) => {
+            const result = await hostExecutor(name, args);
+            return {
+              content: result.content.map((part) => ({ type: 'text' as const, text: part.text })),
+              isError: result.isError,
+            };
+          }
+        : this._toolExecutor;
+    const customTools = tools.length > 0 ? toSdkCustomTools(tools, executor) : undefined;
     const toolResults = trailingToolResults(history);
     const apiKey = callApiKey ?? this._apiKey ?? PLACEHOLDER_API_KEY;
 

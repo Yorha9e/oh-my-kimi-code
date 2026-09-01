@@ -98,6 +98,7 @@ export class ModelRequesterImpl implements ModelRequester {
       maxCompletionTokens: params?.maxCompletionTokens,
       usedContextTokens: params?.usedContextTokens,
       maxContextTokens: params?.maxContextTokens,
+      toolExecutor: params?.toolInvoker,
       onRequestStart: () => {
         requestStartedAt = Date.now();
       },
