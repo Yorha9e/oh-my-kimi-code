@@ -177,13 +177,16 @@ function toSdkCustomTools(tools: Tool[], executor: CursorToolExecutor | undefine
  * `process.env.CURSOR_BACKEND_URL || OFFICIAL_BACKEND_URL` at module load, so
  * setting it afterwards would silently route gateway traffic to the official
  * endpoint. Direct mode deletes the env var so the SDK default applies.
+ *
+ * The process has no committed backend until the first pin (which immediately
+ * precedes the SDK module load). Conflicts are only possible after that first
+ * pin, so the first generate in a process adopts its own value freely.
  */
 function pinBackendUrl(baseURL: string | undefined): void {
   const desired = baseURL ?? OFFICIAL_BACKEND_URL;
-  const current = pinnedBackendUrl ?? process.env['CURSOR_BACKEND_URL'] ?? OFFICIAL_BACKEND_URL;
-  if (current !== desired) {
+  if (pinnedBackendUrl !== undefined && pinnedBackendUrl !== desired) {
     throw new Error(
-      `cursor provider: CURSOR_BACKEND_URL is process-global and this process already targets ${current}; ` +
+      `cursor provider: CURSOR_BACKEND_URL is process-global and this process already targets ${pinnedBackendUrl}; ` +
         `this instance requires ${desired}. Direct (no baseURL) and gateway (baseURL) cursor providers ` +
         'cannot be mixed in one process.',
     );
