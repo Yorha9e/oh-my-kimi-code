@@ -370,6 +370,7 @@ export class CursorChatProvider implements ChatProvider {
   private readonly _cwd: string | undefined;
   private readonly _baseURL: string | undefined;
   private readonly _apiKey: string | undefined;
+  private readonly _gatewayMode: boolean;
   private readonly _tokenStore: CursorTokenStore;
   private readonly _toolExecutor: CursorToolExecutor | undefined;
   private readonly _models: readonly string[] | undefined;
@@ -381,6 +382,7 @@ export class CursorChatProvider implements ChatProvider {
     this._cwd = options.cwd;
     this._baseURL = options.baseURL;
     this._apiKey = options.apiKey;
+    this._gatewayMode = options.apiKey !== undefined;
     this._tokenStore = options.tokenStore ?? defaultCursorTokenStore;
     this._toolExecutor = options.toolExecutor;
     this._models = options.models;
@@ -404,18 +406,22 @@ export class CursorChatProvider implements ChatProvider {
     // SDK module load, and the shim must wrap global fetch before the SDK can
     // issue its first request.
     pinBackendUrl(this._baseURL);
-    // Idempotent — repeat installs just re-point the shared token getter and
-    // model list at this instance.
+    // Gateway mode = a non-official backend was pinned (baseURL) or the caller
+    // supplied a per-request key (v2 auth material): the exchange call must
+    // reach that backend so IT answers with the account-pool token. Direct
+    // mode keeps the local IDE-token interception.
+    const callApiKey = options?.auth?.apiKey;
     installCursorAuthShim({
       getToken: () => this._tokenStore.getToken(),
       models: this._models,
+      passthroughExchange: this._baseURL !== undefined || callApiKey !== undefined,
     });
 
     const { Agent } = await import('@cursor/sdk');
 
     const customTools = tools.length > 0 ? toSdkCustomTools(tools, this._toolExecutor) : undefined;
     const toolResults = trailingToolResults(history);
-    const apiKey = this._apiKey ?? PLACEHOLDER_API_KEY;
+    const apiKey = callApiKey ?? this._apiKey ?? PLACEHOLDER_API_KEY;
 
     let agent: SdkAgent;
     let prompt: string;

@@ -43,6 +43,14 @@ export interface CursorAuthShimOptions {
    * included, even when omitted here. Defaults to {@link DEFAULT_CURSOR_MODELS}.
    */
   models?: readonly string[];
+  /**
+   * Gateway mode: pass the SDK's `exchange_user_api_key` call through to the
+   * configured backend (the gateway answers it with its own account-pool
+   * token) instead of intercepting it with the local IDE accessToken. The
+   * synthetic `/v1/models` interception is unaffected — that endpoint is
+   * hardcoded to api.cursor.com and unreachable by a gateway anyway.
+   */
+  passthroughExchange?: boolean;
 }
 
 export interface CursorAuthShimHandle {
@@ -58,6 +66,7 @@ export interface CursorAuthShimHandle {
 interface ShimState {
   getToken: () => string | Promise<string>;
   models: readonly string[];
+  passthroughExchange: boolean;
 }
 
 let installed:
@@ -87,11 +96,12 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
   const state: ShimState = {
     getToken: options.getToken,
     models: normalizeModels(options.models),
+    passthroughExchange: options.passthroughExchange === true,
   };
   const wrapper: typeof fetch = (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> => {
     const url = requestUrl(args[0]);
     if (url !== undefined) {
-      if (isExchangeUserApiKeyUrl(url)) {
+      if (!state.passthroughExchange && isExchangeUserApiKeyUrl(url)) {
         return exchangeUserApiKey(state);
       }
       if (isModelsUrl(url)) {
