@@ -432,11 +432,8 @@ export class CursorChatProvider implements ChatProvider {
       getToken: () => this._tokenStore.getToken(),
       models: this._models,
       passthroughExchange: this._baseURL !== undefined || callApiKey !== undefined,
-      backendHost: this._baseURL === undefined ? undefined : new URL(this._baseURL).hostname,
-      // Real model list = a GetUsableModels projection. Works in both modes:
-      // gateway forwards it with the pool JWT (entitlement-accurate), direct
-      // mode accepts the IDE token. Failure falls back to the synthetic list
-      // inside the shim, so client-side validation never crashes.
+      // Direct mode only: the gateway serves /v1/models as a real endpoint
+      // (see the fetchModels JSDoc), so the interception stays api.cursor.com.
       fetchModels: () => this.fetchUpstreamModels(callApiKey),
     });
 

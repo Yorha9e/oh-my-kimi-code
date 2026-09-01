@@ -63,21 +63,17 @@ export interface CursorAuthShimOptions {
    */
   passthroughExchange?: boolean;
   /**
-   * Hostname of the pinned backend (gateway mode). When set, the synthetic
-   * `/v1/models` interception also covers this host: the SDK's local platform
-   * derives its cloud-client base from the backend URL, so with a gateway
-   * pinned the models call lands on the gateway host instead of
-   * api.cursor.com — and a gateway response without an `items` array crashes
-   * the SDK's model validation (`undefined.find`). L1 answers synthetically
-   * on both hosts so the shape is always guaranteed.
-   */
-  backendHost?: string;
-  /**
    * Pulls the REAL upstream model list (a projection of `GetUsableModels`).
-   * When provided, `/v1/models` interception serves this list — cached for
-   * {@link MODEL_LIST_TTL_MS} with single-flight — falling back to the
-   * synthetic ids on failure so client-side validation never crashes on a
-   * missing `items` array. When omitted, only the synthetic list is served.
+   * When provided, `/v1/models` interception on api.cursor.com serves this
+   * list — cached for {@link MODEL_LIST_TTL_MS} with single-flight — falling
+   * back to the synthetic ids on failure so client-side validation never
+   * crashes on a missing `items` array. When omitted, only the synthetic list
+   * is served.
+   *
+   * Gateway mode does NOT route through this fetcher: the SDK's models call
+   * lands on the gateway host, which serves the same projection as a real
+   * endpoint, so the interception here is api.cursor.com-only (direct mode,
+   * where a raw JWT cannot authenticate the REST endpoint).
    */
   fetchModels?: () => Promise<readonly CursorModelListEntry[]>;
 }
@@ -96,7 +92,6 @@ interface ShimState {
   getToken: () => string | Promise<string>;
   models: readonly string[];
   passthroughExchange: boolean;
-  backendHost: string | undefined;
   fetchModels: (() => Promise<readonly CursorModelListEntry[]>) | undefined;
   modelListCache: { items: readonly CursorModelListEntry[]; expires: number } | undefined;
   modelListInFlight: Promise<readonly CursorModelListEntry[]> | undefined;
@@ -159,7 +154,6 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
     getToken: options.getToken,
     models: normalizeModels(options.models),
     passthroughExchange: options.passthroughExchange === true,
-    backendHost: options.backendHost,
     fetchModels: options.fetchModels,
     modelListCache: undefined,
     modelListInFlight: undefined,
@@ -170,7 +164,7 @@ export function installCursorAuthShim(options: CursorAuthShimOptions): CursorAut
       if (!state.passthroughExchange && isExchangeUserApiKeyUrl(url)) {
         return exchangeUserApiKey(state);
       }
-      if (isModelsUrl(url, state.backendHost)) {
+      if (isModelsUrl(url)) {
         return modelListResponse(state);
       }
     }
@@ -290,12 +284,8 @@ function isExchangeUserApiKeyUrl(url: URL): boolean {
   return url.pathname.endsWith(EXCHANGE_USER_API_KEY_SUFFIX);
 }
 
-function isModelsUrl(url: URL, backendHost: string | undefined): boolean {
-  if (url.hostname === MODELS_HOSTNAME) return true;
-  if (backendHost !== undefined && url.hostname === backendHost) {
-    return trimTrailingSlash(url.pathname) === MODELS_PATHNAME;
-  }
-  return false;
+function isModelsUrl(url: URL): boolean {
+  return url.hostname === MODELS_HOSTNAME && trimTrailingSlash(url.pathname) === MODELS_PATHNAME;
 }
 
 function trimTrailingSlash(pathname: string): string {
