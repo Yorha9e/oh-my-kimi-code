@@ -19,15 +19,26 @@ const MODELS_HOSTNAME = 'api.cursor.com';
 const MODELS_PATHNAME = '/v1/models';
 
 /**
- * Runtime model id for Cursor "Auto" — the only id the free tier reliably
- * accepts. Always present in the synthetic models list.
+ * Runtime model id for Cursor "Auto" — the fallback id every tier resolves
+ * server-side (the free tier accepts no other Auto spelling). Always present
+ * in the synthetic models list.
  */
 export const DEFAULT_MODEL_ID = 'default';
 
 /**
- * Default model id list advertised by the synthetic models response. The
- * free tier resolves `default` (Auto) server-side, so it is the only entry
- * that can be assumed to work.
+ * Upstream model id for Cursor "Auto" on Team/Pro accounts, served by the
+ * real model-list projection. Pass-through only: it must never be
+ * synthesized into the fallback list, because a made-up `auto-smart` has no
+ * real backend behind it.
+ */
+const AUTO_SMART_MODEL_ID = 'auto-smart';
+
+/**
+ * Default model id list advertised by the synthetic models response — the
+ * last-resort fallback when no upstream list is available. It contains only
+ * `default` (Auto), the one id the free tier reliably resolves;
+ * `auto-smart` is deliberately absent because only genuine upstream data may
+ * introduce it.
  */
 export const DEFAULT_CURSOR_MODELS: readonly string[] = [DEFAULT_MODEL_ID];
 
@@ -50,7 +61,8 @@ export interface CursorAuthShimOptions {
   getToken: () => string | Promise<string>;
   /**
    * Model ids advertised by the synthetic fallback response. `default` is
-   * always included, even when omitted here. Defaults to
+   * added only when the list contains no Auto id at all (`default` or
+   * `auto-smart`); an existing Auto entry is left untouched. Defaults to
    * {@link DEFAULT_CURSOR_MODELS}.
    */
   models?: readonly string[];
@@ -246,14 +258,29 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
-function displayNameFor(id: string): string {
-  return id === DEFAULT_MODEL_ID ? 'Auto' : id;
+/**
+ * Whether an id denotes Cursor's Auto model: the SDK/fallback `default` or
+ * the real upstream `auto-smart` (Team/Pro). The synthetic list only names
+ * ids, so this is the id-level criterion — upstream entries whose
+ * displayName or alias is "Auto" carry that name verbatim already.
+ */
+function isAutoModelId(id: string): boolean {
+  return id === DEFAULT_MODEL_ID || id === AUTO_SMART_MODEL_ID;
 }
 
-/** Ensure `default` is present and drop empty ids. */
+function displayNameFor(id: string): string {
+  return isAutoModelId(id) ? 'Auto' : id;
+}
+
+/**
+ * Drop empty ids and ensure a usable Auto id is present. `default` is
+ * invented ONLY when the list has no Auto id at all — an existing
+ * `auto-smart` already satisfies the fallback, and fabricating `default`
+ * beside a real Auto entry would mislabel the validated model list.
+ */
 function normalizeModels(models: readonly string[] | undefined): readonly string[] {
   const list = (models ?? DEFAULT_CURSOR_MODELS).filter((id) => id.length > 0);
-  if (!list.includes(DEFAULT_MODEL_ID)) {
+  if (!list.some(isAutoModelId)) {
     list.unshift(DEFAULT_MODEL_ID);
   }
   return list;

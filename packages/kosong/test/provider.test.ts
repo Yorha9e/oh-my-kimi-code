@@ -1,5 +1,11 @@
 import type { StreamedMessagePart, TextPart } from '#/message';
 import { CursorChatProvider } from '#/providers/cursor';
+import {
+  DEFAULT_CURSOR_MODELS,
+  DEFAULT_MODEL_ID,
+  installCursorAuthShim,
+  type CursorModelListEntry,
+} from '#/providers/cursor-auth-shim';
 import { MockChatProvider } from './fixtures/mock-provider';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -329,5 +335,55 @@ describe('CursorChatProvider', () => {
         { id: 'thinking', value: 'false' },
       ],
     });
+  });
+});
+
+describe('cursor auth shim synthetic model list', () => {
+  /**
+   * Install the shim with the given synthetic ids and read the ids it
+   * advertises through the intercepted `/v1/models` response.
+   */
+  async function advertisedModels(
+    models: readonly string[] | undefined,
+  ): Promise<CursorModelListEntry[]> {
+    const handle = installCursorAuthShim({ getToken: async () => 'test-token', models });
+    try {
+      const response = await fetch('https://api.cursor.com/v1/models');
+      const body = (await response.json()) as { items: CursorModelListEntry[] };
+      return body.items;
+    } finally {
+      handle.uninstall();
+    }
+  }
+
+  it('keeps a real auto-smart entry without inventing default', async () => {
+    await expect(advertisedModels(['auto-smart', 'gpt-4o'])).resolves.toEqual([
+      { id: 'auto-smart', displayName: 'Auto' },
+      { id: 'gpt-4o', displayName: 'gpt-4o' },
+    ]);
+  });
+
+  it('injects default only when the list has no Auto id at all', async () => {
+    await expect(advertisedModels(['gpt-4o'])).resolves.toEqual([
+      { id: 'default', displayName: 'Auto' },
+      { id: 'gpt-4o', displayName: 'gpt-4o' },
+    ]);
+  });
+
+  it('keeps a list that already contains default unchanged', async () => {
+    await expect(advertisedModels(['default'])).resolves.toEqual([
+      { id: 'default', displayName: 'Auto' },
+    ]);
+  });
+
+  it('labels auto-smart as Auto in the advertised display name', async () => {
+    await expect(advertisedModels(['auto-smart'])).resolves.toEqual([
+      { id: 'auto-smart', displayName: 'Auto' },
+    ]);
+  });
+
+  it('keeps the synthetic fallback list to default only, without auto-smart', async () => {
+    expect(DEFAULT_CURSOR_MODELS).toEqual([DEFAULT_MODEL_ID]);
+    expect(DEFAULT_CURSOR_MODELS).not.toContain('auto-smart');
   });
 });

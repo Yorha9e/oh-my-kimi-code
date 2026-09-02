@@ -97,8 +97,10 @@ let pinnedBackendUrl: string | undefined;
 export interface CursorOptions {
   /**
    * Runtime model id sent to Cursor. Defaults to {@link DEFAULT_MODEL_ID}
-   * ("default" — Auto), the only id the free tier reliably accepts:
-   * "auto" / "auto-smart" are display aliases that run validation rejects.
+   * ("default" — Auto), the fallback id every tier resolves: the free tier
+   * accepts no other Auto spelling, and Team/Pro accounts additionally
+   * expose the upstream `auto-smart` id whenever one is requested
+   * explicitly.
    */
   model?: string;
   /** Working directory for the local Cursor agent. Defaults to `process.cwd()`. */
