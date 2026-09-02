@@ -1,4 +1,5 @@
 import type { StreamedMessagePart, TextPart } from '#/message';
+import { CursorChatProvider } from '#/providers/cursor';
 import { MockChatProvider } from './fixtures/mock-provider';
 import { describe, it, expect } from 'vitest';
 
@@ -99,5 +100,17 @@ describe('MockChatProvider', () => {
     }
     expect(stream.finishReason).toBe('truncated');
     expect(stream.rawFinishReason).toBe('length');
+  });
+});
+
+describe('CursorChatProvider', () => {
+  it('keeps configured modelParams in the wire selection without a thinking effort', async () => {
+    const provider = new CursorChatProvider({ model: 'gpt-4o', modelParams: { fast: 'true' } });
+    // `_thinkingEffort` stays null — `withThinking` is never called — so the
+    // early exit must still merge the configured params into the selection.
+    const selection = await (provider as unknown as {
+      resolveWireModel(): Promise<{ id: string; params?: Array<{ id: string; value: string }> }>;
+    }).resolveWireModel();
+    expect(selection).toEqual({ id: 'gpt-4o', params: [{ id: 'fast', value: 'true' }] });
   });
 });

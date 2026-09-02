@@ -718,7 +718,7 @@ export class CursorChatProvider implements ChatProvider {
   private async resolveWireModel(): Promise<SdkModelSelection> {
     const effort = this._thinkingEffort;
     if (effort === null || effort === 'off' || effort === 'on') {
-      return { id: this._model };
+      return mergeModelParams({ id: this._model }, this._modelParams);
     }
     const cursorEffort = EFFORT_VALUE_BY_KOSONG[effort] ?? effort;
     const catalog = await this.ensureModelCatalog().catch(() => undefined);
