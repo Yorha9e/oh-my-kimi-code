@@ -73,6 +73,41 @@ cursor 协议 provider 只负责"讲 Cursor 原生协议"（AgentService/Run bid
 - **T5 接线**：`index.ts` 三处 + config.toml cursor 段（enabled / workspace cwd / model 映射 / token 来源=sqlite|shim 预留）。
 - **T6 验收五项**：①免费号流式对话出文本；②工具闭环（≥bash/read/edit 一个，同会话回写、任务完成）；③手工换过期 token 能自动刷新；④其他 provider 不受影响（跑 kosong 现有测试 + 冒烟 openai）；⑤401/429/shouldLogout 错误清晰呈现不静默。
 
+## 4.5 token 供给三层定稿（2026-09-01）
+
+不往 kimi-code 里造 OAuth 子系统；token 获取按上游模式分层，`CursorTokenStore` 接口是唯一接缝：
+
+| 模式 | token 来源 | 我们要写的代码 |
+|---|---|---|
+| 直连（现在，默认） | IDE SQLite 寄生（`state.vscdb` → `cursorAuth/accessToken`）+ refreshToken 重放官方刷新端点（单飞锁、shouldLogout 停用）——**不是 OAuth，是 50 行重放** | 已完成（T2），不动 |
+| 直连（无 IDE 的用户） | `tokenSource = "sdk"`：SDK 自带 `Cursor.auth.login()` 浏览器流程 + `~/.cursor/sdk/auth.json` 托管，刷新/存储全归 SDK；真 crsr_ 系 key 走原生 exchange，**连 auth shim 都不用装** | 一个小 store + 配置选择器（待做） |
+| 网关（主航线） | 网关全权管理（账号池/刷新/停用），kimi-code 只持网关 apiKey，无 OAuth 概念 | 零（exchange 放行已实现） |
+
+纪律：给 cursor 做"正式登录体验"时复用 SDK 的 OAuth 机制，**不复刻 packages/oauth**（那是 kimi 官方账号的托管体系）；网关模式下 IDE token 不参与。
+
+### 4.6.1 参数面三问答（2026-09-01 实测）
+
+| 参数 | 结论 | 依据 |
+|---|---|---|
+| maxOutputToken 透传 | **放弃**。SDK 无独立 maxTokens 字段，唯一机制是 ModelSelection.params，而 `default`(Auto) 无任何 parameters/variants 定义，传了没入口；输出长度服务端自管 | GetUsableModels 实测（206 模型，Auto 条目无参数面） |
+| effort | **对 Auto 不存在**（服务端自决）。named 模型的 effort 编码在 **模型 id 后缀**（`-low/-medium/-high/-xhigh` × 可选 `-fast`，部分带 `-thinking-`）| GetUsableModels 全列表形态 + CLI `[effort=high]` 语法 |
+| image_in / video_in | **均不生效**：`buildFreshPrompt` 只抽文本，图片 part 被静默丢弃；v2 capability=UNKNOWN 不开放多模态路由；uploadVideo 未实现（明确报不支持）。SDK 层支持图片（`SDKUserMessage.images`），**image 支持是几行的小尾巴，video SDK 侧无对应能力，放弃** | cursor.ts buildFreshPrompt + options.d.ts |
+
+### 4.6.2 named 模型 effort 映射设计（2026-09-01 实测定稿）
+
+**关键实测：参数 id 是 `reasoning`，不是 `effort`。** `effort` 只是 CLI 括号语法的别名；线上参数化模型的 `parameters[].id` 为 `reasoning`，值集 `low / medium / high / extra-high`（`gpt-5.1` 无 extra-high），部分模型另有 `fast`（true/false）参数。带参数化定义的实测有 4 个（`gpt-5.3-codex`、`gpt-5.2`、`composer-2.5`、`gpt-5.1`），9 个带 variants，variant 形如 `gpt-5.2[reasoning=high,fast=true]`。
+
+映射策略（provider `resolveWireModel`）：
+1. config 写**基础名**；catalog 条目含 `reasoning` 参数且值集匹配 → 结构化 `{id: 基础名, params: [{id:'reasoning', value}]}`（走 run 请求的 `model_params`）
+2. 无参数定义但有**后缀变体** → 解析 `基础名-effort` / `基础名-thinking-effort`
+3. 都没有 → 原样用基础名（服务端自决）
+4. `xhigh` → `extra-high`（kosong 与 Cursor 词汇对齐）；`off`/`on` 一律不加旋钮
+5. 值集不含该 effort 时**回落基础名**，不发送会被拒的值
+
+数据来源：provider 内建 catalog 缓存（5 分钟，单飞），网关模式经网关投影拿池 entitlement，直连模式带 IDE JWT 直打官方。
+
+**验收现状（免费号）**：named 模型一律停在第 1 步之后的 entitlement 拒绝（"Free plans can only use Auto"）——即客户端校验已全通、结构化参数成立，`reasoning` 值集匹配正确（含 extra-high 映射）。真实效果待 Pro 号。
+
 ## 5. 风险与纪律
 
 - **ToS 灰色**：指纹与官方 SDK 1:1，禁额外花哨头；仅本机内网自用。
