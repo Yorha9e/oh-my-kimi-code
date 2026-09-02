@@ -81,16 +81,6 @@ const OFFICIAL_BACKEND_URL = 'https://api2.cursor.sh';
 const MODEL_CATALOG_TTL_MS = 5 * 60_000;
 
 /**
- * Cursor's thinking-effort model parameter id. Not `effort` — that is only
- * the CLI bracket-alias; the wire parameter (and the catalog's own
- * declaration) is `reasoning`.
- */
-const EFFORT_PARAMETER_ID = 'reasoning';
-
-/** kosong thinking-effort → Cursor parameter value. */
-const EFFORT_VALUE_BY_KOSONG: Readonly<Record<string, string>> = { xhigh: 'extra-high' };
-
-/**
  * Value handed to the SDK as `apiKey`. The auth shim answers the SDK's
  * `exchange_user_api_key` call with the token-store JWT, so this value is
  * never used for a real request — it only satisfies the SDK's non-empty key
@@ -311,6 +301,49 @@ function mergeModelParams(
     }
   }
   return { ...selection, params };
+}
+
+/**
+ * One raw `AvailableModels` parameter definition as the gateway serves it:
+ * the proto-JSON of `ModelParameterDefinition`, whose value set is nested
+ * under `parameterType.enumParameter.values` (or `booleanParameter.values`)
+ * — there is no top-level `values` on the wire. The flat form is tolerated
+ * for robustness.
+ */
+type WireModelParameter = {
+  id?: string;
+  name?: string;
+  values?: Array<{ value?: string; displayName?: string }>;
+  parameterType?: {
+    enumParameter?: { values?: Array<{ value?: string; displayName?: string }> };
+    booleanParameter?: { values?: Array<{ value?: string; displayName?: string }> };
+  };
+};
+
+/**
+ * Flatten one wire parameter definition onto the local catalog shape so
+ * effort resolution sees the declared value set on `values`.
+ */
+function flattenParameterDefinition(
+  parameter: WireModelParameter,
+): NonNullable<ModelCatalogEntry['parameters']>[number] | undefined {
+  if (parameter.id === undefined) {
+    return undefined;
+  }
+  const values =
+    parameter.parameterType?.enumParameter?.values ??
+    parameter.parameterType?.booleanParameter?.values ??
+    parameter.values;
+  return {
+    id: parameter.id,
+    displayName: parameter.name,
+    values:
+      values === undefined
+        ? undefined
+        : values.flatMap(({ value, displayName }) =>
+            value === undefined ? [] : [{ value, displayName }],
+          ),
+  };
 }
 
 /** Normalize a `tool_use` block's `input` into the JSON-arguments string. */
@@ -678,7 +711,7 @@ export class CursorChatProvider implements ChatProvider {
     const body = (await response.json()) as {
       models?: Array<{
         name?: string;
-        parameterDefinitions?: ModelCatalogEntry['parameters'];
+        parameterDefinitions?: WireModelParameter[];
         variants?: ModelCatalogEntry['variants'];
       }>;
     };
@@ -687,7 +720,10 @@ export class CursorChatProvider implements ChatProvider {
         ? [
             {
               id: model.name,
-              parameters: model.parameterDefinitions,
+              parameters: model.parameterDefinitions?.flatMap((parameter) => {
+                const flattened = flattenParameterDefinition(parameter);
+                return flattened === undefined ? [] : [flattened];
+              }),
               variants: model.variants,
             },
           ]
@@ -699,53 +735,51 @@ export class CursorChatProvider implements ChatProvider {
   }
 
   /**
-   * Cursor's thinking-effort knob is a MODEL PARAMETER named `reasoning`
-   * (values low/medium/high/extra-high per the catalog, not the CLI's
-   * `[effort=…]` alias), sent as `ModelSelection.params` and carried to the
-   * backend by the run request's `model_params` field. Resolution order,
-   * server data first:
+   * Cursor's thinking-effort knob is a MODEL PARAMETER the catalog declares
+   * under either id — `effort` (most models) or `reasoning` (GPT models) —
+   * sent as `ModelSelection.params` and carried to the backend by the run
+   * request's `model_params` field. Resolution:
    *
-   * 1. the catalog entry advertises a `reasoning` parameter whose value set
-   *    contains the mapped effort → structured `{id, params}` selection;
-   * 2. the catalog lists a suffixed variant id (`base-effort` or
-   *    `base-thinking-effort`) → use that id directly;
-   * 3. otherwise (and always for `off`/`on`, which mean "server default") the
+   * 1. the catalog entry advertises the effort knob (id `effort` or
+   *    `reasoning`) whose value set contains the effort → structured
+   *    `{id, params}` selection, plus `thinking=true` when the model also
+   *    declares the boolean `thinking` parameter;
+   * 2. otherwise (and always for `off`/`on`, which mean "server default") the
    *    configured id is used as-is.
    *
-   * `xhigh` maps to Cursor's `extra-high`; unmappable efforts fall back to
-   * the configured id rather than sending a value the catalog rejects.
+   * `xhigh` maps to `extra-high` only on the `reasoning` knob (whose catalog
+   * value set has no `xhigh`); the `effort` knob declares `xhigh` natively
+   * and gets it verbatim. Values outside the declared set fall back to the
+   * configured id rather than sending a value the catalog rejects.
    */
   private async resolveWireModel(): Promise<SdkModelSelection> {
     const effort = this._thinkingEffort;
     if (effort === null || effort === 'off' || effort === 'on') {
       return mergeModelParams({ id: this._model }, this._modelParams);
     }
-    const cursorEffort = EFFORT_VALUE_BY_KOSONG[effort] ?? effort;
     const catalog = await this.ensureModelCatalog().catch(() => undefined);
     const entry = catalog?.find(
       (model) => model.id === this._model || model.aliases?.includes(this._model),
     );
-    // Layer 1: structured parameter (when the catalog advertises it and the
-    // value is in range). Layer 2 (below): suffixed variant id.
+    // Structured parameter resolution. The effort knob id is not fixed — the
+    // catalog declares `effort` or `reasoning` per model — so find whichever
+    // the model actually advertises and reuse its id for the sent param.
+    const effortParam = entry?.parameters?.find(
+      (parameter) => parameter.id === 'effort' || parameter.id === 'reasoning',
+    );
     let selection: SdkModelSelection = { id: this._model };
-    const effortParam = entry?.parameters?.find((parameter) => parameter.id === EFFORT_PARAMETER_ID);
-    if (
-      effortParam !== undefined &&
-      (effortParam.values === undefined ||
-        effortParam.values.some((value) => value.value === cursorEffort))
-    ) {
-      selection = { id: this._model, params: [{ id: EFFORT_PARAMETER_ID, value: cursorEffort }] };
-    } else {
-      const candidates = [
-        `${this._model}-${cursorEffort}`,
-        `${this._model}-${effort}`,
-        `${this._model}-thinking-${cursorEffort}`,
-      ];
-      const hit = candidates.find((candidate) =>
-        catalog?.some((model) => model.id === candidate || model.aliases?.includes(candidate)),
-      );
-      if (hit !== undefined) {
-        selection = { id: hit };
+    if (effortParam !== undefined) {
+      const cursorEffort =
+        effortParam.id === 'reasoning' && effort === 'xhigh' ? 'extra-high' : effort;
+      if (
+        effortParam.values !== undefined &&
+        effortParam.values.some((value) => value.value === cursorEffort)
+      ) {
+        const params = [{ id: effortParam.id, value: cursorEffort }];
+        if (entry?.parameters?.some((parameter) => parameter.id === 'thinking')) {
+          params.push({ id: 'thinking', value: 'true' });
+        }
+        selection = { id: this._model, params };
       }
     }
     return mergeModelParams(selection, this._modelParams);

@@ -1,7 +1,7 @@
 import type { StreamedMessagePart, TextPart } from '#/message';
 import { CursorChatProvider } from '#/providers/cursor';
 import { MockChatProvider } from './fixtures/mock-provider';
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 describe('MockChatProvider', () => {
   it('streams predefined parts', async () => {
@@ -112,5 +112,222 @@ describe('CursorChatProvider', () => {
       resolveWireModel(): Promise<{ id: string; params?: Array<{ id: string; value: string }> }>;
     }).resolveWireModel();
     expect(selection).toEqual({ id: 'gpt-4o', params: [{ id: 'fast', value: 'true' }] });
+  });
+
+  // Fixed catalog entries mirroring the real AvailableModels proto-JSON:
+  // value sets nest under `parameterType.enumParameter.values` /
+  // `booleanParameter.values` — there is no top-level `values` on the wire.
+  // `claude-fable-5-1` deliberately places `effort` THIRD so a positional
+  // lookup would hit the boolean `thinking` parameter instead.
+  const catalog = [
+    {
+      name: 'grok-4.6',
+      parameterDefinitions: [
+        {
+          id: 'effort',
+          name: 'Effort',
+          parameterType: {
+            enumParameter: {
+              values: [
+                { value: 'low' },
+                { value: 'medium' },
+                { value: 'high' },
+                { value: 'xhigh' },
+              ],
+            },
+          },
+        },
+        {
+          id: 'fast',
+          parameterType: {
+            booleanParameter: { values: [{ value: 'false' }, { value: 'true' }] },
+          },
+        },
+      ],
+    },
+    {
+      name: 'gpt-5.2',
+      parameterDefinitions: [
+        {
+          id: 'reasoning',
+          name: 'Reasoning',
+          parameterType: {
+            enumParameter: {
+              values: [
+                { value: 'low' },
+                { value: 'medium' },
+                { value: 'high' },
+                { value: 'extra-high' },
+              ],
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: 'claude-fable-5-1',
+      parameterDefinitions: [
+        {
+          id: 'thinking',
+          parameterType: {
+            booleanParameter: { values: [{ value: 'false' }, { value: 'true' }] },
+          },
+        },
+        {
+          id: 'context',
+          parameterType: {
+            enumParameter: { values: [{ value: '300k' }, { value: '1m' }] },
+          },
+        },
+        {
+          id: 'effort',
+          name: 'Effort',
+          parameterType: {
+            enumParameter: {
+              values: [
+                { value: 'low' },
+                { value: 'medium' },
+                { value: 'high' },
+                { value: 'xhigh' },
+                { value: 'max' },
+              ],
+            },
+          },
+        },
+        {
+          id: 'fast',
+          parameterType: {
+            booleanParameter: { values: [{ value: 'false' }, { value: 'true' }] },
+          },
+        },
+      ],
+    },
+    {
+      name: 'claude-opus-5',
+      parameterDefinitions: [
+        {
+          id: 'thinking',
+          parameterType: {
+            booleanParameter: { values: [{ value: 'false' }, { value: 'true' }] },
+          },
+        },
+        {
+          id: 'context',
+          parameterType: {
+            enumParameter: { values: [{ value: '300k' }, { value: '1m' }] },
+          },
+        },
+        {
+          id: 'effort',
+          name: 'Effort',
+          parameterType: {
+            enumParameter: {
+              values: [
+                { value: 'low' },
+                { value: 'medium' },
+                { value: 'high' },
+                { value: 'xhigh' },
+                { value: 'max' },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Serve the fixed catalog for the provider's AvailableModels fetch. */
+  function stubCatalog(): void {
+    vi.stubGlobal(
+      'fetch',
+      async () => new Response(JSON.stringify({ models: catalog }), { status: 200 }),
+    );
+  }
+
+  /** Resolve the wire model for the given effort against the stubbed catalog. */
+  async function resolveWireModel(provider: CursorChatProvider, effort: string) {
+    const wire = provider.withThinking(effort) as unknown as {
+      resolveWireModel(): Promise<{ id: string; params?: Array<{ id: string; value: string }> }>;
+    };
+    return wire.resolveWireModel();
+  }
+
+  it('resolves grok-4.6 effort by parameter id and sends no thinking', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({ model: 'grok-4.6', apiKey: 'test-key' });
+    await expect(resolveWireModel(provider, 'high')).resolves.toEqual({
+      id: 'grok-4.6',
+      params: [{ id: 'effort', value: 'high' }],
+    });
+  });
+
+  it('sends grok-4.6 xhigh verbatim without mapping it to extra-high', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({ model: 'grok-4.6', apiKey: 'test-key' });
+    await expect(resolveWireModel(provider, 'xhigh')).resolves.toEqual({
+      id: 'grok-4.6',
+      params: [{ id: 'effort', value: 'xhigh' }],
+    });
+  });
+
+  it('maps gpt-5.2 xhigh to the reasoning value extra-high', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({ model: 'gpt-5.2', apiKey: 'test-key' });
+    await expect(resolveWireModel(provider, 'xhigh')).resolves.toEqual({
+      id: 'gpt-5.2',
+      params: [{ id: 'reasoning', value: 'extra-high' }],
+    });
+  });
+
+  it('finds the effort parameter declared third on claude-fable-5-1', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({ model: 'claude-fable-5-1', apiKey: 'test-key' });
+    await expect(resolveWireModel(provider, 'high')).resolves.toEqual({
+      id: 'claude-fable-5-1',
+      params: [
+        { id: 'effort', value: 'high' },
+        { id: 'thinking', value: 'true' },
+      ],
+    });
+  });
+
+  it('falls back to the bare id when the effort is outside the declared values', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({ model: 'grok-4.6', apiKey: 'test-key' });
+    // grok-4.6 declares low|medium|high|xhigh — `max` is not in range, so the
+    // wire selection must NOT carry an effort param the catalog rejects.
+    await expect(resolveWireModel(provider, 'max')).resolves.toEqual({ id: 'grok-4.6' });
+  });
+
+  it('attaches thinking=true when the model declares the parameter', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({ model: 'claude-opus-5', apiKey: 'test-key' });
+    await expect(resolveWireModel(provider, 'high')).resolves.toEqual({
+      id: 'claude-opus-5',
+      params: [
+        { id: 'effort', value: 'high' },
+        { id: 'thinking', value: 'true' },
+      ],
+    });
+  });
+
+  it('lets modelParams override the resolved thinking value', async () => {
+    stubCatalog();
+    const provider = new CursorChatProvider({
+      model: 'claude-opus-5',
+      apiKey: 'test-key',
+      modelParams: { thinking: 'false' },
+    });
+    await expect(resolveWireModel(provider, 'high')).resolves.toEqual({
+      id: 'claude-opus-5',
+      params: [
+        { id: 'effort', value: 'high' },
+        { id: 'thinking', value: 'false' },
+      ],
+    });
   });
 });
