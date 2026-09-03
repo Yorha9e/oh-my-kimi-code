@@ -23,6 +23,10 @@
 | 文档 | 内容 |
 |---|---|
 | [engine-integration-audit](engine-integration-audit.md) | 嵌合审查清单：P0/P1/P2 打磨项 + S1–S8 嵌合面接缝（随接线推进持续更新） |
+| [proto-schema-map](proto-schema-map.md) | **自建客户端字段权威依据**：AgentClientMessage/AgentRunRequest/RequestedModel/ConversationStateStructure 完整字段 + exec 通道 42 种工具 args/result + 错误形态汇总（SDK bundle 官方生成代码提取，探针实测验证） |
+| [exploration-api-client-feasibility](exploration-api-client-feasibility.md) | 自建纯 API 客户端可行性评估（四项前提实证 + 与网关两轮 handoff 交叉验证） |
+| [exploration-rules-injection](exploration-rules-injection.md) | S1 规则文件注入方向探索（可行但侵入用户仓库） |
+| [verification-log](verification-log.md) | 真机验证记录：探针①②③全部通过（协议→oneof→权威首帧） |
 | [stateless-contract-mismatch](stateless-contract-mismatch.md) | engine 无状态契约 vs cursor 有状态会话的错配分析、「全量重建窗口」方案、官方 SDK 文档 14 项定性结论 |
 
 ## 约定
