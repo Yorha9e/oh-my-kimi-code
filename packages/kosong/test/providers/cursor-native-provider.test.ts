@@ -133,7 +133,7 @@ describe('text streaming and first frame', () => {
       ]);
     });
     const onRequestSent = vi.fn();
-    const provider = new CursorNativeChatProvider({ model: 'model-a', apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ model: 'model-a', apiKey: 'tok', fetchImpl, transport: 'undici' });
     const stream = await provider.generate('sys', [], history(), { onRequestSent });
     expect(stream).toBeInstanceOf(CursorNativeStreamedMessage);
     expect(typeof stream.id).toBe('string');
@@ -162,7 +162,7 @@ describe('text streaming and first frame', () => {
         trailerFrame({}),
       ]),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const stream = await provider.generate('', [], history());
     expect(await drain(stream)).toEqual([
       { type: 'think', think: 'hmm' },
@@ -176,7 +176,7 @@ describe('text streaming and first frame', () => {
       seenHeaders = init?.headers as Record<string, string>;
       return trailerFrame({});
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'ctor-token', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'ctor-token', fetchImpl, transport: 'undici' });
     await drain(await provider.generate('', [], history(), { auth: { apiKey: 'req-token' } }));
     expect(seenHeaders?.['authorization']).toBe('Bearer req-token');
   });
@@ -205,7 +205,7 @@ describe('turnEnded usage', () => {
         trailerFrame({}),
       ]),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const stream = await provider.generate('', [], history());
     await drain(stream);
     expect(stream.usage).toEqual({
@@ -228,7 +228,7 @@ describe('turnEnded usage', () => {
         trailerFrame({}),
       ]),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const stream = await provider.generate('', [], history());
     const parts = await drain(stream);
     expect(parts).toEqual([{ type: 'text', text: 'hi' }]);
@@ -266,7 +266,7 @@ describe('exec tool loop', () => {
       ]);
     });
     const executor = okExecutor('tool output');
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, toolExecutor: executor });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', toolExecutor: executor });
     const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
     const parts = await drain(stream);
     expect(executor).toHaveBeenCalledTimes(2);
@@ -311,6 +311,7 @@ describe('exec tool loop', () => {
     const provider = new CursorNativeChatProvider({
       apiKey: 'tok',
       fetchImpl,
+      transport: 'undici',
       toolExecutor: executor,
       toolNameMap: { shell: 'CustomShell' },
     });
@@ -329,7 +330,7 @@ describe('exec tool loop', () => {
         trailerFrame({}),
       ]),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const parts = await drain(await provider.generate('', [], history()));
     expect(parts).toEqual([{ type: 'function', id: 'call-1', name: 'read', arguments: '{"path":"a.txt"}' }]);
   });
@@ -348,7 +349,7 @@ describe('exec tool loop', () => {
       ]),
     );
     const executor = okExecutor('out');
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, toolExecutor: executor });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', toolExecutor: executor });
     const parts = await drain(await provider.generate('', [], history()));
     expect(executor).toHaveBeenCalledTimes(1);
     expect(parts).toEqual([{ type: 'text', text: 'done' }]);
@@ -368,7 +369,7 @@ describe('permission denial seam', () => {
     const denying: HostToolExecutor = vi.fn(async () => {
       throw new ExecPermissionDeniedError('denied by policy');
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, toolExecutor: denying });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', toolExecutor: denying });
     const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
     const parts = await drain(stream);
     expect(denying).toHaveBeenCalledTimes(2);
@@ -386,7 +387,7 @@ describe('trailer errors', () => {
     const fetchImpl = stubFetch(() =>
       trailerFrame({ error: { code: 'invalid_argument', message: 'First message must be a run request' } }),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const failure = await drain(await provider.generate('', [], history())).then(
       () => null,
       (error: unknown) => error,
@@ -402,7 +403,7 @@ describe('trailer errors', () => {
         error: { code: 'not_found', debug: { error: 'ERROR_BAD_MODEL_NAME', title: 'Model not found' } },
       }),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const failure = await drain(await provider.generate('', [], history())).then(
       () => null,
       (error: unknown) => error,
@@ -422,7 +423,7 @@ describe('trailer errors', () => {
         },
       }),
     );
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     const failure = await drain(await provider.generate('', [], history())).then(
       () => null,
       (error: unknown) => error,
@@ -451,7 +452,35 @@ describe('retry gate', () => {
         ? resourceExhaustedTrailer()
         : concatBytes([dataFrame({ interactionUpdate: { textDelta: { text: 'recovered' } } }), trailerFrame({})]);
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, maxRetries: 1 });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', maxRetries: 1 });
+    const parts = await drain(await provider.generate('', [], history()));
+    expect(parts).toEqual([{ type: 'text', text: 'recovered' }]);
+    expect(calls).toBe(2);
+  });
+
+  it('retries a nested details.debug.details.isRetryable:true trailer and succeeds on retry', async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(() => {
+      calls += 1;
+      return calls === 1
+        ? trailerFrame({
+            error: {
+              code: 'resource_exhausted',
+              details: [
+                {
+                  type: 'aiserver.v1.ErrorDetails',
+                  debug: {
+                    error: 'ERROR_HIGH_LOAD',
+                    details: { title: 'High Load', isRetryable: true },
+                    isExpected: true,
+                  },
+                },
+              ],
+            },
+          })
+        : concatBytes([dataFrame({ interactionUpdate: { textDelta: { text: 'recovered' } } }), trailerFrame({})]);
+    });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', maxRetries: 1 });
     const parts = await drain(await provider.generate('', [], history()));
     expect(parts).toEqual([{ type: 'text', text: 'recovered' }]);
     expect(calls).toBe(2);
@@ -469,7 +498,7 @@ describe('retry gate', () => {
         },
       });
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, maxRetries: 3 });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', maxRetries: 3 });
     const failure = await drain(await provider.generate('', [], history())).then(
       () => null,
       (error: unknown) => error,
@@ -485,7 +514,7 @@ describe('retry gate', () => {
       calls += 1;
       return resourceExhaustedTrailer();
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
     await expect(drain(await provider.generate('', [], history()))).rejects.toBeInstanceOf(CursorResourceError);
     expect(calls).toBe(1);
   });
@@ -496,7 +525,7 @@ describe('retry gate', () => {
       calls += 1;
       return trailerFrame({ error: { code: 'invalid_argument', message: 'bad frame' } });
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, maxRetries: 3 });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', maxRetries: 3 });
     await expect(drain(await provider.generate('', [], history()))).rejects.toBeInstanceOf(CursorProtocolError);
     expect(calls).toBe(1);
   });
@@ -516,7 +545,7 @@ describe('retry gate', () => {
         }),
       ]);
     });
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, maxRetries: 2 });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', maxRetries: 2 });
     await expect(drain(await provider.generate('', [], history()))).rejects.toBeInstanceOf(CursorResourceError);
     expect(calls).toBe(1);
   });
@@ -546,7 +575,7 @@ describe('retry gate', () => {
           ]);
     });
     const executor = okExecutor('out');
-    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, toolExecutor: executor, maxRetries: 1 });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici', toolExecutor: executor, maxRetries: 1 });
     const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
     const parts = await drain(stream);
     expect(parts).toEqual([{ type: 'text', text: 'ok' }]);
@@ -574,7 +603,7 @@ describe('withThinking', () => {
 
   it('clones without sharing thinking state and sends the effort as a model parameter', async () => {
     const capture = captureProvider();
-    const base = new CursorNativeChatProvider({ model: 'model-a', apiKey: 'tok', fetchImpl: capture.fetchImpl });
+    const base = new CursorNativeChatProvider({ model: 'model-a', apiKey: 'tok', fetchImpl: capture.fetchImpl, transport: 'undici' });
     const clone = base.withThinking('high');
     expect(clone).toBeInstanceOf(CursorNativeChatProvider);
     expect(clone).not.toBe(base);
@@ -596,6 +625,7 @@ describe('withThinking', () => {
       model: 'model-a',
       apiKey: 'tok',
       fetchImpl: capture.fetchImpl,
+      transport: 'undici',
       modelParams: { effort: 'low' },
     });
     await drain(await provider.withThinking('off').generate('', [], history()));
@@ -688,6 +718,7 @@ describe('full-duplex roundtrip over a real local server', () => {
           apiKey: 'tok',
           gatewayUrl: `http://127.0.0.1:${port}`,
           toolExecutor: okExecutor('duplex out'),
+          transport: 'undici',
         });
         const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
         const parts = await drain(stream);

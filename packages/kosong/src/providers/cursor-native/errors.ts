@@ -64,7 +64,8 @@ export class CursorModelError extends ChatProviderError {
 /**
  * Quota or pool failure (`resource_exhausted`, delivered as an EOS trailer on
  * HTTP 200). Retryable only when the trailer advertises `isRetryable: true`
- * (pool queue / High Load); quota errors arrive with `isRetryable: false` and
+ * (pool queue / High Load, read from `error.details[i].debug.details`
+ * with top-level fallbacks); quota errors arrive with `isRetryable: false` and
  * must not be retried. Defaults to false when the trailer omits the field.
  */
 export class CursorResourceError extends ChatProviderError {
@@ -105,16 +106,22 @@ export function classifyTrailerError(
     return new CursorProtocolError(String(rawError), { code: 'unknown' });
   }
   const err = rawError as Record<string, unknown>;
-  const detailEntry = firstDetailWithDebug(err['details']);
+  const details = asDetailsArray(err['details']);
+  const detailEntry = firstDetailWithDebug(details);
   const code = asString(err['code']) ?? asString(detailEntry?.['code']) ?? 'unknown';
   const debug = asRecord(err['debug']) ?? asRecord(detailEntry?.['debug']);
   const debugError = debug !== null ? asString(debug['error']) : null;
-  const title = (debug !== null ? asString(debug['title']) : null) ?? asString(err['title']);
+  const title =
+    (debug !== null ? asString(debug['title']) : null) ??
+    asString(err['title']) ??
+    firstNestedDetailsTitle(details);
   const message = asString(err['message']) ?? title ?? code;
   const isRetryable =
     asBoolean(err['isRetryable']) ??
     (debug !== null ? asBoolean(debug['isRetryable']) : undefined) ??
-    asBoolean(detailEntry?.['isRetryable']) ??
+    firstBooleanInDetails(details, (entry) => entry['isRetryable']) ??
+    firstBooleanInDetails(details, (entry) => asRecord(entry['debug'])?.['isRetryable']) ??
+    firstBooleanInDetails(details, (entry) => asRecord(asRecord(entry['debug'])?.['details'])?.['isRetryable']) ??
     false;
   const init: CursorErrorInit = { code, debugError, title, isRetryable };
   switch (code.toLowerCase()) {
@@ -141,10 +148,45 @@ function asBoolean(value: unknown): boolean | undefined {
  * `error.debug`), or `null` when no entry qualifies.
  */
 function firstDetailWithDebug(value: unknown): Record<string, unknown> | null {
-  if (!Array.isArray(value)) return null;
+  for (const entry of asDetailsArray(value)) {
+    if (asRecord(entry['debug']) !== null) return entry;
+  }
+  return null;
+}
+
+/** Coerce an unknown `details` value to its entry records (non-array → empty). */
+function asDetailsArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  const out: Record<string, unknown>[] = [];
   for (const entry of value) {
     const record = asRecord(entry);
-    if (record !== null && asRecord(record['debug']) !== null) return record;
+    if (record !== null) out.push(record);
+  }
+  return out;
+}
+
+/**
+ * First boolean found by `pick` across the `details` entries (the real
+ * gateway advertises retryability at
+ * `error.details[i].debug.details.isRetryable`); `undefined` when absent.
+ */
+function firstBooleanInDetails(
+  details: Record<string, unknown>[],
+  pick: (entry: Record<string, unknown>) => unknown,
+): boolean | undefined {
+  for (const entry of details) {
+    const found = asBoolean(pick(entry));
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** First `details[i].debug.details.title` string across the entries, if any. */
+function firstNestedDetailsTitle(details: Record<string, unknown>[]): string | null {
+  for (const entry of details) {
+    const nested = asRecord(asRecord(entry['debug'])?.['details']);
+    const title = nested !== null ? asString(nested['title']) : null;
+    if (title !== null) return title;
   }
   return null;
 }

@@ -33,7 +33,7 @@ export interface CursorNativeOptions {
   readonly toolNameMap?: Readonly<Record<string, string>>;
   readonly fetchImpl?: typeof fetch;
   readonly maxRetries?: number;
-  /** Run transport selection (`'auto'` = undici). Defaults to `'auto'`. */
+  /** Run transport selection (`'auto'` = http2; undici h1 bidi hangs on open request bodies). Defaults to `'auto'`. */
   readonly transport?: RunStreamTransport;
   readonly isPermissionDenied?: (error: unknown) => boolean;
   readonly isTimeout?: (error: unknown) => boolean;

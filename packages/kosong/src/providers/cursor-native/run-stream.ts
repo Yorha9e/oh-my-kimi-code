@@ -15,8 +15,11 @@ export const DEFAULT_CURSOR_GATEWAY_URL = 'https://127.0.0.1:51443';
 
 /**
  * Transport used by {@link openRunStream} for the `AgentService/Run` bidi
- * stream. `'auto'` resolves to the undici (fetch) transport; `'http2'` selects
- * the `node:http2` transport mirroring the official Cursor SDK.
+ * stream. `'auto'` resolves to the `node:http2` transport mirroring the
+ * official Cursor SDK: the real gateway never responds while an HTTP/1.1
+ * request body stays open, so the undici (fetch) half-duplex path hangs
+ * against it and Connect bidi requires HTTP/2. `'undici'` keeps the fetch
+ * path (and its `fetchImpl` test seam) for h1-compatible gateways.
  */
 export type RunStreamTransport = 'auto' | 'undici' | 'http2';
 
@@ -36,7 +39,7 @@ export interface OpenRunStreamOptions {
   requestId?: string;
   /** Fetch implementation override (test seam). Defaults to global fetch. */
   fetchImpl?: typeof fetch;
-  /** Transport selection. Defaults to `'auto'` (undici). */
+  /** Transport selection. Defaults to `'auto'` (http2). */
   transport?: RunStreamTransport;
 }
 
@@ -85,8 +88,8 @@ const ERROR_EXCERPT_BYTES = 500;
  */
 export function openRunStream(options: OpenRunStreamOptions): RunStreamHandle {
   const transport = options.transport ?? 'auto';
-  if (transport === 'http2') return openHttp2RunStream(options);
-  return openUndiciRunStream(options);
+  if (transport === 'undici') return openUndiciRunStream(options);
+  return openHttp2RunStream(options);
 }
 
 function runHeaders(token: string, requestId: string): Record<string, string> {
