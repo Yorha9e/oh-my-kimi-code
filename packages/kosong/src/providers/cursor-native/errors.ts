@@ -9,6 +9,12 @@ export interface CursorErrorInit {
   code?: string;
   debugError?: string | null;
   title?: string | null;
+  /**
+   * Trailer-advertised retryability. Only {@link CursorResourceError} honors
+   * it; protocol and model errors are never retryable. Defaults to false when
+   * absent.
+   */
+  isRetryable?: boolean;
 }
 
 /**
@@ -57,16 +63,19 @@ export class CursorModelError extends ChatProviderError {
 
 /**
  * Quota or pool failure (`resource_exhausted`, delivered as an EOS trailer on
- * HTTP 200). Retryable once capacity recovers.
+ * HTTP 200). Retryable only when the trailer advertises `isRetryable: true`
+ * (pool queue / High Load); quota errors arrive with `isRetryable: false` and
+ * must not be retried. Defaults to false when the trailer omits the field.
  */
 export class CursorResourceError extends ChatProviderError {
   readonly code: string;
   readonly debugError: string | null;
   readonly title: string | null;
-  readonly isRetryable: boolean = true;
+  readonly isRetryable: boolean;
 
   /**
-   * Create a resource error, preserving the upstream code and debug details.
+   * Create a resource error, preserving the upstream code, debug details, and
+   * trailer-advertised retryability (default false).
    */
   constructor(message: string, init?: CursorErrorInit) {
     super(message);
@@ -74,6 +83,7 @@ export class CursorResourceError extends ChatProviderError {
     this.code = init?.code ?? 'unknown';
     this.debugError = init?.debugError ?? null;
     this.title = init?.title ?? null;
+    this.isRetryable = init?.isRetryable ?? false;
   }
 }
 
@@ -95,12 +105,18 @@ export function classifyTrailerError(
     return new CursorProtocolError(String(rawError), { code: 'unknown' });
   }
   const err = rawError as Record<string, unknown>;
-  const code = asString(err['code']) ?? 'unknown';
-  const debug = asRecord(err['debug']);
+  const detailEntry = firstDetailWithDebug(err['details']);
+  const code = asString(err['code']) ?? asString(detailEntry?.['code']) ?? 'unknown';
+  const debug = asRecord(err['debug']) ?? asRecord(detailEntry?.['debug']);
   const debugError = debug !== null ? asString(debug['error']) : null;
   const title = (debug !== null ? asString(debug['title']) : null) ?? asString(err['title']);
   const message = asString(err['message']) ?? title ?? code;
-  const init: CursorErrorInit = { code, debugError, title };
+  const isRetryable =
+    asBoolean(err['isRetryable']) ??
+    (debug !== null ? asBoolean(debug['isRetryable']) : undefined) ??
+    asBoolean(detailEntry?.['isRetryable']) ??
+    false;
+  const init: CursorErrorInit = { code, debugError, title, isRetryable };
   switch (code.toLowerCase()) {
     case 'resource_exhausted':
       return new CursorResourceError(message, init);
@@ -113,6 +129,24 @@ export function classifyTrailerError(
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+/**
+ * Return the first `details` entry carrying a `debug` record (real-device
+ * quota/limit errors nest it at `error.details[0].debug` instead of
+ * `error.debug`), or `null` when no entry qualifies.
+ */
+function firstDetailWithDebug(value: unknown): Record<string, unknown> | null {
+  if (!Array.isArray(value)) return null;
+  for (const entry of value) {
+    const record = asRecord(entry);
+    if (record !== null && asRecord(record['debug']) !== null) return record;
+  }
+  return null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
