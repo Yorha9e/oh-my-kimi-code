@@ -99,7 +99,51 @@ EOS trailers: {"error":{"code":"resource_exhausted",…,
 
 **结论：自建纯 API 客户端路线验证通过**（探针 ① 关闭）。后续：真机账号就位后跑完整对话 → 工具循环 → 接入 ChatProvider。
 
-## 探针 ②：oneof 包装与字段名收敛（进行中 → 暂停待权威 schema）
+## 探针 ③：权威 schema 首帧（协议验证通过，2026-09-03）
+
+从 SDK bundle 提取到权威 proto 定义（结合网关 ho_ee8049ac0d45 的 wire 逆向），修正首帧：
+
+### 权威 schema（`agent.v1.*`，SDK bundle 官方字段名）
+
+```proto
+AgentClientMessage { oneof message { 1: runRequest, 2: execClientMessage, ... } }
+RequestedModel { 1: modelId(string), 3: parameters(repeated Param{id,value}), 7: builtInModel, 8: isVariantStringRepresentation }
+ConversationAction { oneof action { 1: userMessageAction } }
+UserMessageAction { 1: userMessage(UserMessage), 7: conversationHistory }
+UserMessage { 1: text, 2: messageId, 4: mode(enum), 8: richText }
+// ★ conversationState 的类型是 ConversationStateStructure（不是想当然的 Conversation）：
+ConversationStateStructure {
+  1: rootPromptMessagesJson (repeated bytes — blob),
+  8: turns (repeated bytes — 32B blob id，内容在 blob store),
+  5: tokenDetails (message: 当前 token 数 + 上限 + 分项预算 system_prompt/tools/rules/skills),
+  17: preFetchedBlobs (repeated PrefetchedBlob{id bytes, value bytes}) ← turn 内容经此携带
+}
+```
+
+**关键修正**：`turns` 是 blob id 列表而非 turn 对象——历史内容通过 `pre_fetched_blobs`（field 17）携带。错误信息直接指路：`cannot decode field agent.v1.ConversationStateStructure.turns from JSON: object`。
+
+### 迭代记录
+
+| 尝试 | 首帧 | 上游响应 | 判定 |
+|---|---|---|---|
+| ③ | + `conversationState.turns[]`（对象形态） | `invalid_argument: cannot decode …ConversationStateStructure.turns from JSON: object` | turns 不是对象列表 → blob 语义 |
+| ③b | 无 conversationState | `invalid_argument: Conversation state is required` | 字段必需 |
+| ③c | `conversationState: {}`（空结构） | **`resource_exhausted: ERROR_RESOURCE_EXHAUSTED / "High Load"`** | **协议+字段全部正确，进入服务端调度队列** |
+
+### 结论
+
+**探针 ①（协议）+ ③（字段）双双通过**。最小合法首帧：
+
+```json
+{"runRequest":{
+  "action":{"userMessageAction":{"userMessage":{"text":"…"}}},
+  "requestedModel":{"modelId":"default"},
+  "runId":"<uuid>",
+  "conversationState":{}
+}}
+```
+
+当前卡点仅为服务端 High Load（池排队），与协议无关。**下一步：工具循环实现（exec 通道结构）→ 接入 ChatProvider。** 历史续接需走 `preFetchedBlobs`（内容 blobs + turns id 列表），该结构已定位，细节在工具循环之后实验（DSH-④/自建④）。
 
 探针 ① 之后继续推进首帧字段形态，三次迭代拿到三个高价值错误信号：
 
