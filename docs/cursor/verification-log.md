@@ -221,3 +221,27 @@ canary 未命中（`N7 canary present in reply: false`）。但模型回复中�
 | 1024KB | ❌ 超时未返回 |
 
 → **全量 history 重建包不可行**：中型会话的历史轻松超过 256KB。重建方案若采用，只能用「压缩摘要 + 最近 N 轮」，不能用全量。
+
+## 探针 ④：完整对话尝试与真实首帧对照（2026-09-03）
+
+上游恢复后重试，连续两次 `ERROR_RESOURCE_EXHAUSTED / "High Load"`（不同账号轮转均同），仍未见到 text_delta。
+
+**同时完成了自建首帧与真实 CLI 首帧的逐字段对照**（从网关 dump 用 raw-walk 解码 165KB 首帧）：
+
+```text
+真实 CLI run_request 字段分布：
+  1  conversation_state = 空（长度 0）        ← 与我们 {} 一致 ✅
+  2  action = 25558B（user_message_action）
+  4  mcp_tools = 139KB                        ← CLI 声明整个 MCP 工具集；我们没有
+  5  conversation_id
+  9  requested_model
+  25 run_id
+  （无 field 13 harness —— 修正此前假设）
+```
+
+**结论**：
+1. 我们的首帧形态与真实客户端在协议上无差异（conversation_state 空 + action + requested_model + run_id）；
+2. 唯一缺的是 `mcp_tools`（field 4）——CLI 每次都声明工具表。High Load 是否与"无工具声明"的请求被丢入低优先级队列有关，待上游恢复后用带/不带 mcp_tools 各测一次即可分辨；
+3. harness 假设被否定（真实流量不带）。
+
+**探针 ④ 状态：挂起等上游池恢复**（探针脚本已就位，恢复后一跑即得 text_delta/turn_ended/usage）。
