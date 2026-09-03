@@ -340,6 +340,7 @@ const EXEC_ARG_FIELDS: Readonly<Record<string, Readonly<Record<string, ReadonlyA
     skipApproval: ['skipApproval', 'skip_approval'],
     serverIdentifier: ['serverIdentifier', 'server_identifier'],
   },
+  /** Best effort: the upstream FetchArgs shape is undocumented, confirm with the M4 live probe. */
   fetch: {
     url: ['url', 'uri', 'href'],
     toolCallId: ['toolCallId', 'tool_call_id'],
