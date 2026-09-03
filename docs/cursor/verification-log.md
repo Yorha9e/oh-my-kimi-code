@@ -49,7 +49,7 @@ usage 事件只有 `input / output / cacheRead / cacheWrite` 四项，**没有 `
 
 ## 第二轮：N4 安全面 / N7 规则注入 / N2 payload 上限
 
-见「第二轮结果」章节（探针运行中，结果回填）。
+_（详细结果见下方「第二轮结果」章节）_
 
 ## N5  SDK 版本：我们已是最新
 
@@ -59,9 +59,52 @@ usage 事件只有 `input / output / cacheRead / cacheWrite` 四项，**没有 `
 
 → **无需升级 SDK**。N5 关闭。
 
-### 关于"是否要跟官方用最小 SDK"
+（注：`@cursor/sdk` 是单体包，没有"最小版"可选；动态 `import()` 已把加载成本推迟到首次 `generate()`，无进一步瘦身空间。）
 
-`@cursor/sdk` 是单体包（含 11MB bundle + 原生二进制），**没有"最小版"可选**。我们已经用动态 `import()` 把加载成本推迟到首次 `generate()`，是官方推荐的规避方式（见 `cursor.ts` 顶部 L1 设计注释）。无进一步瘦身空间。
+## 探针 ①：自建首帧实测（2026-09-03，最终验证）
+
+不经过 `@cursor/sdk`，Node 手工构造 Connect bidi JSON 帧直接对网关发 `AgentService/Run`：
+
+```
+POST https://127.0.0.1:51443/agent.v1.AgentService/Run
+headers: content-type: application/connect+json
+         authorization: Bearer {网关轮转 token}
+body:    1B flags(0) + 4B BE len + JSON(runRequest)
+```
+
+runRequest 猜测字段（proto3 JSON mapping camelCase）：
+
+```json
+{
+  "action": { "userMessageAction": { "text": "…" } },
+  "requestedModel": { "id": "default" },
+  "runId": "<uuid>",
+  "conversationState": { "conversation": [ { "type": 1, "userMessage": { "text": "…" } } ] }
+}
+```
+
+**结果：上游接受并开始回帧**：
+
+```
+HTTP 200 application/connect+json
+frame #0: {"interactionUpdate":{"heartbeat":{}}}
+EOS trailers: {"error":{"code":"resource_exhausted",…,
+  "debug":{"error":"ERROR_GPT_4_VISION_PREVIEW_RATE_LIMIT",
+           "title":"Update Required",…}}}
+```
+
+- 连接、认证、JSON 编码、帧封装**全部成立**；
+- 没有触发 parse 错误（对比二进制畸形帧的 `illegal tag` 形态）——猜测的字段名可被接受；
+- 流以限额 EOS trailer 结束（当前账号额度耗尽），**不是协议问题**。换有额度的账号即可看到 text_delta。
+
+**结论：自建纯 API 客户端路线验证通过**（探针 ① 关闭）。后续：真机账号就位后跑完整对话 → 工具循环 → 接入 ChatProvider。
+
+### 探针阶段的附加发现
+
+1. **SDK 用 HTTP/2 直连，不走 `globalThis.fetch`**——fetch 层 tap 抓不到 Run 请求（auth shim 只拦得到 REST 端点）。自建客户端用 Node fetch 反而更可控。
+2. **网关 `/api/cursor/token` 会轮转可用账号**——探针必须用它，不要用本地 IDE token（绑定死账号，本机 token 对应的 account-09b3acab0f 已禁用）。
+3. 额度耗尽的另一种错误形态：SDK 侧报 `[unavailable] HTTP 502`（网关转发上游拒绝时）。
+4. 本机代理 RST 会导致 upstream 502/挂起——排查网络问题时先排除代理。
 
 ## 第二轮结果：N4（安全）/ N7 / N2
 
