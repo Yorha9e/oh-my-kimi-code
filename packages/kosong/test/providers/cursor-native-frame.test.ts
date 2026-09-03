@@ -17,9 +17,10 @@ import {
 } from '#/providers/cursor-native/errors';
 import { openRunStream, type ServerFrame } from '#/providers/cursor-native/run-stream';
 import { createServer as createHttp2Server } from 'node:http2';
+import { createServer as createTcpServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 function concatBytes(parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
@@ -308,6 +309,47 @@ describe('classifyTrailerError', () => {
     expect(error?.isRetryable).toBe(false);
   });
 
+  it('reads isRetryable:false from the real nested quota shape (details[0].debug.details)', () => {
+    const error = classifyTrailerError(
+      parseTrailers(
+        '{"error":{"code":"resource_exhausted","message":"Error","details":[{"type":"aiserver.v1.ErrorDetails","debug":{"error":"ERROR_RATE_LIMITED_CHANGEABLE","details":{"title":"You\'ve hit your usage limit","detail":"Get Cursor Pro ...","isRetryable":false},"isExpected":true},"value":"..."}]}}',
+      ),
+    );
+    expect(error).toBeInstanceOf(CursorResourceError);
+    expect(error).toMatchObject({
+      code: 'resource_exhausted',
+      debugError: 'ERROR_RATE_LIMITED_CHANGEABLE',
+      title: "You've hit your usage limit",
+    });
+    expect(error?.isRetryable).toBe(false);
+  });
+
+  it('reads isRetryable:true from the nested High Load shape (details[0].debug.details)', () => {
+    const error = classifyTrailerError(
+      parseTrailers(
+        '{"error":{"code":"resource_exhausted","details":[{"type":"aiserver.v1.ErrorDetails","debug":{"error":"ERROR_HIGH_LOAD","details":{"title":"High Load","isRetryable":true},"isExpected":true}}]}}',
+      ),
+    );
+    expect(error).toBeInstanceOf(CursorResourceError);
+    expect(error).toMatchObject({
+      code: 'resource_exhausted',
+      debugError: 'ERROR_HIGH_LOAD',
+      title: 'High Load',
+    });
+    expect(error?.isRetryable).toBe(true);
+  });
+
+  it('maps unauthenticated ERROR_NOT_LOGGED_IN to CursorProtocolError via the details fallback', () => {
+    const error = classifyTrailerError(
+      parseTrailers(
+        '{"error":{"code":"unauthenticated","message":"Error","details":[{"type":"aiserver.v1.ErrorDetails","debug":{"error":"ERROR_NOT_LOGGED_IN","details":{"title":"Not logged in","isRetryable":false},"isExpected":true}}]}}',
+      ),
+    );
+    expect(error).toBeInstanceOf(CursorProtocolError);
+    expect(error).toMatchObject({ code: 'unauthenticated', debugError: 'ERROR_NOT_LOGGED_IN' });
+    expect(error?.isRetryable).toBe(false);
+  });
+
   it('returns null when the trailer carries no error', () => {
     expect(classifyTrailerError(parseTrailers('{}'))).toBeNull();
   });
@@ -353,7 +395,7 @@ describe('openRunStream', () => {
       );
     }) as typeof fetch;
 
-    const handle = openRunStream({ token: 'tok', firstFrame, gatewayUrl: 'https://127.0.0.1:51443', fetchImpl });
+    const handle = openRunStream({ token: 'tok', firstFrame, gatewayUrl: 'https://127.0.0.1:51443', fetchImpl, transport: 'undici' });
     const frames = await collect(handle.responses);
     handle.close();
     expect(seenUrl).toBe('https://127.0.0.1:51443/agent.v1.AgentService/Run');
@@ -395,7 +437,7 @@ describe('openRunStream', () => {
       return new Response(concatBytes([encodeFrame('{"ack":1}'), trailerBytes({})]), { status: 200 });
     }) as typeof fetch;
 
-    const handle = openRunStream({ token: 'tok', firstFrame, fetchImpl });
+    const handle = openRunStream({ token: 'tok', firstFrame, fetchImpl, transport: 'undici' });
     // Send before the first pull: the eager connection must buffer, not deadlock.
     handle.send(encodeFrame(JSON.stringify(extraFrame)));
     const frames = await collect(handle.responses);
@@ -403,6 +445,30 @@ describe('openRunStream', () => {
     expect(frames).toHaveLength(2);
     expect(await withTimeout(drained, 5000, 'request body EOS')).toEqual([firstFrame, extraFrame]);
     expect(seenRequest).toEqual([firstFrame, extraFrame]);
+  });
+
+  it('resolves the default auto transport to http2 without touching the fetchImpl seam', async () => {
+    const fetchImpl = vi.fn((async () => new Response('unused', { status: 200 })) as typeof fetch);
+    // Reserve then release a loopback port so the http2 dial fails fast with
+    // ECONNREFUSED instead of hanging: the undici path would call fetchImpl.
+    const probe = createTcpServer();
+    await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    const handle = openRunStream({
+      token: 'tok',
+      firstFrame: {},
+      gatewayUrl: `http://127.0.0.1:${port}`,
+      fetchImpl,
+    });
+    try {
+      await expect(withTimeout(collect(handle.responses), 5000, 'http2 refused')).rejects.toBeInstanceOf(
+        APIConnectionError,
+      );
+    } finally {
+      handle.close();
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('roundtrips mid-stream sends over the http2 transport against a real h2c server', { timeout: 15000 }, async () => {
@@ -458,7 +524,7 @@ describe('openRunStream', () => {
   it('throws APIConnectionError on send after close and keeps close idempotent', async () => {
     const fetchImpl = (async () =>
       new Response(concatBytes([encodeFrame('{"ack":1}'), trailerBytes({})]), { status: 200 })) as typeof fetch;
-    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl });
+    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl, transport: 'undici' });
     handle.close();
     expect(() => handle.close()).not.toThrow();
     expect(() => handle.send(encodeFrame('{"late":1}'))).toThrow(APIConnectionError);
@@ -471,7 +537,7 @@ describe('openRunStream', () => {
         { status: 200 },
       );
     }) as typeof fetch;
-    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl });
+    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl, transport: 'undici' });
     const frames = await collect(handle.responses);
     handle.close();
     expect(frames).toHaveLength(1);
@@ -484,7 +550,7 @@ describe('openRunStream', () => {
     const fetchImpl = (async () => {
       throw new TypeError('fetch failed');
     }) as typeof fetch;
-    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl });
+    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl, transport: 'undici' });
     await expect(collect(handle.responses)).rejects.toBeInstanceOf(APIConnectionError);
     expect(() => handle.send(encodeFrame('{"late":1}'))).toThrow(APIConnectionError);
     expect(() => handle.close()).not.toThrow();
@@ -495,7 +561,7 @@ describe('openRunStream', () => {
       throw new DOMException('The operation was aborted.', 'AbortError');
     }) as typeof fetch;
     const failure = await collect(
-      openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }).responses,
+      openRunStream({ token: 'tok', firstFrame: {}, fetchImpl, transport: 'undici' }).responses,
     ).then(
       () => null,
       (error: unknown) => error,
@@ -506,7 +572,7 @@ describe('openRunStream', () => {
 
   it('throws on non-200 responses', async () => {
     const fetchImpl = (async () => new Response('upstream says no', { status: 502 })) as typeof fetch;
-    await expect(collect(openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }).responses)).rejects.toThrow(
+    await expect(collect(openRunStream({ token: 'tok', firstFrame: {}, fetchImpl, transport: 'undici' }).responses)).rejects.toThrow(
       /502/,
     );
   });
