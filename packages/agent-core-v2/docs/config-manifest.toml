@@ -271,7 +271,7 @@ merge_all_available_skills = true
     # storage: "file" | "keyring"
     # key: string
     # oauth_host: string
-  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai"
+  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai" | "cursor"
   # name: string
   # aliases: string[]
   # provider: string
@@ -298,6 +298,7 @@ merge_all_available_skills = true
     # support_efforts: string[]
     # default_effort: string
     # off_effort: string
+  # model_params: record<string, string>
 
 # ##########################################################################
 # permission

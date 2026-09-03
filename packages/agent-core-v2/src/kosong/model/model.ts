@@ -42,6 +42,7 @@ export interface ModelRecord {
   supportEfforts?: string[];
   defaultEffort?: string;
   offEffort?: string;
+  modelParams?: Record<string, string>;
 
   overrides?: ModelOverride;
 

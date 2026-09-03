@@ -584,6 +584,7 @@ function buildProtocolProviderOptions(
       if (model.offEffort !== undefined) options.offEffort = model.offEffort;
       break;
     case 'cursor':
+      if (model.modelParams !== undefined) options.modelParams = model.modelParams;
       break;
     default: {
       const exhaustive: never = protocol;

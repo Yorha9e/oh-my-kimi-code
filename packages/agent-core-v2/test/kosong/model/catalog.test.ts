@@ -10,6 +10,7 @@ import type { ChatProvider } from '#/kosong/contract/provider';
 import { emptyUsage } from '#/kosong/contract/usage';
 import { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
 import '#/kosong/provider/bases/anthropic/index';
+import '#/kosong/provider/bases/cursor/index';
 import '#/kosong/provider/bases/google-genai/index';
 import '#/kosong/provider/bases/openai/index';
 import '#/kosong/provider/protocolAdapterRegistry';
@@ -381,6 +382,44 @@ describe('Model assembly (pure data)', () => {
         location: 'us-east4',
       });
       expect(catalog.get('g').providerOptions).toBeUndefined();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('passes a declared modelParams through providerOptions into the cursor wire selection', async () => {
+    const { host, catalog } = createHost({
+      providers: { cursor: { type: 'cursor', apiKey: 'sk-cursor' } },
+      models: {
+        cur: {
+          provider: 'cursor',
+          model: 'grok-4.6',
+          maxContextSize: 262144,
+          modelParams: { fast: 'true', context: '1m' },
+        },
+      },
+    });
+    try {
+      expect(catalog.get('cur').protocol).toBe('cursor');
+      expect(catalog.get('cur').providerOptions).toEqual({
+        modelParams: { fast: 'true', context: '1m' },
+      });
+      const adapter = host.app.accessor.get(IProtocolAdapterRegistry).createChatProvider({
+        protocol: 'cursor',
+        providerType: 'cursor',
+        modelName: 'grok-4.6',
+        providerOptions: catalog.get('cur').providerOptions,
+      });
+      const inner = Reflect.get(adapter, '_inner') as unknown as {
+        resolveWireModel(): Promise<{ id: string; params?: Array<{ id: string; value: string }> }>;
+      };
+      await expect(inner.resolveWireModel()).resolves.toEqual({
+        id: 'grok-4.6',
+        params: [
+          { id: 'fast', value: 'true' },
+          { id: 'context', value: '1m' },
+        ],
+      });
     } finally {
       host.dispose();
     }

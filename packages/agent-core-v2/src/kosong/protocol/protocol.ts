@@ -28,6 +28,7 @@ export interface ProtocolProviderOptions {
   readonly vertexai?: boolean;
   readonly project?: string;
   readonly location?: string;
+  readonly modelParams?: Readonly<Record<string, string>>;
 }
 
 export interface ProtocolAdapterConfig {

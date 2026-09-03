@@ -11,10 +11,10 @@ class CursorProtocolAdapter implements ChatProvider {
   readonly modelName: string;
   readonly thinkingEffort = null;
 
-  readonly #inner: CursorChatProvider;
+  private readonly _inner: CursorChatProvider;
 
   constructor(inner: CursorChatProvider, modelName: string) {
-    this.#inner = inner;
+    this._inner = inner;
     this.modelName = modelName;
   }
 
@@ -24,7 +24,7 @@ class CursorProtocolAdapter implements ChatProvider {
     history: Message[],
     options?: GenerateOptions,
   ): Promise<StreamedMessage> {
-    return this.#inner.generate(systemPrompt, tools, history, options);
+    return this._inner.generate(systemPrompt, tools, history, options);
   }
 }
 
@@ -35,6 +35,7 @@ registerProtocolBase({
       model: config.modelName,
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
+      modelParams: config.providerOptions?.modelParams,
     });
     return new CursorProtocolAdapter(inner, config.modelName);
   },
