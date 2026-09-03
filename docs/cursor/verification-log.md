@@ -99,7 +99,33 @@ EOS trailers: {"error":{"code":"resource_exhausted",…,
 
 **结论：自建纯 API 客户端路线验证通过**（探针 ① 关闭）。后续：真机账号就位后跑完整对话 → 工具循环 → 接入 ChatProvider。
 
-### 探针阶段的附加发现
+## 探针 ②：oneof 包装与字段名收敛（进行中 → 暂停待权威 schema）
+
+探针 ① 之后继续推进首帧字段形态，三次迭代拿到三个高价值错误信号：
+
+| 尝试 | 请求形态 | 上游响应 | 解读 |
+|---|---|---|---|
+| 2a | `AgentRunRequest` 字段直接放顶层 | `invalid_argument: "First message must be a run request or prewarm request"` | **外层必须是 `AgentClientMessage` oneof**，用 case 名包装 |
+| 2b | `{ "runRequest": { …AgentRunRequest… } }` | `not_found: ERROR_BAD_MODEL_NAME` | **oneof 包装正确，run_request 被服务端识别**——只差内部字段名 |
+| 2c | + `requestedModel: { id: 'default' }` | 同 2b | `Model` message 内部字段名不是 `id`（构造器 camelCase 是 `modelId`，但 minified bundle 中无法定位 proto name） |
+
+**重要修正**：2a→2b 之间还补了官方身份头（`x-cursor-client-type: sdk` / `x-cursor-client-version: sdk-1.0.30` / `x-request-id`，来源 `fingerprint-cursor.md`）。身份头可能也是 2a 失败的因素之一（2a 时无身份头）。
+
+**决定**：连续试探性畸形包会抬高指纹暴露面，停止猜测，改为向网关申请权威 proto 字段映射（handoff `ho_617dc209568b`）。待网关回复后一次构造正确首帧。
+
+### 待网关回复的清单
+
+1. `agent.v1.Model`（requested_model 类型）完整字段——**最关键**；
+2. `ConversationState` 首帧全量历史的最小合法 JSON；
+3. `UserMessageAction.conversation_history`（Es）结构；
+4. Connect JSON 对 snake_case 字段名的宽容度；
+5. （可选）exec 通道 message 结构。
+
+### 探针 ①② 的累计结论（不受字段名问题影响）
+
+- 自建 JSON bidi 帧可被上游接受并进入业务处理流程（不再停留在协议层错误）；
+- 错误分级清晰：`invalid_argument`（协议层）→ `not_found + ERROR_*`（业务层）——自建客户端可据此做精确错误分类；
+- 官方身份头是必需品（`fingerprint-cursor.md` 已给权威清单）。
 
 1. **SDK 用 HTTP/2 直连，不走 `globalThis.fetch`**——fetch 层 tap 抓不到 Run 请求（auth shim 只拦得到 REST 端点）。自建客户端用 Node fetch 反而更可控。
 2. **网关 `/api/cursor/token` 会轮转可用账号**——探针必须用它，不要用本地 IDE token（绑定死账号，本机 token 对应的 account-09b3acab0f 已禁用）。
