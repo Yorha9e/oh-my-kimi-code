@@ -120,7 +120,9 @@ export class CursorNativeChatProvider implements ChatProvider {
 
   /**
    * Build the `AgentClientMessage` first frame and return a lazy
-   * {@link StreamedMessage} over the Run stream.
+   * {@link StreamedMessage} over the Run stream. `tools` are accepted for
+   * interface conformance but not transmitted: no `mcp_tools` field is sent,
+   * so custom tool definitions never reach the model.
    */
   async generate(
     systemPrompt: string,
@@ -217,10 +219,11 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
 
   /**
    * Encoded `execClientMessage` replies produced for exec requests seen on
-   * this stream, in arrival order. The single-shot POST transport cannot send
-   * follow-up frames mid-stream, so replies are buffered here for
-   * observability and tests; the host tool loop carries results on the next
-   * turn via the conversation blobs.
+   * this stream, in arrival order. Replies are never transmitted during this
+   * run: the single-shot POST transport cannot send follow-up frames
+   * mid-stream, so the outcome is only observable here. Exec-channel tool
+   * output therefore never reaches the model, and a live server awaiting the
+   * reply stalls; full-duplex send is an M1-transport / M5 risk.
    */
   get execReplies(): readonly Record<string, unknown>[] {
     return this._execReplies;
@@ -228,11 +231,12 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
 
   async *[Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart> {
     this._options.onRequestSent?.();
+    const executedToolCallIds = new Set<string>();
     let attempt = 0;
     let yielded = 0;
     for (;;) {
       try {
-        for await (const part of this.drainOnce()) {
+        for await (const part of this.drainOnce(executedToolCallIds)) {
           yielded += 1;
           yield part;
         }
@@ -241,6 +245,7 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
         throwIfAbortError(error);
         if (yielded === 0 && attempt < this._options.maxRetries && isRetryableCursorError(error)) {
           attempt += 1;
+          this._usage = null;
           continue;
         }
         throw error;
@@ -248,9 +253,10 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
     }
   }
 
-  private async *drainOnce(): AsyncGenerator<StreamedMessagePart, void, void> {
+  private async *drainOnce(
+    executedToolCallIds: Set<string>,
+  ): AsyncGenerator<StreamedMessagePart, void, void> {
     const options = this._options;
-    const executedToolCallIds = new Set<string>();
     const pendingToolCalls = new Map<string, { name: string; argsText: string }>();
     let sawThinking = false;
     const executor = mapToolNames(options.executor, options.toolNameMap, executedToolCallIds);
@@ -274,16 +280,20 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
       } catch {
         continue;
       }
-      if (decodeExecServerMessage(msg) !== null) {
-        const startedAt = Date.now();
-        const reply = await handleExecServerMessage(msg, executor, {
-          isPermissionDenied: options.isPermissionDenied,
-          isTimeout: options.isTimeout,
-        });
-        if (reply !== null) {
-          const body = reply['execClientMessage'];
-          if (isRecord(body)) body['localExecutionTimeMs'] = Date.now() - startedAt;
-          this._execReplies.push(reply);
+      const execReq = decodeExecServerMessage(msg);
+      if (execReq !== null) {
+        const seenId = execToolCallId(execReq.args);
+        if (seenId === undefined || !executedToolCallIds.has(seenId)) {
+          const startedAt = Date.now();
+          const reply = await handleExecServerMessage(msg, executor, {
+            isPermissionDenied: options.isPermissionDenied,
+            isTimeout: options.isTimeout,
+          });
+          if (reply !== null) {
+            const body = reply['execClientMessage'];
+            if (isRecord(body)) body['localExecutionTimeMs'] = Date.now() - startedAt;
+            this._execReplies.push(reply);
+          }
         }
         continue;
       }
@@ -332,7 +342,7 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
 }
 
 function isRetryableCursorError(error: unknown): boolean {
-  return error instanceof CursorResourceError && error.isRetryable === true;
+  return error instanceof CursorResourceError && error.isRetryable;
 }
 
 function missingExecutor(): HostToolExecutor {
@@ -353,7 +363,7 @@ function mapToolNames(
   executedToolCallIds: Set<string>,
 ): HostToolExecutor {
   return (name, args) => {
-    const toolCallId = (args as Record<string, unknown>)['toolCallId'];
+    const toolCallId = args['toolCallId'];
     if (typeof toolCallId === 'string' && toolCallId !== '') executedToolCallIds.add(toolCallId);
     return executor(toolNameMap[name] ?? name, args);
   };
@@ -361,6 +371,11 @@ function mapToolNames(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function execToolCallId(args: Record<string, unknown>): string | undefined {
+  const value = args['toolCallId'];
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 function interactionUpdateOf(msg: unknown): Record<string, unknown> | null {

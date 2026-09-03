@@ -411,6 +411,55 @@ describe('retry gate', () => {
     await expect(drain(await provider.generate('', [], history()))).rejects.toBeInstanceOf(CursorProtocolError);
     expect(calls).toBe(1);
   });
+
+  it('does not retry once a part was already yielded', async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(() => {
+      calls += 1;
+      return concatBytes([
+        dataFrame({ interactionUpdate: { textDelta: { text: 'partial' } } }),
+        trailerFrame({
+          error: { code: 'resource_exhausted', debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' } },
+        }),
+      ]);
+    });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, maxRetries: 2 });
+    await expect(drain(await provider.generate('', [], history()))).rejects.toBeInstanceOf(CursorResourceError);
+    expect(calls).toBe(1);
+  });
+
+  it('does not re-execute an already-executed tool on retry', async () => {
+    let calls = 0;
+    const execFrame = dataFrame({
+      execServerMessage: { shellArgs: { command: 'ls', toolCallId: 'tc-r' }, id: 1, execId: 'e1' },
+    });
+    const fetchImpl = stubFetch(() => {
+      calls += 1;
+      return calls === 1
+        ? concatBytes([
+            execFrame,
+            trailerFrame({
+              error: {
+                code: 'resource_exhausted',
+                debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' },
+              },
+            }),
+          ])
+        : concatBytes([
+            execFrame,
+            dataFrame({ interactionUpdate: { textDelta: { text: 'ok' } } }),
+            trailerFrame({}),
+          ]);
+    });
+    const executor = okExecutor('out');
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, toolExecutor: executor, maxRetries: 1 });
+    const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
+    const parts = await drain(stream);
+    expect(parts).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls).toBe(2);
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(stream.execReplies).toHaveLength(1);
+  });
 });
 
 describe('withThinking', () => {
