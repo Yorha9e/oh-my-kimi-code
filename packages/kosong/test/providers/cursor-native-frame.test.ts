@@ -16,6 +16,8 @@ import {
   classifyTrailerError,
 } from '#/providers/cursor-native/errors';
 import { openRunStream, type ServerFrame } from '#/providers/cursor-native/run-stream';
+import { createServer as createHttp2Server } from 'node:http2';
+import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 
@@ -39,6 +41,46 @@ async function collect(iter: AsyncIterable<ServerFrame>): Promise<ServerFrame[]>
   const frames: ServerFrame[] = [];
   for await (const frame of iter) frames.push(frame);
   return frames;
+}
+
+/** Read a (possibly still-buffered) request-body stream fully. */
+async function readBodyBytes(body: unknown): Promise<Uint8Array> {
+  if (body instanceof ReadableStream) {
+    const reader = (body as ReadableStream<Uint8Array>).getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const read = await reader.read();
+      if (read.done) break;
+      chunks.push(read.value);
+    }
+    return concatBytes(chunks);
+  }
+  return body as Uint8Array;
+}
+
+function decodeJsonFrames(wire: Uint8Array): unknown[] {
+  return new FrameDecoder().push(wire).map((frame) => parseFrameJson(frame));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        return value;
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        throw error;
+      },
+    ),
+    timeout,
+  ]);
 }
 
 describe('encodeFrame roundtrip', () => {
@@ -210,15 +252,60 @@ describe('classifyTrailerError', () => {
     });
   });
 
-  it('maps resource_exhausted to CursorResourceError with retry', () => {
+  it('maps resource_exhausted to CursorResourceError when the trailer says retryable', () => {
     const error = classifyTrailerError(
       parseTrailers(
-        '{"error":{"code":"resource_exhausted","debug":{"error":"ERROR_RESOURCE_EXHAUSTED","title":"High Load"}}}',
+        '{"error":{"code":"resource_exhausted","isRetryable":true,"debug":{"error":"ERROR_RESOURCE_EXHAUSTED","title":"High Load"}}}',
       ),
     );
     expect(error).toBeInstanceOf(CursorResourceError);
     expect(error?.isRetryable).toBe(true);
     expect(error).toMatchObject({ code: 'resource_exhausted', debugError: 'ERROR_RESOURCE_EXHAUSTED' });
+  });
+
+  it('reads debug from error.details[0].debug when error.debug is absent', () => {
+    const error = classifyTrailerError(
+      parseTrailers(
+        '{"error":{"code":"resource_exhausted","isRetryable":false,"details":[{"debug":{"error":"ERROR_QUOTA_EXHAUSTED","title":"Quota exceeded"},"code":"detail-code"}]}}',
+      ),
+    );
+    expect(error).toBeInstanceOf(CursorResourceError);
+    expect(error).toMatchObject({
+      code: 'resource_exhausted',
+      debugError: 'ERROR_QUOTA_EXHAUSTED',
+      title: 'Quota exceeded',
+    });
+    expect(error?.isRetryable).toBe(false);
+  });
+
+  it('prefers top-level error.debug and error.code over the details fallback', () => {
+    const error = classifyTrailerError(
+      parseTrailers(
+        '{"error":{"code":"not_found","debug":{"error":"ERROR_BAD_MODEL_NAME","title":"Model not found"},"details":[{"debug":{"error":"ERROR_OTHER","title":"Other"},"code":"detail-code"}]}}',
+      ),
+    );
+    expect(error).toBeInstanceOf(CursorModelError);
+    expect(error).toMatchObject({
+      code: 'not_found',
+      debugError: 'ERROR_BAD_MODEL_NAME',
+      title: 'Model not found',
+    });
+  });
+
+  it('defaults isRetryable to false when the trailer omits it', () => {
+    const error = classifyTrailerError(
+      parseTrailers('{"error":{"code":"resource_exhausted","debug":{"error":"ERROR_HIGH"}}}'),
+    );
+    expect(error).toBeInstanceOf(CursorResourceError);
+    expect(error?.isRetryable).toBe(false);
+  });
+
+  it('honors an explicit isRetryable:false trailer on resource errors', () => {
+    const error = classifyTrailerError(
+      parseTrailers('{"error":{"code":"resource_exhausted","isRetryable":false}}'),
+    );
+    expect(error).toBeInstanceOf(CursorResourceError);
+    expect(error?.isRetryable).toBe(false);
   });
 
   it('returns null when the trailer carries no error', () => {
@@ -266,9 +353,9 @@ describe('openRunStream', () => {
       );
     }) as typeof fetch;
 
-    const frames = await collect(
-      openRunStream({ token: 'tok', firstFrame, gatewayUrl: 'https://127.0.0.1:51443', fetchImpl }),
-    );
+    const handle = openRunStream({ token: 'tok', firstFrame, gatewayUrl: 'https://127.0.0.1:51443', fetchImpl });
+    const frames = await collect(handle.responses);
+    handle.close();
     expect(seenUrl).toBe('https://127.0.0.1:51443/agent.v1.AgentService/Run');
     const headers = seenInit?.headers as Record<string, string>;
     expect(headers['content-type']).toBe('application/connect+json');
@@ -276,11 +363,105 @@ describe('openRunStream', () => {
     expect(headers['x-cursor-client-type']).toBe('sdk');
     expect(headers['x-cursor-client-version']).toBe('sdk-1.0.30');
     expect(typeof headers['x-request-id']).toBe('string');
-    const sent = new FrameDecoder().push(seenInit?.body as Uint8Array);
-    expect(sent).toHaveLength(1);
-    expect(parseFrameJson(sent[0]!)).toEqual(firstFrame);
+    expect((seenInit as unknown as Record<string, unknown>)['duplex']).toBe('half');
+    expect(seenInit?.body).toBeInstanceOf(ReadableStream);
+    expect(decodeJsonFrames(await readBodyBytes(seenInit?.body))).toEqual([firstFrame]);
     expect(frames).toHaveLength(2);
     expect(frames[1]?.flags).toBe(FRAME_FLAG_TRAILER);
+  });
+
+  it('delivers send() frames into the request body mid-stream and ends it on close', async () => {
+    const firstFrame = { runRequest: { runId: 'r-send' } };
+    const extraFrame = { execClientMessage: { id: 1 } };
+    const seenRequest: unknown[] = [];
+    let resolveDrained!: (frames: unknown[]) => void;
+    const drained = new Promise<unknown[]>((resolve) => {
+      resolveDrained = resolve;
+    });
+    const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+      const body = init?.body as ReadableStream<Uint8Array>;
+      void (async () => {
+        const decoder = new FrameDecoder();
+        const reader = body.getReader();
+        const seen: unknown[] = [];
+        for (;;) {
+          const read = await reader.read();
+          if (read.done) break;
+          for (const frame of decoder.push(read.value)) seen.push(parseFrameJson(frame));
+        }
+        seenRequest.push(...seen);
+        resolveDrained(seen);
+      })();
+      return new Response(concatBytes([encodeFrame('{"ack":1}'), trailerBytes({})]), { status: 200 });
+    }) as typeof fetch;
+
+    const handle = openRunStream({ token: 'tok', firstFrame, fetchImpl });
+    // Send before the first pull: the eager connection must buffer, not deadlock.
+    handle.send(encodeFrame(JSON.stringify(extraFrame)));
+    const frames = await collect(handle.responses);
+    handle.close();
+    expect(frames).toHaveLength(2);
+    expect(await withTimeout(drained, 5000, 'request body EOS')).toEqual([firstFrame, extraFrame]);
+    expect(seenRequest).toEqual([firstFrame, extraFrame]);
+  });
+
+  it('roundtrips mid-stream sends over the http2 transport against a real h2c server', { timeout: 15000 }, async () => {
+    const firstFrame = { runRequest: { runId: 'r-h2' } };
+    const pingFrame = { ping: 'mid-stream' };
+    const seenRequest: unknown[] = [];
+    let resolveEnded!: () => void;
+    const requestEnded = new Promise<void>((resolve) => {
+      resolveEnded = resolve;
+    });
+    const server = createHttp2Server();
+    server.on('stream', (stream, headers) => {
+      expect(headers[':method']).toBe('POST');
+      expect(headers[':path']).toBe('/agent.v1.AgentService/Run');
+      stream.respond({ ':status': 200, 'content-type': 'application/connect+json' });
+      const decoder = new FrameDecoder();
+      stream.on('data', (chunk: Buffer) => {
+        for (const frame of decoder.push(new Uint8Array(chunk))) {
+          seenRequest.push(parseFrameJson(frame));
+          if (seenRequest.length === 1) stream.write(encodeFrame('{"ack":1}'));
+          if (seenRequest.length === 2) {
+            stream.write(trailerBytes({}));
+            stream.end();
+          }
+        }
+      });
+      stream.on('end', () => resolveEnded());
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const handle = openRunStream({
+        token: 'tok',
+        firstFrame,
+        gatewayUrl: `http://127.0.0.1:${port}`,
+        transport: 'http2',
+      });
+      const collected = collect(handle.responses);
+      handle.send(encodeFrame(JSON.stringify(pingFrame)));
+      const frames = await withTimeout(collected, 5000, 'http2 response frames');
+      handle.close();
+      expect(frames).toHaveLength(2);
+      expect(parseFrameJson(frames[0]!)).toEqual({ ack: 1 });
+      expect(frames[1]?.flags).toBe(FRAME_FLAG_TRAILER);
+      expect(seenRequest).toEqual([firstFrame, pingFrame]);
+      await withTimeout(requestEnded, 5000, 'http2 request EOS');
+    } finally {
+      server.close();
+      await new Promise<void>((resolve) => server.once('close', resolve));
+    }
+  });
+
+  it('throws APIConnectionError on send after close and keeps close idempotent', async () => {
+    const fetchImpl = (async () =>
+      new Response(concatBytes([encodeFrame('{"ack":1}'), trailerBytes({})]), { status: 200 })) as typeof fetch;
+    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl });
+    handle.close();
+    expect(() => handle.close()).not.toThrow();
+    expect(() => handle.send(encodeFrame('{"late":1}'))).toThrow(APIConnectionError);
   });
 
   it('yields an error trailer instead of throwing', async () => {
@@ -290,7 +471,9 @@ describe('openRunStream', () => {
         { status: 200 },
       );
     }) as typeof fetch;
-    const frames = await collect(openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }));
+    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl });
+    const frames = await collect(handle.responses);
+    handle.close();
     expect(frames).toHaveLength(1);
     expect(classifyTrailerError(parseTrailers(decodeFramePayload(frames[0]!)))).toBeInstanceOf(
       CursorResourceError,
@@ -301,9 +484,10 @@ describe('openRunStream', () => {
     const fetchImpl = (async () => {
       throw new TypeError('fetch failed');
     }) as typeof fetch;
-    await expect(collect(openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }))).rejects.toBeInstanceOf(
-      APIConnectionError,
-    );
+    const handle = openRunStream({ token: 'tok', firstFrame: {}, fetchImpl });
+    await expect(collect(handle.responses)).rejects.toBeInstanceOf(APIConnectionError);
+    expect(() => handle.send(encodeFrame('{"late":1}'))).toThrow(APIConnectionError);
+    expect(() => handle.close()).not.toThrow();
   });
 
   it('lets abort rejections propagate unwrapped', async () => {
@@ -311,7 +495,7 @@ describe('openRunStream', () => {
       throw new DOMException('The operation was aborted.', 'AbortError');
     }) as typeof fetch;
     const failure = await collect(
-      openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }),
+      openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }).responses,
     ).then(
       () => null,
       (error: unknown) => error,
@@ -322,6 +506,8 @@ describe('openRunStream', () => {
 
   it('throws on non-200 responses', async () => {
     const fetchImpl = (async () => new Response('upstream says no', { status: 502 })) as typeof fetch;
-    await expect(collect(openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }))).rejects.toThrow(/502/);
+    await expect(collect(openRunStream({ token: 'tok', firstFrame: {}, fetchImpl }).responses)).rejects.toThrow(
+      /502/,
+    );
   });
 });

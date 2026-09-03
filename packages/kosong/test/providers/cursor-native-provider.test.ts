@@ -16,6 +16,8 @@ import {
   CursorNativeChatProvider,
   CursorNativeStreamedMessage,
 } from '#/providers/cursor-native/index';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 
 function concatBytes(parts: Uint8Array[]): Uint8Array {
@@ -58,10 +60,58 @@ async function drain(stream: StreamedMessage): Promise<unknown[]> {
   return parts;
 }
 
-function firstFrameOf(body: unknown): Record<string, unknown> {
-  const frames = new FrameDecoder().push(body as Uint8Array);
-  expect(frames).toHaveLength(1);
-  return parseFrameJson(frames[0]!) as Record<string, unknown>;
+function firstFrameOf(body: unknown): Promise<Record<string, unknown>> {
+  return requestFramesOf(body).then((frames) => {
+    expect(frames).not.toHaveLength(0);
+    return frames[0]!;
+  });
+}
+
+/** Decode every frame written into a (possibly still-buffered) request body. */
+async function requestFramesOf(body: unknown): Promise<Record<string, unknown>[]> {
+  let wire: Uint8Array;
+  if (body instanceof ReadableStream) {
+    const reader = (body as ReadableStream<Uint8Array>).getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const read = await reader.read();
+      if (read.done) break;
+      chunks.push(read.value);
+    }
+    wire = concatBytes(chunks);
+  } else {
+    wire = body as Uint8Array;
+  }
+  return new FrameDecoder().push(wire).map((frame) => parseFrameJson(frame) as Record<string, unknown>);
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        return value;
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        throw error;
+      },
+    ),
+    timeout,
+  ]);
+}
+
+async function waitFor(condition: () => boolean, what: string, ms = 5000): Promise<void> {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > ms) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function history() {
@@ -96,7 +146,7 @@ describe('text streaming and first frame', () => {
     expect(stream.usage).toBeNull();
     expect(onRequestSent).toHaveBeenCalledTimes(1);
     expect(seenHeaders?.['authorization']).toBe('Bearer tok');
-    const firstFrame = firstFrameOf(seenBody);
+    const firstFrame = await firstFrameOf(seenBody);
     const runRequest = firstFrame['runRequest'] as Record<string, unknown>;
     expect(runRequest['conversationState']).toEqual({});
     expect((runRequest['requestedModel'] as Record<string, unknown>)['modelId']).toBe('model-a');
@@ -193,8 +243,10 @@ describe('turnEnded usage', () => {
 
 describe('exec tool loop', () => {
   it('runs exec requests through the host executor with engine tool names and continues the stream', async () => {
-    const fetchImpl = stubFetch(() =>
-      concatBytes([
+    let seenBody: unknown;
+    const fetchImpl = stubFetch((_url, init) => {
+      seenBody = init?.body;
+      return concatBytes([
         dataFrame({
           execServerMessage: {
             shellArgs: { command: 'ls', workingDirectory: '/tmp', toolCallId: 'tc-1' },
@@ -211,8 +263,8 @@ describe('exec tool loop', () => {
         }),
         dataFrame({ interactionUpdate: { textDelta: { text: 'after tools' } } }),
         trailerFrame({}),
-      ]),
-    );
+      ]);
+    });
     const executor = okExecutor('tool output');
     const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, toolExecutor: executor });
     const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
@@ -239,6 +291,13 @@ describe('exec tool loop', () => {
     });
     expect(parts).toEqual([{ type: 'text', text: 'after tools' }]);
     expect(stream.finishReason).toBe('completed');
+    // Both replies were transmitted mid-stream: the request body carries the
+    // first frame followed by the two execClientMessage replies.
+    const sent = await requestFramesOf(seenBody);
+    expect(sent).toHaveLength(3);
+    expect(sent[0]).toHaveProperty('runRequest');
+    expect(sent[1]).toEqual(stream.execReplies[0]);
+    expect(sent[2]).toEqual(stream.execReplies[1]);
   });
 
   it('honors a custom toolNameMap over the defaults', async () => {
@@ -353,10 +412,14 @@ describe('trailer errors', () => {
     expect((failure as CursorModelError).debugError).toBe('ERROR_BAD_MODEL_NAME');
   });
 
-  it('throws CursorResourceError for resource_exhausted with retry', async () => {
+  it('throws CursorResourceError for resource_exhausted with retry when the trailer says retryable', async () => {
     const fetchImpl = stubFetch(() =>
       trailerFrame({
-        error: { code: 'resource_exhausted', debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' } },
+        error: {
+          code: 'resource_exhausted',
+          isRetryable: true,
+          debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' },
+        },
       }),
     );
     const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl });
@@ -372,7 +435,11 @@ describe('trailer errors', () => {
 describe('retry gate', () => {
   function resourceExhaustedTrailer(): Uint8Array {
     return trailerFrame({
-      error: { code: 'resource_exhausted', debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' } },
+      error: {
+        code: 'resource_exhausted',
+        isRetryable: true,
+        debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' },
+      },
     });
   }
 
@@ -388,6 +455,28 @@ describe('retry gate', () => {
     const parts = await drain(await provider.generate('', [], history()));
     expect(parts).toEqual([{ type: 'text', text: 'recovered' }]);
     expect(calls).toBe(2);
+  });
+
+  it('does not retry a resource error whose trailer says isRetryable:false', async () => {
+    let calls = 0;
+    const fetchImpl = stubFetch(() => {
+      calls += 1;
+      return trailerFrame({
+        error: {
+          code: 'resource_exhausted',
+          isRetryable: false,
+          debug: { error: 'ERROR_QUOTA_EXHAUSTED', title: 'Quota exceeded' },
+        },
+      });
+    });
+    const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, maxRetries: 3 });
+    const failure = await drain(await provider.generate('', [], history())).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(CursorResourceError);
+    expect((failure as CursorResourceError).isRetryable).toBe(false);
+    expect(calls).toBe(1);
   });
 
   it('does not retry by default', async () => {
@@ -419,7 +508,11 @@ describe('retry gate', () => {
       return concatBytes([
         dataFrame({ interactionUpdate: { textDelta: { text: 'partial' } } }),
         trailerFrame({
-          error: { code: 'resource_exhausted', debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' } },
+          error: {
+            code: 'resource_exhausted',
+            isRetryable: true,
+            debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' },
+          },
         }),
       ]);
     });
@@ -441,6 +534,7 @@ describe('retry gate', () => {
             trailerFrame({
               error: {
                 code: 'resource_exhausted',
+                isRetryable: true,
                 debug: { error: 'ERROR_RESOURCE_EXHAUSTED', title: 'High Load' },
               },
             }),
@@ -472,8 +566,10 @@ describe('withThinking', () => {
     return { fetchImpl, seenBody: () => seenBody };
   }
 
-  function requestedModelOf(body: unknown): Record<string, unknown> {
-    return (firstFrameOf(body)['runRequest'] as Record<string, unknown>)['requestedModel'] as Record<string, unknown>;
+  function requestedModelOf(body: Promise<Record<string, unknown>>): Promise<Record<string, unknown>> {
+    return body.then(
+      (firstFrame) => (firstFrame['runRequest'] as Record<string, unknown>)['requestedModel'] as Record<string, unknown>,
+    );
   }
 
   it('clones without sharing thinking state and sends the effort as a model parameter', async () => {
@@ -486,12 +582,12 @@ describe('withThinking', () => {
     expect(clone.thinkingEffort).toBe('high');
     expect(clone.modelName).toBe('model-a');
     await drain(await clone.generate('', [], history()));
-    expect(requestedModelOf(capture.seenBody())).toEqual({
+    expect(await requestedModelOf(firstFrameOf(capture.seenBody()))).toEqual({
       modelId: 'model-a',
       parameters: [{ id: 'effort', value: 'high' }],
     });
     await drain(await base.generate('', [], history()));
-    expect(requestedModelOf(capture.seenBody())['parameters']).toBeUndefined();
+    expect((await requestedModelOf(firstFrameOf(capture.seenBody())))['parameters']).toBeUndefined();
   });
 
   it('sends no effort parameter for off and keeps explicit modelParams winning', async () => {
@@ -503,14 +599,113 @@ describe('withThinking', () => {
       modelParams: { effort: 'low' },
     });
     await drain(await provider.withThinking('off').generate('', [], history()));
-    expect(requestedModelOf(capture.seenBody())).toEqual({
+    expect(await requestedModelOf(firstFrameOf(capture.seenBody()))).toEqual({
       modelId: 'model-a',
       parameters: [{ id: 'effort', value: 'low' }],
     });
     await drain(await provider.withThinking('max').generate('', [], history()));
-    expect(requestedModelOf(capture.seenBody())).toEqual({
+    expect(await requestedModelOf(firstFrameOf(capture.seenBody()))).toEqual({
       modelId: 'model-a',
       parameters: [{ id: 'effort', value: 'low' }],
     });
   });
+});
+
+describe('full-duplex roundtrip over a real local server', () => {
+  it(
+    'transmits the execClientMessage reply mid-stream and the server observes request EOS',
+    { timeout: 15000 },
+    async () => {
+      const requestFrames: unknown[] = [];
+      const decoder = new FrameDecoder();
+      let resolveReply!: (frame: Record<string, unknown>) => void;
+      const replyReceived = new Promise<Record<string, unknown>>((resolve) => {
+        resolveReply = resolve;
+      });
+      let resolveRequestEnded!: () => void;
+      const requestEnded = new Promise<void>((resolve) => {
+        resolveRequestEnded = resolve;
+      });
+      let serverError: unknown = null;
+
+      const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        req.on('data', (chunk: Buffer) => {
+          for (const frame of decoder.push(new Uint8Array(chunk))) {
+            const json = parseFrameJson(frame) as Record<string, unknown>;
+            requestFrames.push(json);
+            if ('execClientMessage' in json) resolveReply(json);
+          }
+        });
+        req.on('end', () => resolveRequestEnded());
+        req.on('error', (error: Error) => {
+          serverError = error;
+        });
+        void (async () => {
+          // a. The first frame (runRequest) reaches the server.
+          await waitFor(() => requestFrames.length >= 1, 'first frame');
+          const first = requestFrames[0] as Record<string, unknown>;
+          expect(first['runRequest']).toMatchObject({ conversationState: {} });
+          // b. Server sends a text frame back while the request body stays open.
+          res.writeHead(200, { 'content-type': 'application/connect+json' });
+          res.write(Buffer.from(dataFrame({ interactionUpdate: { textDelta: { text: 'working' } } })));
+          // c. Server sends an exec-server-message frame.
+          res.write(
+            Buffer.from(
+              dataFrame({
+                execServerMessage: {
+                  shellArgs: { command: 'echo hi', workingDirectory: '/tmp', toolCallId: 'tc-duplex' },
+                  id: 11,
+                  execId: 'exec-duplex',
+                },
+              }),
+            ),
+          );
+          // d. The server receives the execClientMessage reply mid-stream,
+          // before any final frames are sent — this is the duplex fix.
+          const reply = await withTimeout(replyReceived, 5000, 'execClientMessage reply');
+          const replyBody = reply['execClientMessage'] as Record<string, unknown>;
+          expect(replyBody['id']).toBe(11);
+          expect(replyBody['execId']).toBe('exec-duplex');
+          expect(replyBody['shellResult']).toEqual({ success: { output: 'duplex out' } });
+          // e. Server sends the final frame and the trailer-flag frame; the
+          // client iteration ends after the trailer. The HTTP response stays
+          // open until the client ends its request body: undici only
+          // delivers the request EOS while the response is still in flight
+          // (after a completed response it tears the socket down instead).
+          res.write(Buffer.from(dataFrame({ interactionUpdate: { textDelta: { text: 'done' } } })));
+          res.write(Buffer.from(trailerFrame({})));
+          await withTimeout(requestEnded, 5000, 'request body EOS');
+          res.end();
+        })().catch((error: unknown) => {
+          serverError = error;
+          res.destroy(error as Error);
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      try {
+        const port = (server.address() as AddressInfo).port;
+        const provider = new CursorNativeChatProvider({
+          apiKey: 'tok',
+          gatewayUrl: `http://127.0.0.1:${port}`,
+          toolExecutor: okExecutor('duplex out'),
+        });
+        const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
+        const parts = await drain(stream);
+        expect(parts).toEqual([
+          { type: 'text', text: 'working' },
+          { type: 'text', text: 'done' },
+        ]);
+        expect(stream.execReplies).toHaveLength(1);
+        expect(serverError).toBeNull();
+        // f. Client close() ended the request body: the server saw EOS.
+        await withTimeout(requestEnded, 5000, 'request body EOS');
+        expect(requestFrames).toHaveLength(2);
+        expect(requestFrames[1]).toEqual(stream.execReplies[0]);
+      } finally {
+        server.close();
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.once('close', resolve));
+      }
+    },
+  );
 });

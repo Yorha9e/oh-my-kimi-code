@@ -18,8 +18,8 @@ import {
   CursorResourceError,
 } from './errors';
 import { decodeExecServerMessage, handleExecServerMessage } from './exec-tools';
-import { decodeFramePayload, FRAME_FLAG_TRAILER, parseFrameJson, parseTrailers } from './frame';
-import { DEFAULT_CURSOR_GATEWAY_URL, openRunStream } from './run-stream';
+import { decodeFramePayload, encodeFrame, FRAME_FLAG_TRAILER, parseFrameJson, parseTrailers } from './frame';
+import { DEFAULT_CURSOR_GATEWAY_URL, openRunStream, type RunStreamTransport } from './run-stream';
 
 /**
  * Constructor options for {@link CursorNativeChatProvider}.
@@ -33,6 +33,8 @@ export interface CursorNativeOptions {
   readonly toolNameMap?: Readonly<Record<string, string>>;
   readonly fetchImpl?: typeof fetch;
   readonly maxRetries?: number;
+  /** Run transport selection (`'auto'` = undici). Defaults to `'auto'`. */
+  readonly transport?: RunStreamTransport;
   readonly isPermissionDenied?: (error: unknown) => boolean;
   readonly isTimeout?: (error: unknown) => boolean;
 }
@@ -48,6 +50,8 @@ export interface CursorNativeStreamOptions {
   readonly signal?: AbortSignal;
   readonly requestId?: string;
   readonly fetchImpl?: typeof fetch;
+  /** Run transport selection, passed through to `openRunStream`. */
+  readonly transport?: RunStreamTransport;
   readonly executor: HostToolExecutor;
   readonly toolNameMap: Readonly<Record<string, string>>;
   readonly maxRetries: number;
@@ -89,6 +93,7 @@ export class CursorNativeChatProvider implements ChatProvider {
   private readonly _toolNameMap: Readonly<Record<string, string>>;
   private readonly _fetchImpl: typeof fetch | undefined;
   private readonly _maxRetries: number;
+  private readonly _transport: RunStreamTransport | undefined;
   private readonly _isPermissionDenied: ((error: unknown) => boolean) | undefined;
   private readonly _isTimeout: ((error: unknown) => boolean) | undefined;
   private _thinkingEffort: ThinkingEffort | null = null;
@@ -106,6 +111,7 @@ export class CursorNativeChatProvider implements ChatProvider {
     this._toolNameMap = { ...DEFAULT_TOOL_NAME_MAP, ...options.toolNameMap };
     this._fetchImpl = options.fetchImpl;
     this._maxRetries = options.maxRetries ?? 0;
+    this._transport = options.transport;
     this._isPermissionDenied = options.isPermissionDenied;
     this._isTimeout = options.isTimeout;
   }
@@ -153,6 +159,7 @@ export class CursorNativeChatProvider implements ChatProvider {
       signal: options?.signal,
       requestId: randomUUID(),
       fetchImpl: this._fetchImpl,
+      transport: this._transport,
       executor: options?.toolExecutor ?? this._toolExecutor ?? missingExecutor(),
       toolNameMap: this._toolNameMap,
       maxRetries: this._maxRetries,
@@ -218,12 +225,10 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
   }
 
   /**
-   * Encoded `execClientMessage` replies produced for exec requests seen on
-   * this stream, in arrival order. Replies are never transmitted during this
-   * run: the single-shot POST transport cannot send follow-up frames
-   * mid-stream, so the outcome is only observable here. Exec-channel tool
-   * output therefore never reaches the model, and a live server awaiting the
-   * reply stalls; full-duplex send is an M1-transport / M5 risk.
+   * `execClientMessage` replies produced for exec requests seen on this
+   * stream, in arrival order. Each reply is also transmitted mid-stream over
+   * the full-duplex Run transport as it is produced; this buffer stays as the
+   * observable record (probes and tests read it).
    */
   get execReplies(): readonly Record<string, unknown>[] {
     return this._execReplies;
@@ -267,70 +272,76 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
       signal: options.signal,
       requestId: options.requestId,
       fetchImpl: options.fetchImpl,
+      transport: options.transport,
     });
-    for await (const frame of stream) {
-      if ((frame.flags & FRAME_FLAG_TRAILER) !== 0) {
-        const failure = classifyTrailerError(parseTrailers(decodeFramePayload(frame)));
-        if (failure !== null) throw failure;
-        break;
-      }
-      let msg: unknown;
-      try {
-        msg = parseFrameJson(frame);
-      } catch {
-        continue;
-      }
-      const execReq = decodeExecServerMessage(msg);
-      if (execReq !== null) {
-        const seenId = execToolCallId(execReq.args);
-        if (seenId === undefined || !executedToolCallIds.has(seenId)) {
-          const startedAt = Date.now();
-          const reply = await handleExecServerMessage(msg, executor, {
-            isPermissionDenied: options.isPermissionDenied,
-            isTimeout: options.isTimeout,
-          });
-          if (reply !== null) {
-            const body = reply['execClientMessage'];
-            if (isRecord(body)) body['localExecutionTimeMs'] = Date.now() - startedAt;
-            this._execReplies.push(reply);
+    try {
+      for await (const frame of stream.responses) {
+        if ((frame.flags & FRAME_FLAG_TRAILER) !== 0) {
+          const failure = classifyTrailerError(parseTrailers(decodeFramePayload(frame)));
+          if (failure !== null) throw failure;
+          break;
+        }
+        let msg: unknown;
+        try {
+          msg = parseFrameJson(frame);
+        } catch {
+          continue;
+        }
+        const execReq = decodeExecServerMessage(msg);
+        if (execReq !== null) {
+          const seenId = execToolCallId(execReq.args);
+          if (seenId === undefined || !executedToolCallIds.has(seenId)) {
+            const startedAt = Date.now();
+            const reply = await handleExecServerMessage(msg, executor, {
+              isPermissionDenied: options.isPermissionDenied,
+              isTimeout: options.isTimeout,
+            });
+            if (reply !== null) {
+              const body = reply['execClientMessage'];
+              if (isRecord(body)) body['localExecutionTimeMs'] = Date.now() - startedAt;
+              this._execReplies.push(reply);
+              stream.send(encodeFrame(JSON.stringify(reply)));
+            }
+          }
+          continue;
+        }
+        const update = interactionUpdateOf(msg);
+        if (update === null) continue;
+        for (const [caseKey, payload] of Object.entries(update)) {
+          const normalized = caseKey.toLowerCase().replaceAll('_', '');
+          if (normalized === 'textdelta') {
+            const text = deltaText(payload, ['text', 'delta', 'content']);
+            if (text !== null && text !== '') yield { type: 'text', text };
+          } else if (normalized === 'thinkingdelta') {
+            const think = deltaText(payload, ['text', 'thinking', 'delta', 'content']);
+            if (think !== null && think !== '') {
+              sawThinking = true;
+              yield { type: 'think', think };
+            }
+          } else if (normalized === 'thinkingcompleted') {
+            const think = deltaText(payload, ['text', 'thinking', 'delta', 'content']);
+            if (think !== null && think !== '' && !sawThinking) {
+              sawThinking = true;
+              yield { type: 'think', think };
+            }
+          } else if (
+            normalized === 'toolcallstarted' ||
+            normalized === 'partialtoolcall' ||
+            normalized === 'toolcalldelta' ||
+            normalized === 'toolcallcompleted'
+          ) {
+            mergeToolCallUpdate(pendingToolCalls, payload, normalized === 'toolcallcompleted');
+          } else if (normalized === 'turnended') {
+            const event = turnEndedEventOf(payload);
+            if (event !== null) {
+              const mapped = mapTurnEndedUsage(event);
+              this._usage = this._usage === null ? mapped : addUsage(this._usage, mapped);
+            }
           }
         }
-        continue;
       }
-      const update = interactionUpdateOf(msg);
-      if (update === null) continue;
-      for (const [caseKey, payload] of Object.entries(update)) {
-        const normalized = caseKey.toLowerCase().replaceAll('_', '');
-        if (normalized === 'textdelta') {
-          const text = deltaText(payload, ['text', 'delta', 'content']);
-          if (text !== null && text !== '') yield { type: 'text', text };
-        } else if (normalized === 'thinkingdelta') {
-          const think = deltaText(payload, ['text', 'thinking', 'delta', 'content']);
-          if (think !== null && think !== '') {
-            sawThinking = true;
-            yield { type: 'think', think };
-          }
-        } else if (normalized === 'thinkingcompleted') {
-          const think = deltaText(payload, ['text', 'thinking', 'delta', 'content']);
-          if (think !== null && think !== '' && !sawThinking) {
-            sawThinking = true;
-            yield { type: 'think', think };
-          }
-        } else if (
-          normalized === 'toolcallstarted' ||
-          normalized === 'partialtoolcall' ||
-          normalized === 'toolcalldelta' ||
-          normalized === 'toolcallcompleted'
-        ) {
-          mergeToolCallUpdate(pendingToolCalls, payload, normalized === 'toolcallcompleted');
-        } else if (normalized === 'turnended') {
-          const event = turnEndedEventOf(payload);
-          if (event !== null) {
-            const mapped = mapTurnEndedUsage(event);
-            this._usage = this._usage === null ? mapped : addUsage(this._usage, mapped);
-          }
-        }
-      }
+    } finally {
+      stream.close();
     }
     this._finishReason = 'completed';
     this._rawFinishReason = null;
