@@ -275,8 +275,16 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
       fetchImpl: options.fetchImpl,
       transport: options.transport,
     });
+    // Drive the response iterator manually instead of `for await`: a plain
+    // `break` then exits without invoking the iterator's `return()`, keeping
+    // `stream.close()` in the finally block as the only teardown (the EOS it
+    // sends is what the server waits for once the turn has ended).
+    const responses = stream.responses[Symbol.asyncIterator]();
     try {
-      for await (const frame of stream.responses) {
+      drainLoop: for (;;) {
+        const next = await responses.next();
+        if (next.done) break;
+        const frame = next.value;
         if ((frame.flags & FRAME_FLAG_TRAILER) !== 0) {
           const failure = classifyTrailerError(parseTrailers(decodeFramePayload(frame)));
           if (failure !== null) throw failure;
@@ -342,7 +350,10 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
             // (heartbeats continue indefinitely) — the turn, not the stream
             // close, is what bounds one generate() call. Stop consuming here;
             // `stream.close()` in the finally block sends the client EOS.
-            break;
+            // The break must escape the frame loop (`break drainLoop`), or
+            // the stream keeps being drained for its endless heartbeats and
+            // the iteration never completes.
+            break drainLoop;
           }
         }
       }

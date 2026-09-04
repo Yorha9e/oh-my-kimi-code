@@ -241,6 +241,55 @@ describe('turnEnded usage', () => {
   });
 });
 
+describe('turn end bounds one generate() call', () => {
+  it(
+    'ends the iteration at turnEnded and closes the request body while the bidi stream stays open',
+    { timeout: 15000 },
+    async () => {
+      // In-memory server: the response body never completes (the real gateway
+      // keeps the bidi stream open and heartbeats past the turn, so only the
+      // client EOS via close() can finish the exchange). One batch of
+      // [textDelta, turnEnded, heartbeat, heartbeat] arrives after the
+      // runRequest, mirroring the live wire behavior.
+      let push!: (bytes: Uint8Array) => void;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          push = (bytes) => controller.enqueue(bytes);
+        },
+      });
+      const fetchImpl = (async () => new Response(body, { status: 200 })) as typeof fetch;
+      const provider = new CursorNativeChatProvider({ apiKey: 'tok', fetchImpl, transport: 'undici' });
+      const stream = await provider.generate('', [], history());
+      const partsPromise = drain(stream);
+      push(
+        concatBytes([
+          dataFrame({ interactionUpdate: { textDelta: { text: 'hi' } } }),
+          dataFrame({
+            interactionUpdate: {
+              turnEnded: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWriteTokens: 5 },
+            },
+          }),
+          dataFrame({ interactionUpdate: { heartbeat: {} } }),
+          dataFrame({ interactionUpdate: { heartbeat: {} } }),
+        ]),
+      );
+      // Regression shape: drainOnce must stop consuming at the turn even
+      // though the stream stays open, or the iteration never completes and
+      // the consumer waits forever — the 3s cap catches any re-introduced
+      // hang.
+      const parts = await withTimeout(partsPromise, 3000, 'iteration to end after turnEnded');
+      expect(parts).toEqual([{ type: 'text', text: 'hi' }]);
+      expect(stream.finishReason).toBe('completed');
+      expect(stream.usage).toEqual({
+        inputOther: 100,
+        output: 50,
+        inputCacheRead: 10,
+        inputCacheCreation: 5,
+      });
+    },
+  );
+});
+
 describe('exec tool loop', () => {
   it('runs exec requests through the host executor with engine tool names and continues the stream', async () => {
     let seenBody: unknown;
