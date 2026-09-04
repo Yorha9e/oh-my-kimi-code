@@ -337,6 +337,11 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
               const mapped = mapTurnEndedUsage(event);
               this._usage = this._usage === null ? mapped : addUsage(this._usage, mapped);
             }
+            // The upstream keeps the bidi stream open after a turn ends
+            // (heartbeats continue indefinitely) — the turn, not the stream
+            // close, is what bounds one generate() call. Stop consuming here;
+            // `stream.close()` in the finally block sends the client EOS.
+            break;
           }
         }
       }

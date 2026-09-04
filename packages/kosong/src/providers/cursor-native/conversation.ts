@@ -265,5 +265,11 @@ function lastAssistantTurn(turns: CursorUiMessage[]): CursorUiMessage | undefine
 }
 
 function toCount(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  // proto int64 travels as a JSON string on the Connect wire ("11568").
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
