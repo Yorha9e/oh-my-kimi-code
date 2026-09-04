@@ -215,18 +215,23 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
         options.systemPrompt === undefined || options.systemPrompt === '' ? undefined : options.systemPrompt,
       conversationId: options.conversationId,
       preFetchedBlobs: state.preFetchedBlobs,
-      // Tool declaration: without it the model sees no tools and never
-      // produces exec requests (probe A2's NO-TOOL result). `name` is what
-      // the model calls; the exec channel matches on the same name.
+      // Tool declaration, mirroring the CLI's wire shape exactly (decoded
+      // from the gateway dump): each definition's `name` is
+      // `custom-user-tools-<Tool>` — the synthetic MCP server prefix — and
+      // `providerIdentifier` is the bare server name. Without the prefix
+      // and matching identifier the backend drops the table and the model
+      // sees no tools (probe A2's NO-TOOL). `toolName` stays bare; the exec
+      // channel pairs on it (McpArgs.toolName) while the model-visible
+      // call name rides McpArgs.name with the same prefix.
       mcpTools:
         options.tools === undefined || options.tools.length === 0
           ? undefined
           : {
               mcpTools: options.tools.map((tool) => ({
-                name: tool.name,
+                name: `custom-user-tools-${tool.name}`,
                 description: tool.description,
                 inputSchema: tool.parameters,
-                providerIdentifier: 'kimi-code',
+                providerIdentifier: 'custom-user-tools',
                 toolName: tool.name,
               })),
             },

@@ -259,6 +259,14 @@ export function encodeExecClientMessage(
  * executor behavior and never drops a decodable request. Returns null only
  * for non-exec input, matching {@link decodeExecServerMessage}.
  */
+/** The synthetic MCP server name prefix that qualifies model-visible tool names. */
+const CUSTOM_TOOL_PREFIX = 'custom-user-tools-';
+
+/** Strip \custom-user-tools-\ from a model-visible MCP tool name. */
+function stripCustomToolPrefix(name: string): string {
+  return name.startsWith(CUSTOM_TOOL_PREFIX) ? name.slice(CUSTOM_TOOL_PREFIX.length) : name;
+}
+
 export async function handleExecServerMessage(
   msg: unknown,
   executor: HostToolExecutor,
@@ -271,7 +279,15 @@ export async function handleExecServerMessage(
   }
   let outcome: ExecOutcome;
   try {
-    outcome = resultToOutcome(await executor(req.toolName, req.args), req.toolName);
+    // The mcp case carries the host tool in `args.name` under the synthetic
+    // `custom-user-tools-` prefix (matching the mcpTools declaration); the
+    // case's own toolName is just 'mcp'. Resolve the bare host name so the
+    // engine's executor sees the same name the declaration advertised.
+    const executorName =
+      req.toolName === 'mcp'
+        ? stripCustomToolPrefix(typeof req.args['name'] === 'string' ? req.args['name'] : '')
+        : req.toolName;
+    outcome = resultToOutcome(await executor(executorName, req.args), executorName);
   } catch (error) {
     outcome = classifyThrown(error, opts);
   }

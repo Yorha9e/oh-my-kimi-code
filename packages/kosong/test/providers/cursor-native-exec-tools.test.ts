@@ -95,17 +95,19 @@ describe('core tool roundtrips', () => {
       tool: 'mcp',
       argsKey: 'mcpArgs',
       args: {
-        name: 'lookup',
+        // Model-visible name carries the synthetic MCP server prefix; the
+        // executor receives the bare name after stripCustomToolPrefix.
+        name: 'custom-user-tools-lookup',
         args: { q: 'x' },
         toolCallId: 'tc-mcp',
-        providerIdentifier: 'prov',
+        providerIdentifier: 'custom-user-tools',
         toolName: 'lookup',
       },
       expectedArgs: {
-        name: 'lookup',
+        name: 'custom-user-tools-lookup',
         args: { q: 'x' },
         toolCallId: 'tc-mcp',
-        providerIdentifier: 'prov',
+        providerIdentifier: 'custom-user-tools',
         toolName: 'lookup',
       },
       resultKey: 'mcpResult',
@@ -124,7 +126,8 @@ describe('core tool roundtrips', () => {
     const executor = okExecutor(`${entry.tool} output`);
     const reply = await handleExecServerMessage(serverMessage(entry.argsKey, entry.args, 11, 'exec-9'), executor);
     expect(executor).toHaveBeenCalledTimes(1);
-    expect(executor).toHaveBeenCalledWith(entry.tool, expect.objectContaining(entry.expectedArgs));
+    const executorName = entry.tool === 'mcp' ? 'lookup' : entry.tool;
+    expect(executor).toHaveBeenCalledWith(executorName, expect.objectContaining(entry.expectedArgs));
     const body = clientBody(reply);
     expect(body['id']).toBe(11);
     expect(body['execId']).toBe('exec-9');
@@ -165,7 +168,7 @@ describe('core tool roundtrips', () => {
   it('maps snake_case mcp provider fields to canonical args', async () => {
     const executor = okExecutor('mcp-out');
     const msg = serverMessage('mcpArgs', {
-      name: 'lookup',
+      name: 'custom-user-tools-lookup',
       args: { q: 'x' },
       tool_call_id: 'tc-m',
       provider_identifier: 'prov',
@@ -175,7 +178,7 @@ describe('core tool roundtrips', () => {
     });
     await handleExecServerMessage(msg, executor);
     expect(executor).toHaveBeenCalledWith(
-      'mcp',
+      'lookup',
       expect.objectContaining({
         providerIdentifier: 'prov',
         toolName: 'lookup',
