@@ -245,3 +245,32 @@ canary 未命中（`N7 canary present in reply: false`）。但模型回复中�
 3. harness 假设被否定（真实流量不带）。
 
 **探针 ④ 状态：挂起等上游池恢复**（探针脚本已就位，恢复后一跑即得 text_delta/turn_ended/usage）。
+
+## 探针 ④-v3：三断言最终计分（2026-09-04，TUN + 池代理修复后）
+
+前置修复（本轮全部提交）：
+- `0076b3331` requestContext 缺失 → first contact 被拒（补空对象）
+- `7c573d169` TurnEndedUpdate int64 以 JSON 字符串承载（"11568"）→ toCount 打零 + turnEnded 后 break 收尾（上游不关流，heartbeat 无限）
+- `cb5967878` turnEnded 的 break 只退了内层 for-of（外层 for-await 无限排空 heartbeat → 挂死）→ 外层改手动迭代器 + break drainLoop（保留 client EOS 路径）
+- `cd6508c23` mcpTools 工具声明（field 4）——A2 NO-TOOL 根因
+- 网关 cursor 池出网代理：direct 被上游 RST → socks5://127.0.0.1:10808 热更（probe ok）
+
+### 计分
+
+| 断言 | 结果 | 证据 |
+|---|---|---|
+| 1 纯文本 | **PASS** | text="BLUEBIRD"（6 parts）、finish=completed、usage={input:11571, output:31, cacheRead:11520}——真实账本 |
+| 2 工具循环 | **声明已发、模型未调用**（executorCalls=0） | mcpTools 嵌套形态（mcpTools.mcpTools[]）与 CLI 139KB wire 形态是否一致待核对；工具循环的 exec 回执路径已由 1486 离线测试覆盖 |
+| 3 错误分类 | **PASS** | ERROR_BAD_MODEL_NAME → CursorModelError（结构化 code 穿透全链路） |
+
+### 环境结论（重要，供后续排障）
+
+- 上一网络环境的出口被上游间歇性 RST（连网关 utls 也被断）——不是代码问题，SDK 同样受影响；
+- 网关 cursor 池代理热更 API：`POST /api/settings/pool-proxy`，body `{"proxy_by_pool":{"cursor":"..."}}`，需 `x-goog-api-key` 头；
+- 网关 token 轮转 `/api/cursor/token` 会轮到禁用账号，探针/验收需指定 label 或先查 `/api/accounts`。
+
+### 剩余待办
+
+1. 断言 2：对照 CLI dump（`1788412840442-…-down.bin` 9143B 最小带 state 样本 / 165KB 全量样本）核对 mcp_tools 的 wire 编码形态（是否需要 McpTools 包装层、provider_identifier 值域）；
+2. M6 接线：provider 工厂接入 cursor-native + 导出切换；
+3. native-client-plan.md 文档同步（openRunStream 已是双面句柄）。
