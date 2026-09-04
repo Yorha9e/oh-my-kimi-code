@@ -69,11 +69,11 @@ export const EXEC_CASE_DEFS: Readonly<Record<number, ExecCaseDef>> = {
 
 /**
  * Exec cases the host executes via the engine permission gate: shell (2),
- * write (3), delete (4), grep (5), read (7), ls (8), mcp (11), fetch (20).
- * Every other known case degrades to an explicit failure result and never
- * reaches the executor.
+ * write (3), delete (4), grep (5), read (7), ls (8), mcp (11), fetch (20),
+ * shell_stream (14). Every other known case degrades to an explicit failure
+ * result and never reaches the executor.
  */
-export const SUPPORTED_EXEC_CASES: ReadonlyArray<number> = [2, 3, 4, 5, 7, 8, 11, 20];
+export const SUPPORTED_EXEC_CASES: ReadonlyArray<number> = [2, 3, 4, 5, 7, 8, 11, 14, 20];
 
 /**
  * One decoded server tool request: the oneof case number, the public cursor
@@ -256,8 +256,14 @@ export function encodeExecClientMessage(
  * short-circuit to a failure result without touching the executor.
  * Executor rejections are classified into failure, timeout, spawnError, or
  * the protocol-native denial results; the loop itself never throws for
- * executor behavior and never drops a decodable request. Returns null only
- * for non-exec input, matching {@link decodeExecServerMessage}.
+ * executor behavior and never drops a decodable request.
+ *
+ * Returns the client frames to transmit in order: one result envelope (two
+ * for shell_stream's event-framed success/stderr+exit sequences) followed by
+ * the `execClientControlMessage.streamClose` frame that completes the exec
+ * round trip — the CLI always closes the exec stream after the result, and
+ * the server keeps waiting for that close otherwise. Returns null only for
+ * non-exec input, matching {@link decodeExecServerMessage}.
  */
 /** The synthetic MCP server name prefix that qualifies model-visible tool names. */
 const CUSTOM_TOOL_PREFIX = 'custom-user-tools-';
@@ -271,11 +277,19 @@ export async function handleExecServerMessage(
   msg: unknown,
   executor: HostToolExecutor,
   opts?: HandleExecOptions,
-): Promise<Record<string, unknown> | null> {
+): Promise<readonly Record<string, unknown>[] | null> {
   const req = decodeExecServerMessage(msg);
   if (req === null) return null;
+  const startedAt = Date.now();
+  const encodeOpts =
+    opts === undefined
+      ? { localExecutionTimeMs: Date.now() - startedAt }
+      : { ...opts, localExecutionTimeMs: opts.localExecutionTimeMs ?? Date.now() - startedAt };
   if (!isSupportedTool(req.caseNo)) {
-    return encodeExecClientMessage(req, { kind: 'failure', message: unsupportedMessage(req) }, opts);
+    return [
+      encodeExecClientMessage(req, { kind: 'failure', message: unsupportedMessage(req) }, encodeOpts),
+      execStreamCloseFrame(req),
+    ];
   }
   let outcome: ExecOutcome;
   try {
@@ -291,7 +305,103 @@ export async function handleExecServerMessage(
   } catch (error) {
     outcome = classifyThrown(error, opts);
   }
-  return encodeExecClientMessage(req, outcome, opts);
+  if (req.toolName === 'shell_stream') {
+    return encodeShellStreamFrames(req, outcome, encodeOpts);
+  }
+  return [encodeExecClientMessage(req, outcome, encodeOpts), execStreamCloseFrame(req)];
+}
+
+/**
+ * The `execClientControlMessage.streamClose` frame that completes an exec
+ * round trip. The CLI sends it after every result frame; without it the
+ * server keeps waiting for the exec to finish (this was the shell_stream
+ * hang). The close carries the exec request id when one was assigned;
+ * id-less requests close with an empty payload, matching the CLI's
+ * request-context reply.
+ */
+function execStreamCloseFrame(req: ExecRequest): Record<string, unknown> {
+  return {
+    execClientControlMessage: {
+      streamClose: req.id === undefined ? {} : { id: req.id },
+    },
+  };
+}
+
+/**
+ * Encode the shell_stream reply as ShellStream event frames followed by the
+ * stream-close control frame, mirroring the CLI's framing: output rides
+ * stdout/stderr event frames (the exit event has no output field — the
+ * previous `output` payload was an unknown field the server could not
+ * decode), the terminal exit frame carries code/cwd/aborted, and every
+ * outcome — including the denial kinds — maps to a valid ShellStream event.
+ */
+function encodeShellStreamFrames(
+  req: ExecRequest,
+  outcome: ExecOutcome,
+  opts?: ExecEncodeOptions,
+): readonly Record<string, unknown>[] {
+  const frames: Record<string, unknown>[] = [];
+  switch (outcome.kind) {
+    case 'success':
+      if (outcome.text !== '') frames.push(shellStreamEventFrame(req, { stdout: { data: outcome.text } }, opts));
+      frames.push(shellStreamEventFrame(req, shellStreamExit(req, { code: 0, aborted: false }, opts), opts));
+      break;
+    case 'timeout':
+      if (outcome.message !== '') frames.push(shellStreamEventFrame(req, { stderr: { data: outcome.message } }, opts));
+      frames.push(shellStreamEventFrame(req, shellStreamExit(req, { aborted: true }, opts), opts));
+      break;
+    case 'failure':
+    case 'spawnError':
+      if (outcome.message !== '') frames.push(shellStreamEventFrame(req, { stderr: { data: outcome.message } }, opts));
+      frames.push(shellStreamEventFrame(req, shellStreamExit(req, { code: 1, aborted: false }, opts), opts));
+      break;
+    case 'rejected':
+      frames.push(shellStreamEventFrame(req, { rejected: {} }, opts));
+      break;
+    case 'permissionDenied':
+      frames.push(shellStreamEventFrame(req, { permissionDenied: {} }, opts));
+      break;
+  }
+  frames.push(execStreamCloseFrame(req));
+  return frames;
+}
+
+/**
+ * One `exec_client_message` envelope carrying a single ShellStream event,
+ * echoing the request id pair and the measured execution time like the CLI
+ * does on every event frame.
+ */
+function shellStreamEventFrame(
+  req: ExecRequest,
+  event: Record<string, unknown>,
+  opts?: ExecEncodeOptions,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { shellStreamResult: event };
+  if (req.id !== undefined) body['id'] = req.id;
+  if (req.execId !== undefined) body['execId'] = req.execId;
+  if (opts?.localExecutionTimeMs !== undefined) body['localExecutionTimeMs'] = opts.localExecutionTimeMs;
+  return { execClientMessage: body };
+}
+
+/**
+ * The terminal ShellStream `exit` event for a completed run: exit code
+ * (written explicitly even when 0, matching the CLI), the working
+ * directory echoed from the request when known (the server expects it on
+ * the exit frame), `aborted` per the outcome kind, and the measured
+ * execution time.
+ */
+function shellStreamExit(
+  req: ExecRequest,
+  flags: { code?: number; aborted?: boolean },
+  opts?: ExecEncodeOptions,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  if (flags.code !== undefined) payload['code'] = flags.code;
+  const cwd = req.args['workingDirectory'];
+  if (typeof cwd === 'string' && cwd !== '') payload['cwd'] = cwd;
+  if (flags.aborted !== undefined) payload['aborted'] = flags.aborted;
+  if (opts?.localExecutionTimeMs !== undefined) payload['localExecutionTimeMs'] = opts.localExecutionTimeMs;
+  return { exit: payload };
 }
 
 const PERMISSION_PATTERNS: ReadonlyArray<RegExp> = [
@@ -314,6 +424,12 @@ const TIMEOUT_PATTERNS: ReadonlyArray<RegExp> = [/timed?\s?out/i, /\bETIMEDOUT\b
 const SPAWN_PATTERNS: ReadonlyArray<RegExp> = [/spawn/i, /\bENOENT\b/];
 
 const EXEC_ARG_FIELDS: Readonly<Record<string, Readonly<Record<string, ReadonlyArray<string>>>>> = {
+  shell_stream: {
+    command: ['command'],
+    workingDirectory: ['workingDirectory', 'working_directory'],
+    timeout: ['timeout'],
+    toolCallId: ['toolCallId', 'tool_call_id'],
+  },
   shell: {
     command: ['command'],
     workingDirectory: ['workingDirectory', 'working_directory'],

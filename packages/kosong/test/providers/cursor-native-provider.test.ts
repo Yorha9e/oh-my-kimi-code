@@ -329,24 +329,29 @@ describe('exec tool loop', () => {
       'Read',
       expect.objectContaining({ path: '/tmp/a.txt', toolCallId: 'tc-2' }),
     );
-    expect(stream.execReplies).toHaveLength(2);
+    expect(stream.execReplies).toHaveLength(4);
     const first = (stream.execReplies[0]!['execClientMessage'] ?? {}) as Record<string, unknown>;
     expect(first['id']).toBe(7);
     expect(first['execId']).toBe('exec-1');
     expect(first['shellResult']).toEqual({ success: { output: 'tool output' } });
-    const second = (stream.execReplies[1]!['execClientMessage'] ?? {}) as Record<string, unknown>;
+    const second = (stream.execReplies[2]!['execClientMessage'] ?? {}) as Record<string, unknown>;
     expect(second['readResult']).toEqual({
       success: { content: 'tool output', path: '/tmp/a.txt', isEmpty: false },
     });
+    // Every exec round trip is completed by its stream-close control frame.
+    expect(stream.execReplies[1]!['execClientControlMessage']).toEqual({ streamClose: { id: 7 } });
+    expect(stream.execReplies[3]!['execClientControlMessage']).toEqual({ streamClose: { id: 8 } });
     expect(parts).toEqual([{ type: 'text', text: 'after tools' }]);
     expect(stream.finishReason).toBe('completed');
-    // Both replies were transmitted mid-stream: the request body carries the
-    // first frame followed by the two execClientMessage replies.
+    // All frames were transmitted mid-stream: the request body carries the
+    // first frame followed by the two reply/stream-close pairs.
     const sent = await requestFramesOf(seenBody);
-    expect(sent).toHaveLength(3);
+    expect(sent).toHaveLength(5);
     expect(sent[0]).toHaveProperty('runRequest');
     expect(sent[1]).toEqual(stream.execReplies[0]);
     expect(sent[2]).toEqual(stream.execReplies[1]);
+    expect(sent[3]).toEqual(stream.execReplies[2]);
+    expect(sent[4]).toEqual(stream.execReplies[3]);
   });
 
   it('honors a custom toolNameMap over the defaults', async () => {
@@ -422,11 +427,13 @@ describe('permission denial seam', () => {
     const stream = (await provider.generate('', [], history())) as CursorNativeStreamedMessage;
     const parts = await drain(stream);
     expect(denying).toHaveBeenCalledTimes(2);
-    expect(stream.execReplies).toHaveLength(2);
+    expect(stream.execReplies).toHaveLength(4);
     const shell = (stream.execReplies[0]!['execClientMessage'] ?? {}) as Record<string, unknown>;
     expect(shell['shellResult']).toEqual({ permissionDenied: {} });
-    const read = (stream.execReplies[1]!['execClientMessage'] ?? {}) as Record<string, unknown>;
+    const read = (stream.execReplies[2]!['execClientMessage'] ?? {}) as Record<string, unknown>;
     expect(read['readResult']).toEqual({ rejected: {} });
+    expect(stream.execReplies[1]!['execClientControlMessage']).toEqual({ streamClose: { id: 1 } });
+    expect(stream.execReplies[3]!['execClientControlMessage']).toEqual({ streamClose: { id: 2 } });
     expect(parts).toEqual([{ type: 'text', text: 'still here' }]);
   });
 });
@@ -630,7 +637,9 @@ describe('retry gate', () => {
     expect(parts).toEqual([{ type: 'text', text: 'ok' }]);
     expect(calls).toBe(2);
     expect(executor).toHaveBeenCalledTimes(1);
-    expect(stream.execReplies).toHaveLength(1);
+    expect(stream.execReplies).toHaveLength(2);
+    expect(stream.execReplies[0]!['execClientMessage']).toMatchObject({ shellResult: { success: { output: 'out' } } });
+    expect(stream.execReplies[1]!['execClientControlMessage']).toEqual({ streamClose: { id: 1 } });
   });
 });
 
@@ -775,12 +784,13 @@ describe('full-duplex roundtrip over a real local server', () => {
           { type: 'text', text: 'working' },
           { type: 'text', text: 'done' },
         ]);
-        expect(stream.execReplies).toHaveLength(1);
+        expect(stream.execReplies).toHaveLength(2);
         expect(serverError).toBeNull();
         // f. Client close() ended the request body: the server saw EOS.
         await withTimeout(requestEnded, 5000, 'request body EOS');
-        expect(requestFrames).toHaveLength(2);
+        expect(requestFrames).toHaveLength(3);
         expect(requestFrames[1]).toEqual(stream.execReplies[0]);
+        expect(requestFrames[2]).toEqual(stream.execReplies[1]);
       } finally {
         server.close();
         server.closeAllConnections();

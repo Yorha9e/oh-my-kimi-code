@@ -226,10 +226,11 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
   }
 
   /**
-   * `execClientMessage` replies produced for exec requests seen on this
-   * stream, in arrival order. Each reply is also transmitted mid-stream over
-   * the full-duplex Run transport as it is produced; this buffer stays as the
-   * observable record (probes and tests read it).
+   * Client frames transmitted in response to exec requests, in send order:
+   * the result envelope(s) (shell_stream success is event-framed: a stdout
+   * event before the exit event) plus the trailing stream-close control
+   * frame that completes each exec round trip. Probes and tests read it as
+   * the observable record of the exec channel.
    */
   get execReplies(): readonly Record<string, unknown>[] {
     return this._execReplies;
@@ -301,15 +302,19 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
           const seenId = execToolCallId(execReq.args);
           if (seenId === undefined || !executedToolCallIds.has(seenId)) {
             const startedAt = Date.now();
-            const reply = await handleExecServerMessage(msg, executor, {
+            const replies = await handleExecServerMessage(msg, executor, {
               isPermissionDenied: options.isPermissionDenied,
               isTimeout: options.isTimeout,
             });
-            if (reply !== null) {
-              const body = reply['execClientMessage'];
-              if (isRecord(body)) body['localExecutionTimeMs'] = Date.now() - startedAt;
-              this._execReplies.push(reply);
-              stream.send(encodeFrame(JSON.stringify(reply)));
+            if (replies !== null) {
+              for (const reply of replies) {
+                const body = reply['execClientMessage'];
+                if (isRecord(body) && body['localExecutionTimeMs'] === undefined) {
+                  body['localExecutionTimeMs'] = Date.now() - startedAt;
+                }
+                this._execReplies.push(reply);
+                stream.send(encodeFrame(JSON.stringify(reply)));
+              }
             }
           }
           continue;
