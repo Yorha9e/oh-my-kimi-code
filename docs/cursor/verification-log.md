@@ -274,3 +274,20 @@ canary 未命中（`N7 canary present in reply: false`）。但模型回复中�
 1. 断言 2：对照 CLI dump（`1788412840442-…-down.bin` 9143B 最小带 state 样本 / 165KB 全量样本）核对 mcp_tools 的 wire 编码形态（是否需要 McpTools 包装层、provider_identifier 值域）；
 2. M6 接线：provider 工厂接入 cursor-native + 导出切换；
 3. native-client-plan.md 文档同步（openRunStream 已是双面句柄）。
+
+## 断言 2 追查记录（2026-09-04，mcpTools 形态对齐后仍 executorCalls=0）
+
+### 已完成
+1. 从 CLI dump 解码 mcp_tools 真实形态：`McpTools{1: repeated McpToolDefinition}`，definition 的 `name` = `custom-user-tools-<Tool>`（合成 MCP 服务器前缀）、`provider_identifier` = `custom-user-tools`、`tool_name` = 裸名、`input_schema` = protobuf Value；
+2. 声明侧对齐（`cd6508c23`）+ 执行侧名字解析（mcp case 的 executor name = args.name 剥前缀，exec-tools.ts）；
+3. 断言 1 复验 PASS（BLUEBIRD 二次复现，usage 稳定）。
+
+### 仍未解决
+模型收到声明后仍不产生 `exec_server_message`。与 CLI 剩余差异（下一步排查序）：
+1. **`model_details`(field 3)**：CLI 首帧同时带 f3（32-80B 小 message）+ f9；我们只发 f9。可能服务端用 f3 做工具路由；
+2. **`request_context.tools`(field 7)**：RequestContext 里也有 tools 数组（`m.gd` 类型）——CLI 的 action.request_context 可能同时声明了工具面；
+3. CLI 139KB 里 name 全带 `custom-user-tools-` 前缀且 provider_identifier=`custom-user-tools`——已对齐；但 CLI 用的 serverIdentifier(9)/skipApproval 等字段我们未发；
+4. 上游可能要求 `harness`(13) 或 `agent_session_id`(26) 才启用工具路由（CLI 首帧无 harness 但有 agent_session_id? 待核对）。
+
+### 建议下一步
+用网关的 tap（还开着）抓一次 **SDK 路径带工具的完整请求**（跑一次旧 cursor.ts 或官方 CLI），对照我们发的工作声明帧逐字段 diff——一次实验即可定位缺的字段。探针：跑旧路线 provider 一次（会走网关原生路径），dump 自动落 tmp/cursor-stream-dump/。
