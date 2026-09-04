@@ -189,6 +189,10 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
       action: {
         userMessageAction: {
           userMessage: { text, messageId: randomUUID() },
+          // RequestContext must be present: the upstream rejects first
+          // contact without it ("Failed to get request context"). All its
+          // fields are optional, so an empty object is the minimal valid form.
+          requestContext: {},
         },
       },
       requestedModel: {
