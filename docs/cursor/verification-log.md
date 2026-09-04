@@ -291,3 +291,20 @@ canary 未命中（`N7 canary present in reply: false`）。但模型回复中�
 
 ### 建议下一步
 用网关的 tap（还开着）抓一次 **SDK 路径带工具的完整请求**（跑一次旧 cursor.ts 或官方 CLI），对照我们发的工作声明帧逐字段 diff——一次实验即可定位缺的字段。探针：跑旧路线 provider 一次（会走网关原生路径），dump 自动落 tmp/cursor-stream-dump/。
+
+## 断言 2 关键矛盾（2026-09-04 深夜，网关 ho_aeedd0e29217 回信后）
+
+网关翻出我们第一轮探针（老 probe.ts，run_id 0185a79d）的 dump：**那时模型调用了 probe_ping 两次**（tool_call_started×2 / completed×2 / exec_server_message×3），且回包后流正常收尾。关键事实：
+
+1. **那一发我们根本没有发 mcpTools 声明**（cd6508c23 是之后才提交的）——说明**模型可以不依赖 run_request 的工具声明发起调用**（prompt 里提到工具名即可诱发）；
+2. 网关确认我们今天的声明与 CLI 逐字节同型（前缀/identifier/Struct schema 全对齐）；
+3. 但 m4-probe 断言 2（带声明 + mockExecutor）连续三轮 executorCalls=0；
+4. dump 里有一帧 `unknown-tool-call-id / Invalid arguments`——疑似服务端对未声明/未回包调用的自答。
+
+**精确矛盾**：第一轮（无声明）→ 模型调用、exec 下发、回包（probe.ts 有 toolExecutor）、流继续 ✅；今天（有声明 + mockExecutor）→ 模型连调用都不发起 ❌。
+
+**两个候选解释**（待与网关对表）：
+- A. dump 里的 3 个 exec_server_message 是环境信息帧而非工具执行请求（网关说 frame #1 是环境信息+工具声明重放）——即第一轮的"工具调用"可能只在 InteractionUpdate 层（模型侧），exec 通道从未真正往返，`unknown-tool-call-id` 是服务端等不到回包的自答；
+- B. 声明的生效有额外条件（request_context.tools 同步声明 / 服务端 run 级缓存 / provider_identifier 注册制）。
+
+**下一步实验**（一次定位）：跑 m4-probe 断言 2 同时让网关 tap 落 dump，检查 exec_server_message 是否出现、其内部是否真是工具执行请求（带 probe_ping），以及模型调用的 toolCallId 与我们回包是否配对。
