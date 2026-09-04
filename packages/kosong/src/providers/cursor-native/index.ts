@@ -149,6 +149,7 @@ export class CursorNativeChatProvider implements ChatProvider {
       history,
       systemPrompt,
       modelParams: this.effectiveModelParams(),
+      tools,
       runId,
     });
     return new CursorNativeStreamedMessage({

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { extractText, type Message } from '#/message';
+import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
 /**
@@ -85,6 +86,12 @@ export interface BuildRunRequestOptions {
   runId?: string;
   /** Upstream conversation id for resuming; omitted for a fresh run. */
   conversationId?: string;
+  /**
+   * Engine tools declared to the model via `mcpTools` (field 4). Without a
+   * declaration the model cannot request any tool — the exec channel only
+   * carries calls for tools the run request advertised.
+   */
+  tools?: Tool[];
 }
 
 /**
@@ -208,6 +215,21 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
         options.systemPrompt === undefined || options.systemPrompt === '' ? undefined : options.systemPrompt,
       conversationId: options.conversationId,
       preFetchedBlobs: state.preFetchedBlobs,
+      // Tool declaration: without it the model sees no tools and never
+      // produces exec requests (probe A2's NO-TOOL result). `name` is what
+      // the model calls; the exec channel matches on the same name.
+      mcpTools:
+        options.tools === undefined || options.tools.length === 0
+          ? undefined
+          : {
+              mcpTools: options.tools.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.parameters,
+                providerIdentifier: 'kimi-code',
+                toolName: tool.name,
+              })),
+            },
     },
   };
 }
