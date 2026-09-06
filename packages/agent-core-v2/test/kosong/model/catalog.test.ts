@@ -387,7 +387,7 @@ describe('Model assembly (pure data)', () => {
     }
   });
 
-  it('passes a declared modelParams through providerOptions into the cursor wire selection', async () => {
+  it('passes a declared modelParams through providerOptions into the cursor native provider', () => {
     const { host, catalog } = createHost({
       providers: { cursor: { type: 'cursor', apiKey: 'sk-cursor' } },
       models: {
@@ -411,14 +411,13 @@ describe('Model assembly (pure data)', () => {
         providerOptions: catalog.get('cur').providerOptions,
       });
       const inner = Reflect.get(adapter, '_inner') as unknown as {
-        resolveWireModel(): Promise<{ id: string; params?: Array<{ id: string; value: string }> }>;
+        modelName: string;
+        _modelParams: Readonly<Record<string, string>>;
       };
-      await expect(inner.resolveWireModel()).resolves.toEqual({
-        id: 'grok-4.6',
-        params: [
-          { id: 'fast', value: 'true' },
-          { id: 'context', value: '1m' },
-        ],
+      expect(inner.modelName).toBe('grok-4.6');
+      expect(inner._modelParams).toEqual({
+        fast: 'true',
+        context: '1m',
       });
     } finally {
       host.dispose();

@@ -115,7 +115,13 @@ export function classifyTrailerError(
     (debug !== null ? asString(debug['title']) : null) ??
     asString(err['title']) ??
     firstNestedDetailsTitle(details);
-  const message = asString(err['message']) ?? title ?? code;
+  // Upstream sometimes fills `message` with a placeholder ("Error") and
+  // carries the real semantics in `details[0].debug` — prefer the actionable
+  // detail/title over the top-level message so users see why the request was
+  // rejected.
+  const detail =
+    (debug !== null ? asString(debug['detail']) : null) ?? firstNestedDetailsDetail(details);
+  const message = detail ?? title ?? asString(err['message']) ?? code;
   const isRetryable =
     asBoolean(err['isRetryable']) ??
     (debug !== null ? asBoolean(debug['isRetryable']) : undefined) ??
@@ -187,6 +193,16 @@ function firstNestedDetailsTitle(details: Record<string, unknown>[]): string | n
     const nested = asRecord(asRecord(entry['debug'])?.['details']);
     const title = nested !== null ? asString(nested['title']) : null;
     if (title !== null) return title;
+  }
+  return null;
+}
+
+/** First `details[i].debug.details.detail` string across the entries, if any. */
+function firstNestedDetailsDetail(details: Record<string, unknown>[]): string | null {
+  for (const entry of details) {
+    const nested = asRecord(asRecord(entry['debug'])?.['details']);
+    const detail = nested !== null ? asString(nested['detail']) : null;
+    if (detail !== null) return detail;
   }
   return null;
 }

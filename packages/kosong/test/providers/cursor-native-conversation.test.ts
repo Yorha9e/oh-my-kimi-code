@@ -45,7 +45,7 @@ describe('buildRunRequest first round', () => {
     expect(String(userMessageOf(runRequest)['messageId'])).toMatch(UUID_PATTERN);
   });
 
-  it('maps the requested model, parameters, and system prompt', () => {
+  it('maps the requested model, parameters, and folds the system prompt into the user text', () => {
     const frame = buildRunRequest({
       modelId: 'default',
       history: [createUserMessage('hi')],
@@ -57,7 +57,8 @@ describe('buildRunRequest first round', () => {
       modelId: 'default',
       parameters: [{ id: 'effort', value: 'high' }],
     });
-    expect(runRequest['customSystemPrompt']).toBe('be brief');
+    expect(runRequest['customSystemPrompt']).toBeUndefined();
+    expect(userMessageOf(runRequest)['text']).toBe('be brief\n\nhi');
   });
 
   it('omits optional wire fields when they are empty', () => {
@@ -66,6 +67,58 @@ describe('buildRunRequest first round', () => {
     expect(runRequest['customSystemPrompt']).toBeUndefined();
     expect(runRequest['conversationId']).toBeUndefined();
     expect((runRequest['requestedModel'] as Record<string, unknown>)['parameters']).toBeUndefined();
+  });
+
+  it('replays a server-issued checkpoint verbatim as conversationState', () => {
+    const checkpoint = {
+      turns: ['AAAA', 'BBBB'],
+      tokenDetails: { usedTokens: '100', maxTokens: '200000' },
+      previousWorkspaceUris: ['file:///C:/work'],
+    };
+    const frame = buildRunRequest({
+      modelId: 'default',
+      history: [createUserMessage('follow-up')],
+      checkpoint,
+    });
+    const runRequest = runRequestOf(frame);
+    expect(runRequest['conversationState']).toEqual(checkpoint);
+    expect(runRequest['preFetchedBlobs']).toBeUndefined();
+  });
+
+  it('sends continuation turns and persists back blob payloads via preFetchedBlobs', () => {
+    const blobs = [
+      { id: 'AAAA', value: 'eyJyb2xlIjoidXNlciJ9' },
+      { id: 'BBBB', value: 'eyJyb2xlIjoiYXNzaXN0YW50In0=' },
+    ];
+    const frame = buildRunRequest({
+      modelId: 'default',
+      history: [createUserMessage('follow-up')],
+      turns: ['AAAA', 'BBBB'],
+      blobs,
+    });
+    const runRequest = runRequestOf(frame);
+    expect(runRequest['conversationState']).toEqual({ turns: ['AAAA', 'BBBB'] });
+    expect(runRequest['preFetchedBlobs']).toEqual(blobs);
+  });
+
+  it('folds fresh-run workspace context into an otherwise empty conversationState', () => {
+    const frame = buildRunRequest({
+      modelId: 'default',
+      history: [createUserMessage('hi')],
+      workspace: {
+        cwd: 'C:\\work\\repo',
+        branch: 'main',
+        agentType: 'ide',
+        timestampMs: 1788000000000,
+        timeZone: 'Asia/Shanghai',
+      },
+    });
+    const state = runRequestOf(frame)['conversationState'] as Record<string, unknown>;
+    expect(state['previousWorkspaceUris']).toEqual(['file:///C:/work/repo']);
+    expect(state['activeBranchName']).toBe('main');
+    expect(state['agentType']).toBe('ide');
+    expect(state['conversationStartedTimestampMs']).toBe('1788000000000');
+    expect(state['conversationStartedTimeZone']).toBe('Asia/Shanghai');
   });
 });
 
@@ -94,6 +147,19 @@ describe('buildConversationState continuation', () => {
       expect(typeof blob.id).toBe('string');
       expect(blob.id.length).toBeGreaterThan(0);
     }
+  });
+
+  it('tolerates an assistant message whose toolCalls field is absent (undefined)', () => {
+    const history: Message[] = [
+      createUserMessage('q'),
+      // Real-world messages may omit the toolCalls key entirely (plain-text
+      // assistant replies from other providers or hand-built histories).
+      { role: 'assistant', content: [{ type: 'text', text: 'plain answer' }] } as unknown as Message,
+      createUserMessage('next'),
+    ];
+    const { preFetchedBlobs } = buildConversationState(history);
+    const assistant = decodeBlobValue(preFetchedBlobs![1]!.value);
+    expect(assistant.content).toEqual([{ type: 'text', text: 'plain answer' }]);
   });
 
   it('maps think parts onto reasoning content with the signature', () => {

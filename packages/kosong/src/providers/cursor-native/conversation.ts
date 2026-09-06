@@ -76,9 +76,18 @@ export interface ConversationStatePayload {
 export interface BuildRunRequestOptions {
   /** Upstream model id sent as `requestedModel.modelId`. */
   modelId: string;
-  /** Full engine history; the last user message becomes the current input. */
+  /**
+   * Full engine history; the last user message becomes the current input.
+   * HISTORY IS ONLY USED FOR THE CURRENT INPUT — continuation context comes
+   * from the server-issued checkpoint (see `checkpoint`), never from here.
+   */
   history: Message[];
-  /** System prompt sent as `customSystemPrompt`; omitted when empty. */
+  /**
+   * System prompt folded into the leading user message text (SDK shape).
+   * Deliberately NOT sent as `customSystemPrompt`: the upstream execution
+   * layer converts that field into a CLI `--system-prompt` option whose
+   * current builds only accept a file path, so the text form is rejected.
+   */
   systemPrompt?: string;
   /** Extra model parameters sent as `requestedModel.parameters`. */
   modelParams?: Readonly<Record<string, string>>;
@@ -87,11 +96,58 @@ export interface BuildRunRequestOptions {
   /** Upstream conversation id for resuming; omitted for a fresh run. */
   conversationId?: string;
   /**
+   * Server-issued conversation checkpoint (the raw
+   * `conversationCheckpointUpdate` payload from the previous run's response
+   * stream). Replayed verbatim as `conversationState`; the server resolves
+   * history content-addressed under the blob ids it issued. When present,
+   * `workspace` is ignored.
+   */
+  checkpoint?: Record<string, unknown>;
+  /**
+   * Server-issued message blob ids (KV set_blob_args), in arrival order.
+   * Sent as `conversationState.turns` — the server resolves each id
+   * content-addressed; ids it never issued are ignored, which is why the
+   * old self-computed hashes left continuations memoryless.
+   */
+  turns?: string[];
+  /**
+   * Server-issued message blob payloads to persist back, sent as
+   * `preFetchedBlobs` (f17). The server only keeps what the client writes
+   * back (SDK `persistForRemoteRead`); a continuation that sends ids
+   * without payloads hangs waiting for content it never stored.
+   */
+  blobs?: { id: string; value: string }[];
+  /**
+   * Workspace/git/time context for a FRESH run's `conversationState`. The
+   * server uses these to persist the conversation (checkpoint issuance); a
+   * conversation with no workspace context may never see checkpoints.
+   */
+  workspace?: CursorWorkspaceContext;
+  /**
    * Engine tools declared to the model via `mcpTools` (field 4). Without a
    * declaration the model cannot request any tool — the exec channel only
    * carries calls for tools the run request advertised.
    */
   tools?: Tool[];
+}
+
+/**
+ * Fresh-run workspace context folded into `conversationState`
+ * (`previousWorkspaceUris` / `activeBranchName` / `agentType` /
+ * `conversationStartedTimestampMs` / `conversationStartedTimeZone` per the
+ * official agent.v1 schema).
+ */
+export interface CursorWorkspaceContext {
+  /** Absolute working directory; sent as a `file://` URI. */
+  cwd?: string;
+  /** Current git branch name. */
+  branch?: string;
+  /** Harness label ("ide" is what the official CLI reports). */
+  agentType?: string;
+  /** Conversation start epoch milliseconds. */
+  timestampMs?: number;
+  /** IANA time zone id, e.g. "Asia/Shanghai". */
+  timeZone?: string;
 }
 
 /**
@@ -120,10 +176,11 @@ export function computeBlobId(blob: string | Uint8Array): string {
 
 /**
  * Map kosong history onto AI SDK UIMessage turns. System messages stay out
- * (they travel via the run-request system-prompt field); tool messages attach
- * to the assistant turn holding the matching tool-call id, falling back to
- * the latest assistant turn and then to a fresh one. Unsupported media parts
- * are skipped with a warning.
+ * (they travel folded into the leading user message text, see
+ * {@link buildRunRequest}); tool messages attach to the assistant turn
+ * holding the matching tool-call id, falling back to the latest assistant
+ * turn and then to a fresh one. Unsupported media parts are skipped with a
+ * warning.
  */
 export function toUiTurns(history: Message[]): CursorUiMessage[] {
   const turns: CursorUiMessage[] = [];
@@ -182,15 +239,32 @@ export function buildConversationState(history: Message[]): ConversationStatePay
  * Build the `AgentClientMessage` first frame (`{ runRequest: ... }`) for the
  * Run stream client: the probe-3c shape with
  * `RequestedModel.modelId`, uuid `runId`/`messageId`, and a mandatory
- * `conversationState` object. The system prompt rides `customSystemPrompt`;
- * whether `system_prompt_spec` (append) behaves better is left for the M4
- * live probe.
+ * `conversationState` object. The system prompt rides the leading user message
+ * text (SDK shape) — `customSystemPrompt` is intentionally not used because the
+ * upstream execution layer rejects its text form (see {@link BuildRunRequestOptions}).
  */
 export function buildRunRequest(options: BuildRunRequestOptions): Record<string, unknown> {
   const lastUser = options.history.findLast((message) => message.role === 'user');
-  const text = lastUser === undefined ? '' : extractText(lastUser);
-  const state = buildConversationState(options.history);
+  const userText = lastUser === undefined ? '' : extractText(lastUser);
+  const systemText = options.systemPrompt;
+  // SDK shape: the system prompt folds into the current input text instead of
+  // a dedicated wire field (see `BuildRunRequestOptions.systemPrompt`).
+  const text =
+    systemText === undefined || systemText === '' ? userText : `${systemText}\n\n${userText}`;
+  // Continuation runs replay the server's blob ids as `conversationState.turns`
+  // (the server content-addresses history under those ids); a raw checkpoint,
+  // when the server ever issues one on this wire, wins over the id list.
+  // Fresh runs carry a minimal workspace context so the server can persist
+  // the conversation. The old self-invented keys are intentionally gone — the
+  // server's JSON parser ignores unknown keys, which is exactly why the
+  // previous continuation never saw history.
+  const conversationState =
+    options.checkpoint ??
+    (options.turns !== undefined && options.turns.length > 0
+      ? { turns: options.turns }
+      : initialConversationState(options.workspace));
   const entries = options.modelParams === undefined ? [] : Object.entries(options.modelParams);
+  const blobs = options.blobs !== undefined && options.blobs.length > 0 ? options.blobs : undefined;
   return {
     runRequest: {
       action: {
@@ -210,11 +284,9 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
             : undefined,
       },
       runId: options.runId ?? randomUUID(),
-      conversationState: state.conversationState,
-      customSystemPrompt:
-        options.systemPrompt === undefined || options.systemPrompt === '' ? undefined : options.systemPrompt,
+      conversationState,
       conversationId: options.conversationId,
-      preFetchedBlobs: state.preFetchedBlobs,
+      preFetchedBlobs: blobs,
       // Tool declaration, mirroring the CLI's wire shape exactly (decoded
       // from the gateway dump): each definition's `name` is
       // `custom-user-tools-<Tool>` — the synthetic MCP server prefix — and
@@ -263,7 +335,7 @@ function toUiContents(message: Message): CursorUiContent[] {
       console.warn(`[cursor-native] skipping unsupported ${part.type} part`);
     }
   }
-  for (const call of message.toolCalls) {
+  for (const call of message.toolCalls ?? []) {
     content.push({ type: 'tool-call', toolCallId: call.id, toolName: call.name, args: call.arguments ?? '{}' });
   }
   return content;
@@ -289,6 +361,33 @@ function lastAssistantTurn(turns: CursorUiMessage[]): CursorUiMessage | undefine
     }
   }
   return undefined;
+}
+
+/**
+ * Build the fresh-run `conversationState` from the workspace context. Omitted
+ * fields stay absent (an empty context yields `{}`, the verified-working
+ * first-frame shape). int64 timestamps ride proto3-JSON string form.
+ */
+function initialConversationState(workspace: CursorWorkspaceContext | undefined): Record<string, unknown> {
+  if (workspace === undefined) return {};
+  const state: Record<string, unknown> = {};
+  if (workspace.cwd !== undefined && workspace.cwd !== '') {
+    const uri = `file:///${workspace.cwd.replaceAll('\\', '/')}`;
+    state['previousWorkspaceUris'] = [uri];
+  }
+  if (workspace.branch !== undefined && workspace.branch !== '') {
+    state['activeBranchName'] = workspace.branch;
+  }
+  if (workspace.agentType !== undefined && workspace.agentType !== '') {
+    state['agentType'] = workspace.agentType;
+  }
+  if (workspace.timestampMs !== undefined) {
+    state['conversationStartedTimestampMs'] = String(workspace.timestampMs);
+  }
+  if (workspace.timeZone !== undefined && workspace.timeZone !== '') {
+    state['conversationStartedTimeZone'] = workspace.timeZone;
+  }
+  return state;
 }
 
 function toCount(value: unknown): number {

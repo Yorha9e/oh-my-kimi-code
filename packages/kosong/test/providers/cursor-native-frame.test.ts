@@ -293,6 +293,20 @@ describe('classifyTrailerError', () => {
     });
   });
 
+  it('prefers the details[].debug detail/title over a placeholder top-level message', () => {
+    const error = classifyTrailerError(
+      parseTrailers(
+        '{"error":{"code":"resource_exhausted","message":"Error","details":[{"debug":{"title":"Named models unavailable","detail":"Free plans can only use Auto"}}]}}',
+      ),
+    );
+    expect(error).toBeInstanceOf(CursorResourceError);
+    expect(error?.message).toBe('Free plans can only use Auto');
+    expect(error).toMatchObject({
+      code: 'resource_exhausted',
+      title: 'Named models unavailable',
+    });
+  });
+
   it('defaults isRetryable to false when the trailer omits it', () => {
     const error = classifyTrailerError(
       parseTrailers('{"error":{"code":"resource_exhausted","debug":{"error":"ERROR_HIGH"}}}'),

@@ -31,11 +31,13 @@ export type { ProviderConfig, ProviderType } from './providers';
 // backend (instanceof) and apply Kimi-specific request params (generation
 // kwargs, `thinking.keep` extra body).
 export { KimiChatProvider } from './providers/kimi';
-export { CursorChatProvider } from './providers/cursor';
-export type {
-  CursorOptions,
-  CursorToolExecutor,
-} from './providers/cursor';
+// Cursor native provider: hand-written Connect bidi JSON client over the
+// cursor Run protocol (no embedded SDK runtime — tool calls run through the
+// host tool executor behind the engine permission gate). Exported so callers
+// can narrow a `ChatProvider` (instanceof) and construct a cursor provider
+// for a gateway or direct backend.
+export { CursorNativeChatProvider } from './providers/cursor-native';
+export type { CursorNativeOptions } from './providers/cursor-native';
 export type { ExtraBody, GenerationKwargs, KimiOptions, ThinkingConfig } from './providers/kimi';
 export { classifyKimiQuotaError } from './providers/kimi-errors';
 

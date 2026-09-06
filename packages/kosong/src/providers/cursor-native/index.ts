@@ -11,7 +11,12 @@ import type { Message, StreamedMessagePart } from '#/message';
 import type { Tool } from '#/tool';
 import { addUsage, type TokenUsage } from '#/usage';
 import { randomUUID } from 'node:crypto';
-import { buildRunRequest, mapTurnEndedUsage, type TurnEndedUsageEvent } from './conversation';
+import {
+  buildRunRequest,
+  mapTurnEndedUsage,
+  type CursorWorkspaceContext,
+  type TurnEndedUsageEvent,
+} from './conversation';
 import {
   classifyTrailerError,
   CursorProtocolError,
@@ -37,6 +42,12 @@ export interface CursorNativeOptions {
   readonly transport?: RunStreamTransport;
   readonly isPermissionDenied?: (error: unknown) => boolean;
   readonly isTimeout?: (error: unknown) => boolean;
+  /**
+   * Workspace context for fresh-run conversation persistence (server
+   * checkpoint issuance). Without it the server may never hand out
+   * checkpoints, which leaves continuations memoryless.
+   */
+  readonly workspace?: CursorWorkspaceContext;
 }
 
 /**
@@ -58,6 +69,15 @@ export interface CursorNativeStreamOptions {
   readonly isPermissionDenied?: (error: unknown) => boolean;
   readonly isTimeout?: (error: unknown) => boolean;
   readonly onRequestSent?: () => void;
+  /** Called with each server-issued `conversationCheckpointUpdate` payload. */
+  readonly onCheckpoint?: (checkpoint: Record<string, unknown>) => void;
+  /**
+   * Called with each server-issued blob (KV set_blob_args). Implementations
+   * keep the payload for the get_blob_args answer channel.
+   */
+  readonly onBlob?: (blob: { id: string; value: string }) => void;
+  /** Blob payload store backing the get_blob_args answer channel. */
+  readonly blobStore: ReadonlyMap<string, string>;
 }
 
 const DEFAULT_MODEL_ID = 'default';
@@ -96,7 +116,16 @@ export class CursorNativeChatProvider implements ChatProvider {
   private readonly _transport: RunStreamTransport | undefined;
   private readonly _isPermissionDenied: ((error: unknown) => boolean) | undefined;
   private readonly _isTimeout: ((error: unknown) => boolean) | undefined;
+  private readonly _workspace: CursorWorkspaceContext | undefined;
   private _thinkingEffort: ThinkingEffort | null = null;
+  /** Latest server-issued checkpoint; replayed as `conversationState` on the next generate. */
+  private _checkpoint: Record<string, unknown> | null = null;
+  /** Server-issued blob payload store (id → base64), backing the KV answer channel. */
+  private _blobStore: Map<string, string> = new Map();
+  /** Continuation turns: checkpoint-derived blob id list, when issued. */
+  private _checkpointTurnIds: string[] | null = null;
+  /** Provisional turns: non-JSON, non-snapshot blob ids (no checkpoint yet). */
+  private _fallbackTurnIds: string[] = [];
 
   /**
    * Create a native cursor provider. The token defaults to the constructor
@@ -114,6 +143,22 @@ export class CursorNativeChatProvider implements ChatProvider {
     this._transport = options.transport;
     this._isPermissionDenied = options.isPermissionDenied;
     this._isTimeout = options.isTimeout;
+    this._workspace = options.workspace;
+  }
+
+  /** Latest server-issued conversation checkpoint, or null on a fresh conversation. */
+  get checkpoint(): Record<string, unknown> | null {
+    return this._checkpoint;
+  }
+
+  /** Continuation turns: checkpoint blob ids when issued, else provisional ids. */
+  get turnBlobIds(): readonly string[] {
+    return this._checkpointTurnIds ?? this._fallbackTurnIds;
+  }
+
+  /** Blob payload store backing the KV answer channel. */
+  get blobStore(): ReadonlyMap<string, string> {
+    return this._blobStore;
   }
 
   get modelName(): string {
@@ -151,6 +196,12 @@ export class CursorNativeChatProvider implements ChatProvider {
       modelParams: this.effectiveModelParams(),
       tools,
       runId,
+      checkpoint: this._checkpoint ?? undefined,
+      turns: this.turnBlobIds.length > 0 ? [...this.turnBlobIds] : undefined,
+      // conversationId is intentionally NOT sent: the CLI's id is
+      // server-issued (a locally fabricated `agent-<uuid>` poisons the
+      // server's hydrate — two distinct proto-parser crashes observed).
+      workspace: this._workspace,
     });
     return new CursorNativeStreamedMessage({
       token,
@@ -167,6 +218,24 @@ export class CursorNativeChatProvider implements ChatProvider {
       isPermissionDenied: this._isPermissionDenied,
       isTimeout: this._isTimeout,
       onRequestSent: options?.onRequestSent,
+      onCheckpoint: (checkpoint) => {
+        this._checkpoint = checkpoint;
+      },
+      onBlob: (blob) => {
+        if (!this._blobStore.has(blob.id)) {
+          this._blobStore.set(blob.id, blob.value);
+        }
+        if (isStateSnapshotBlob(blob.value)) {
+          // State pack: its f1 carries the session's blob-id list (the real
+          // `turns`) — parse and take it over. Content blobs only feed the
+          // answer channel; they are never turns themselves.
+          const ids = extractTurnIds(blob.value);
+          if (ids !== null && ids.length > 0) this._checkpointTurnIds = ids;
+        } else if (this._checkpointTurnIds === null) {
+          this._fallbackTurnIds.push(blob.id);
+        }
+      },
+      blobStore: this._blobStore,
     });
   }
 
@@ -319,6 +388,43 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
           }
           continue;
         }
+        // KV channels: the server pushes content-addressed blobs
+        // (set_blob_args) and — on continuation runs — asks for blob payloads
+        // back (get_blob_args). The get request MUST be answered on the same
+        // bidi stream via kvClientMessage.get_blob_result; an unanswered get
+        // deadlocks the run (the server's hydrate worker waits forever —
+        // gateway tap confirmed 10-minute hangs on un-answered gets).
+        const getReq = kvGetBlobOf(msg);
+        if (getReq !== null) {
+          // CLI shape: kv_client_message.get_blob_result.blob_data only.
+          // No blob id inside (matched by request order); the correlation
+          // `id` is echoed when the server frame carried one.
+          const id = getReq['blobId'];
+          const value = typeof id === 'string' ? options.blobStore.get(id) : undefined;
+          if (value === undefined) {
+            console.warn(`[cursor-native] getBlobArgs for unknown blob ${String(id)}; answering empty`);
+          }
+          const result: Record<string, unknown> = { getBlobResult: { blobData: value ?? '' } };
+          const serverId = kvServerIdOf(msg);
+          if (serverId !== null) result['id'] = serverId['id'];
+          stream.send(encodeFrame(JSON.stringify({ kvClientMessage: result })));
+          continue;
+        }
+        // Server-issued conversation checkpoint (proto-wire form; the JSON
+        // wire carries blobs via KV instead, but keep the notification for
+        // parity with the SDK's checkpoint stream).
+        const checkpoint = checkpointOf(msg);
+        if (checkpoint !== null) {
+          options.onCheckpoint?.(checkpoint);
+        }
+        const kv = kvSetBlobOf(msg);
+        if (kv !== null) {
+          const id = kv['blobId'];
+          const data = kv['blobData'];
+          if (typeof id === 'string' && typeof data === 'string') {
+            options.onBlob?.({ id, value: data });
+          }
+        }
         const update = interactionUpdateOf(msg);
         if (update === null) continue;
         for (const [caseKey, payload] of Object.entries(update)) {
@@ -415,6 +521,133 @@ function interactionUpdateOf(msg: unknown): Record<string, unknown> | null {
   if (!isRecord(msg)) return null;
   const inner = msg['interactionUpdate'] ?? msg['interaction_update'];
   return isRecord(inner) ? inner : null;
+}
+
+function checkpointOf(msg: unknown): Record<string, unknown> | null {
+  if (!isRecord(msg)) return null;
+  const inner = msg['conversationCheckpointUpdate'] ?? msg['conversation_checkpoint_update'];
+  return isRecord(inner) ? inner : null;
+}
+
+/**
+ * Extract the `setBlobArgs` payload of a `kvServerMessage` frame. The server
+ * uses this channel to hand out content-addressed blobs (turns, root-prompt
+ * packs, state snapshots) on the JSON wire.
+ */
+function kvSetBlobOf(msg: unknown): Record<string, unknown> | null {
+  if (!isRecord(msg)) return null;
+  const kv = msg['kvServerMessage'] ?? msg['kv_server_message'];
+  if (!isRecord(kv)) return null;
+  const set = kv['setBlobArgs'] ?? kv['set_blob_args'];
+  return isRecord(set) ? set : null;
+}
+
+/**
+ * Extract the `getBlobArgs` payload of a `kvServerMessage` frame — a request
+ * for a blob payload that MUST be answered on the same stream with a
+ * `kvClientMessage.get_blob_result`, or the run deadlocks.
+ */
+function kvGetBlobOf(msg: unknown): Record<string, unknown> | null {
+  if (!isRecord(msg)) return null;
+  const kv = msg['kvServerMessage'] ?? msg['kv_server_message'];
+  if (!isRecord(kv)) return null;
+  const get = kv['getBlobArgs'] ?? kv['get_blob_args'];
+  return isRecord(get) ? get : null;
+}
+
+/**
+ * Return the `id` of a `kvServerMessage` frame so the answering
+ * `kvClientMessage` can echo the correlation id, or null when absent.
+ */
+function kvServerIdOf(msg: unknown): Record<string, unknown> | null {
+  if (!isRecord(msg)) return null;
+  const kv = msg['kvServerMessage'] ?? msg['kv_server_message'];
+  if (!isRecord(kv)) return null;
+  const id = kv['id'];
+  if (id === undefined) return null;
+  return { id };
+}
+
+/**
+ * Extract the session blob-id list (the real `turns`) from a state-pack blob:
+ * proto field 1 (repeated bytes, 32-byte entries). Returns null when the
+ * payload is not a walkable pack — callers keep their previous turns.
+ */
+function extractTurnIds(blobData: string): string[] | null {
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(blobData, 'base64');
+  } catch {
+    return null;
+  }
+  const ids: string[] = [];
+  let i = 0;
+  while (i < buf.length) {
+    let tag = 0;
+    let shift = 0;
+    for (;;) {
+      if (i >= buf.length) return null;
+      const b = buf[i]!;
+      i += 1;
+      tag |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) break;
+      shift += 7;
+      if (shift > 63) return null;
+    }
+    const fno = tag >> 3;
+    const wt = tag & 7;
+    if (wt === 2) {
+      let len = 0;
+      let lshift = 0;
+      for (;;) {
+        if (i >= buf.length) return null;
+        const b = buf[i]!;
+        i += 1;
+        len |= (b & 0x7f) << lshift;
+        if ((b & 0x80) === 0) break;
+        lshift += 7;
+        if (lshift > 63) return null;
+      }
+      if (i + len > buf.length) return null;
+      if (fno === 1 && len === 32) {
+        ids.push(buf.subarray(i, i + 32).toString('base64'));
+      }
+      i += len;
+    } else if (wt === 0) {
+      for (;;) {
+        if (i >= buf.length) return null;
+        const b = buf[i]!;
+        i += 1;
+        if ((b & 0x80) === 0) break;
+      }
+    } else if (wt === 5) {
+      i += 4;
+    } else if (wt === 1) {
+      i += 8;
+    } else {
+      return null;
+    }
+  }
+  return ids.length > 0 ? ids : null;
+}
+
+/**
+ * True when a blob payload is a state/root-prompt pack rather than a turn:
+ * those payloads start with a length-32 length-delimited field (0x0A 0x20)
+ * holding a nested blob id, while turn payloads start with a plain text,
+ * JSON, or a non-32-length field. Non-ASCII/base64-invalid payloads are
+ * treated as turns (keep them — better over-inclusion than dropped history).
+ */
+function isStateSnapshotBlob(data: string): boolean {
+  if (data === '') return false;
+  try {
+    const head = Buffer.from(data, 'base64');
+    if (head.length === 0) return true;
+    if (head[0] === 0x7b) return true; // '{' — JSON-plain message, not a Turn proto
+    return head.length >= 2 && head[0] === 0x0a && head[1] === 0x20;
+  } catch {
+    return true;
+  }
 }
 
 function deltaText(payload: unknown, keys: ReadonlyArray<string>): string | null {
