@@ -570,8 +570,9 @@ function kvServerIdOf(msg: unknown): Record<string, unknown> | null {
 
 /**
  * Extract the session blob-id list (the real `turns`) from a state-pack blob:
- * proto field 1 (repeated bytes, 32-byte entries). Returns null when the
- * payload is not a walkable pack — callers keep their previous turns.
+ * proto field 8 (repeated bytes, 32-byte entries). Field 1 is
+ * `root_prompt_messages_json` — issuing those ids as turns crashes the
+ * server's hydrate. Returns null when the payload is not a walkable pack.
  */
 function extractTurnIds(blobData: string): string[] | null {
   let buf: Buffer;
@@ -609,7 +610,7 @@ function extractTurnIds(blobData: string): string[] | null {
         if (lshift > 63) return null;
       }
       if (i + len > buf.length) return null;
-      if (fno === 1 && len === 32) {
+      if (fno === 8 && len === 32) {
         ids.push(buf.subarray(i, i + 32).toString('base64'));
       }
       i += len;
