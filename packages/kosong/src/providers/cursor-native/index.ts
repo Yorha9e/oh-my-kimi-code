@@ -13,6 +13,7 @@ import { addUsage, type TokenUsage } from '#/usage';
 import { randomUUID } from 'node:crypto';
 import {
   buildRunRequest,
+  computeBlobId,
   mapTurnEndedUsage,
   toTokenDetails,
   type CursorWorkspaceContext,
@@ -142,6 +143,21 @@ export class CursorNativeChatProvider implements ChatProvider {
   private _rootPromptIds: string[] = [];
   /** Self-issued conversation id (`agent-<uuid>`), sent from the 2nd run on. */
   private _conversationId: string | null = null;
+  /** The previous run's id — the request that produced the wrapped turn. */
+  private _lastRunId: string | null = null;
+  /**
+   * The last state blob the server pushed (mini ConversationStateStructure
+   * with f8 referencing the round's turns) — the anchor the next outgoing
+   * user message mounts against.
+   */
+  private _latestStateBlobId: string | null = null;
+  /**
+   * Prompt-message blob ids (role JSON: system / rules / user / assistant),
+   * in arrival order. `rootPromptMessagesJson` is the context list the
+   * prompt renderer actually consumes; the round's user and assistant
+   * messages belong there, appended after the initial roots.
+   */
+  private _promptMessageIds: string[] = [];
   /** Most recent run's accumulated usage, replayed as tokenDetails budget. */
   private _lastUsage: TokenUsage | null = null;
   /** KV answer-channel diagnostics. */
@@ -174,12 +190,20 @@ export class CursorNativeChatProvider implements ChatProvider {
   }
 
   /**
-   * Continuation turns: every server-issued message blob id in arrival order.
-   * The full chain — not a slice, and not filtered by payload shape — is what
-   * the server needs to rebuild history.
+   * Continuation turn pointer: the id of the last PROTO-encoded turn blob.
+   * The wire field holds a single reference the server hydrates as binary
+   * proto — a JSON-plain message blob there (e.g. the assistant answer)
+   * crashes the parse with `invalid end group tag`. The chain itself is
+   * expanded by the server following the aggregate state blob, so one valid
+   * pointer is all a continuation needs.
    */
   get turnBlobIds(): readonly string[] {
-    return this._turnIds;
+    for (let index = this._turnIds.length - 1; index >= 0; index -= 1) {
+      const id = this._turnIds[index]!;
+      const raw = Buffer.from(this._blobStore.get(id) ?? '', 'base64');
+      if (raw[0] !== 0x7b) return [id];
+    }
+    return [];
   }
 
   /** Leading root-prompt blob ids (system message + rules), when issued. */
@@ -190,6 +214,152 @@ export class CursorNativeChatProvider implements ChatProvider {
   /** Blob payload store backing the KV answer channel. */
   get blobStore(): ReadonlyMap<string, string> {
     return this._blobStore;
+  }
+
+  /**
+   * The last round wrapped as the official `AgentConversationTurnStructure`
+   * (source-verified field list): f1 references the server-issued user turn
+   * blob (32B id), f2 references the round's native step blobs (32B ids, in
+   * issuance order — the official replay expects thinking steps before the
+   * assistant step, which is the order the server pushes them in), and f3
+   * carries the round's request uuid. All referenced blobs are server-issued
+   * and already cached locally; only the wrapper itself is new and registered
+   * in the KV store for the hydrate's `getBlobArgs`.
+   */
+  private conversationTurnBlob(): { id: string; value: string } | undefined {
+    const userTurn = this.lastProtoTurnBlob();
+    if (userTurn === undefined) return undefined;
+    let steps = this.nativeStepBlobIds();
+    if (steps.length === 0) {
+      // Some rounds issue no native step blobs (short replies skip the step
+      // stream). Build the assistant step then — same proto shape the server
+      // generates, with monotonic timestamps, registered in the KV store so
+      // the hydrate's getBlobArgs resolves it.
+      const built = this.buildAssistantStep();
+      if (built === undefined) return undefined;
+      steps = [built.idRaw];
+    }
+    const agentTurn = Buffer.concat([
+      lengthDelimited(1, userTurn.idRaw),
+      ...steps.map((idRaw) => lengthDelimited(2, idRaw)),
+      lengthDelimited(3, Buffer.from(this._lastRunId, 'utf8')),
+    ]);
+    const conversationTurn = lengthDelimited(1, agentTurn);
+    const value = conversationTurn.toString('base64');
+    const id = computeBlobId(conversationTurn);
+    this._blobStore.set(id, value);
+    return { id, value };
+  }
+
+  /**
+   * Encode the last JSON answer as a ConversationStep{assistant_message}
+   * blob — the same shape the server generates natively (AssistantMessage:
+   * f1 text, f2/f3 optional started/completed ms). Returns the raw id and
+   * registers the blob in the KV store.
+   */
+  private buildAssistantStep(): { idRaw: Buffer } | undefined {
+    for (let index = this._turnIds.length - 1; index >= 0; index -= 1) {
+      const raw = Buffer.from(this._blobStore.get(this._turnIds[index]!) ?? '', 'base64');
+      if (raw[0] !== 0x7b) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw.toString('utf8'));
+      } catch {
+        continue;
+      }
+      const message = parsed as { role?: unknown; content?: unknown };
+      if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+      const text = message.content
+        .map((part) => (part as { type?: string; text?: string }).type === 'text' ? (part as { text?: string }).text ?? '' : '')
+        .join('');
+      if (text === '') continue;
+      const completed = Date.now();
+      const started = Math.max(0, completed - 1000);
+      const assistantMessage = Buffer.concat([
+        lengthDelimited(1, Buffer.from(text, 'utf8')),
+        varintField(2, started),
+        varintField(3, completed),
+      ]);
+      const step = lengthDelimited(1, assistantMessage);
+      const id = computeBlobId(step);
+      this._blobStore.set(id, step.toString('base64'));
+      return { idRaw: Buffer.from(id, 'base64') };
+    }
+    return undefined;
+  }
+
+  /**
+   * The server-issued native step blobs of the round (proto ConversationStep:
+   * a top-level f1 assistant_message / f2 tool_call / f3 thinking_message
+   * oneof), in issuance order. JSON messages are skipped — they are the
+   * AI-SDK rendering, not the steps the server hydrates with.
+   */
+  private nativeStepBlobIds(): Buffer[] {
+    const ids: Buffer[] = [];
+    for (const id of this._turnIds) {
+      const raw = Buffer.from(this._blobStore.get(id) ?? '', 'base64');
+      if (raw[0] !== 0x0a && raw[0] !== 0x12 && raw[0] !== 0x1a) continue;
+      const fields = protoFields(raw);
+      const isStep = fields.some((field) => field.fieldNo === 1 || field.fieldNo === 2 || field.fieldNo === 3);
+      // A ConversationStep's oneof payload is a nested message; a bare text
+      // field 1 (a UserMessage) opens with readable text instead.
+      const f1 = fields.find((field) => field.fieldNo === 1);
+      const nested = f1 !== undefined && f1.payload.length > 0 && f1.payload[0] === 0x0a;
+      if (isStep && (f1 === undefined || nested)) ids.push(Buffer.from(id, 'base64'));
+    }
+    return ids;
+  }
+
+  /**
+   * The last proto turn issued by the server, as its blob id (raw 32 bytes).
+   * The server already holds this blob, so the turn reference points at
+   * content it can fetch on its own.
+   */
+  private lastProtoTurnBlob(): { idRaw: Buffer } | undefined {
+    for (let index = this._turnIds.length - 1; index >= 0; index -= 1) {
+      const id = this._turnIds[index]!;
+      const raw = Buffer.from(this._blobStore.get(id) ?? '', 'base64');
+      if (raw[0] === 0x7b) continue;
+      // A UserMessage opens with f1 = raw text; a step opens with f1 wrapping
+      // a nested message. The turn blob is the one with readable text.
+      const fields = protoFields(raw);
+      const f1 = fields.find((field) => field.fieldNo === 1);
+      if (f1 === undefined || f1.payload.length === 0) continue;
+      if (f1.payload[0] === 0x0a) continue; // step, not a user message
+      if (!isReadableText(f1.payload)) continue;
+      return { idRaw: Buffer.from(id, 'base64') };
+    }
+    return undefined;
+  }
+
+  /**
+   * The state anchor the outgoing user message mounts against: a
+   * ConversationState blob constructed here — the base state the server
+   * pushed at round start (roots + workspace) plus an f8 reference to the
+   * round's ConversationTurn blob. The prompt renderer expands history by
+   * recursing from this anchor and following f8 to the turns; referencing a
+   * turn blob directly (or an empty initial state) yields either mis-parse
+   * or an empty history. The constructed blob is registered in the KV store
+   * for the hydrate's getBlobArgs.
+   */
+  private stateAnchorId(): string | undefined {
+    const baseState = this._latestStateBlobId;
+    if (baseState === null) return undefined;
+    const turn = this.conversationTurnBlob();
+    if (turn === undefined) return undefined;
+    const baseRaw = Buffer.from(this._blobStore.get(baseState) ?? '', 'base64');
+    if (baseRaw.length === 0) return undefined;
+    // Append f8 (tag 0x42, 32B) referencing the turn. The base state carries
+    // roots/workspace but no f8 of its own; appending (rather than splicing)
+    // is wire-equivalent for a repeated field.
+    const stateWithTurn = Buffer.concat([
+      baseRaw,
+      Buffer.from('4220', 'hex'),
+      Buffer.from(turn.id, 'base64'),
+    ]);
+    const id = computeBlobId(stateWithTurn);
+    this._blobStore.set(id, stateWithTurn.toString('base64'));
+    return id;
   }
 
   /** KV answer-channel diagnostics: {gets, hits, misses}. */
@@ -233,6 +403,17 @@ export class CursorNativeChatProvider implements ChatProvider {
     if (this._conversationId === null) {
       this._conversationId = `agent-${randomUUID()}`;
     }
+    // The continuation turn: the last round wrapped as the official
+    // AgentConversationTurnStructure, referencing the server-issued user
+    // turn and native step blobs (f3 carries the ROUND-1 request id — the
+    // request that produced the referenced turn). Only set from the second
+    // run on, when a previous round exists to wrap.
+    let continuationTurn: string | undefined;
+    if (this._lastRunId !== null) {
+      const wrapped = this.conversationTurnBlob();
+      if (wrapped !== undefined) continuationTurn = wrapped.id;
+    }
+    this._lastRunId = runId;
     const firstFrame = buildRunRequest({
       modelId: this._model,
       history,
@@ -241,8 +422,18 @@ export class CursorNativeChatProvider implements ChatProvider {
       tools,
       runId,
       checkpoint: this._checkpoint ?? undefined,
-      turns: this.turnBlobIds.length > 0 ? [...this.turnBlobIds] : undefined,
-      rootPromptIds: this._rootPromptIds.length > 0 ? [...this._rootPromptIds] : undefined,
+      turns: continuationTurn !== undefined ? [continuationTurn] : undefined,
+      // rootPromptMessagesJson is the context list the prompt renderer
+      // consumes: initial roots followed by every message blob (user /
+      // assistant) the round produced, in arrival order.
+      rootPromptIds:
+        [...this._rootPromptIds, ...this._promptMessageIds].length > 0
+          ? [...this._rootPromptIds, ...this._promptMessageIds]
+          : undefined,
+      // State anchor (UserMessage.f10): mounts the question against the same
+      // state snapshot the round's user turn carries — taken verbatim from
+      // that turn's f10, the server's own anchor.
+      stateAnchorId: this.stateAnchorId() ?? undefined,
       // Self-issued conversation id, sent from the FIRST run on and reused
       // for the whole session (CLI shape): the server claims the session
       // under the client-provided id, so a round2-only id has no session.
@@ -284,15 +475,31 @@ export class CursorNativeChatProvider implements ChatProvider {
         if (!this._blobStore.has(blob.id)) {
           this._blobStore.set(blob.id, blob.value);
         }
-        // Replay only complete turns. The server issues intra-turn fragments
-        // (thinking / intermediate text) alongside them; those are steps, and
-        // handing them back as turns crashes the server's hydrate.
+        // Every server-issued blob is tracked in arrival order. Steps are NOT
+        // turn references on their own — handing one to `turns` crashes the
+        // hydrate — but they are the round's history halves: the official
+        // AgentConversationTurnStructure's steps array references exactly
+        // these native blobs, so they must be kept for the wrapper to point
+        // at.
         switch (classifyBlob(blob.value)) {
           case 'pack':
-          case 'step':
+            // The server pushes state snapshots throughout the round; the
+            // LAST one carries the round's turns (f8) and is the anchor the
+            // next question mounts against.
+            this._latestStateBlobId = blob.id;
             break;
           case 'root':
             if (!this._rootPromptIds.includes(blob.id)) this._rootPromptIds.push(blob.id);
+            break;
+          case 'user':
+          case 'assistant':
+            // Prompt-message blobs: `rootPromptMessagesJson` is the actual
+            // context list the prompt renderer consumes — the server puts
+            // every message there, system/rules first, then the round's
+            // user/assistant turns. Record them in arrival order so the next
+            // request replays the full conversation.
+            if (!this._promptMessageIds.includes(blob.id)) this._promptMessageIds.push(blob.id);
+            if (!this._turnIds.includes(blob.id)) this._turnIds.push(blob.id);
             break;
           default:
             if (!this._turnIds.includes(blob.id)) this._turnIds.push(blob.id);
@@ -749,6 +956,76 @@ function isStepFragment(raw: Buffer): boolean {
   // (text only) and stays a turn — erring that way keeps history intact.
   const inner = secondFieldWireType(outer.payload);
   return inner === 0;
+}
+
+/**
+ * Encode a varint length prefix followed by the payload bytes.
+ */
+function lengthDelimited(fieldNo: number, payload: Buffer): Buffer {
+  const tag = Buffer.of((fieldNo << 3) | 2);
+  const len: number[] = [];
+  let value = payload.length;
+  for (;;) {
+    let byte = value & 0x7f;
+    value >>>= 7;
+    if (value !== 0) byte |= 0x80;
+    len.push(byte);
+    if (value === 0) break;
+  }
+  return Buffer.concat([tag, Buffer.from(len), payload]);
+}
+
+/**
+ * Encode a uint64 field as a varint (BigInt-safe for epoch timestamps).
+ */
+function varintField(fieldNo: number, value: number): Buffer {
+  const bytes: number[] = [];
+  let rest = BigInt(value);
+  for (;;) {
+    let byte = Number(rest & 0x7fn);
+    rest >>= 7n;
+    if (rest !== 0n) byte |= 0x80;
+    bytes.push(byte);
+    if (rest === 0n) break;
+  }
+  return Buffer.concat([Buffer.of(fieldNo << 3), Buffer.from(bytes)]);
+}
+
+/**
+ * Walk a protobuf body and return its top-level length-delimited fields.
+ */
+function protoFields(body: Buffer): { fieldNo: number; payload: Buffer }[] {
+  const fields: { fieldNo: number; payload: Buffer }[] = [];
+  let i = 0;
+  while (i < body.length) {
+    let tag = 0;
+    let shift = 0;
+    for (;;) {
+      if (i >= body.length) return fields;
+      const b = body[i]!;
+      i += 1;
+      tag |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) break;
+      shift += 7;
+      if (shift > 63) return fields;
+    }
+    const fieldNo = tag >> 3;
+    const wt = tag & 7;
+    if (wt === 2) {
+      const len = readVarintAt(body, i);
+      if (len === null || i + len.value > body.length) return fields;
+      i = len.next;
+      fields.push({ fieldNo, payload: body.subarray(i, i + len.value) });
+      i += len.value;
+    } else if (wt === 0) {
+      const v = readVarintAt(body, i);
+      if (v === null) return fields;
+      i = v.next;
+    } else if (wt === 5) i += 4;
+    else if (wt === 1) i += 8;
+    else return fields;
+  }
+  return fields;
 }
 
 /**

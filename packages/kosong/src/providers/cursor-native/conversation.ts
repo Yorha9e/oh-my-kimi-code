@@ -96,6 +96,13 @@ export interface BuildRunRequestOptions {
   /** Upstream model id sent as `requestedModel.modelId`. */
   modelId: string;
   /**
+   * State anchor for the outgoing user message (UserMessage.f10,
+   * `conversation_state_blob_id`): the server-issued state-pack blob the
+   * current question mounts against. Without it the rewind projection treats
+   * the question as isolated and the replayed history never attaches.
+   */
+  stateAnchorId?: string;
+  /**
    * Full engine history; the last user message becomes the current input.
    * HISTORY IS ONLY USED FOR THE CURRENT INPUT — continuation context comes
    * from the server-issued checkpoint (see `checkpoint`), never from here.
@@ -137,6 +144,17 @@ export interface BuildRunRequestOptions {
    * hold different message classes on the wire.
    */
   rootPromptIds?: string[];
+  /**
+   * The previous assistant turn as a UIMessage, carried in `conversationState`
+   * field 4 (`pendingToolCalls`, repeated string). The prompt assembler pulls
+   * the last answer through it; without the entry the assembler reads the
+   * assistant JSON blob as binary proto and dies with a shifting
+   * `illegal tag` / `invalid end group tag`. Repeated-string wire semantics
+   * require the value to be a JSON **array of strings** — each element the
+   * UIMessage as JSON text; a bare string or an object gets mis-read and
+   * crashes the same assembler.
+   */
+  pendingToolCalls?: string[];
   /**
    * Server-issued message blob payloads to persist back, sent as
    * `preFetchedBlobs` (f17). The server only keeps what the client writes
@@ -308,19 +326,33 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
     options.rootPromptIds === undefined || options.rootPromptIds.length === 0
       ? conversationState
       : { rootPromptMessagesJson: options.rootPromptIds, ...conversationState };
+  // pendingToolCalls (field 4, repeated string): each entry is a UIMessage as
+  // JSON text, wrapped in an array per repeated-string protojson semantics.
+  const withPending =
+    options.pendingToolCalls === undefined || options.pendingToolCalls.length === 0
+      ? withRoot
+      : { ...withRoot, pendingToolCalls: options.pendingToolCalls };
   // Token budget detail rides alongside turns/workspace (agent.v1 field 5).
   // Kept as a separate merge so an explicit checkpoint still wins wholesale.
   const conversationStateWithBudget =
     options.tokenDetails === undefined
-      ? withRoot
-      : { ...withRoot, tokenDetails: options.tokenDetails };
+      ? withPending
+      : { ...withPending, tokenDetails: options.tokenDetails };
   const entries = options.modelParams === undefined ? [] : Object.entries(options.modelParams);
   const blobs = options.blobs !== undefined && options.blobs.length > 0 ? options.blobs : undefined;
+  // The current turn's state anchor (UserMessage.f10): without it the server
+  // treats the question as an isolated message and never mounts the history
+  // replayed in conversationState (source-verified: the rewind projection
+  // skips messages whose conversationStateBlobId is empty).
+  const userMessage: Record<string, unknown> = { text, messageId: randomUUID() };
+  if (options.stateAnchorId !== undefined && options.stateAnchorId !== '') {
+    userMessage['conversationStateBlobId'] = options.stateAnchorId;
+  }
   return {
     runRequest: {
       action: {
         userMessageAction: {
-          userMessage: { text, messageId: randomUUID() },
+          userMessage,
           // RequestContext must be present: the upstream rejects first
           // contact without it ("Failed to get request context"). All its
           // fields are optional, so an empty object is the minimal valid form.

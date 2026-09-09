@@ -148,7 +148,10 @@ describe('text streaming and first frame', () => {
     expect(seenHeaders?.['authorization']).toBe('Bearer tok');
     const firstFrame = await firstFrameOf(seenBody);
     const runRequest = firstFrame['runRequest'] as Record<string, unknown>;
-    expect(runRequest['conversationState']).toEqual({});
+    // A fresh run has no assistant turn yet, so field 4 stays absent and the
+    // state carries no workspace context either.
+    const state = runRequest['conversationState'] as Record<string, unknown>;
+    expect(state).toEqual({});
     expect((runRequest['requestedModel'] as Record<string, unknown>)['modelId']).toBe('model-a');
     expect(typeof runRequest['runId']).toBe('string');
     expect(stream.id).toBe(runRequest['runId']);
