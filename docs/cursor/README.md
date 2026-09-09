@@ -28,6 +28,7 @@
 | [exploration-rules-injection](exploration-rules-injection.md) | S1 规则文件注入方向探索（可行但侵入用户仓库） |
 | [verification-log](verification-log.md) | 真机验证记录：探针①②③全部通过（协议→oneof→权威首帧） |
 | [stateless-contract-mismatch](stateless-contract-mismatch.md) | engine 无状态契约 vs cursor 有状态会话的错配分析、「全量重建窗口」方案、官方 SDK 文档 14 项定性结论 |
+| [continuation-protocol](continuation-protocol.md) | **续聊协议终局记录**：blob 分类判别、AgentConversationTurn 四层引用结构、`rootPromptMessagesJson` = LLM 上下文消息列表（终局机制）、state anchor 递归展开、错误分类学（每种解析错误的真实含义）与验证 checklist |
 
 ## 约定
 
