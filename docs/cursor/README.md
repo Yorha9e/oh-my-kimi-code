@@ -30,6 +30,7 @@
 | [stateless-contract-mismatch](stateless-contract-mismatch.md) | engine 无状态契约 vs cursor 有状态会话的错配分析、「全量重建窗口」方案、官方 SDK 文档 14 项定性结论 |
 | [continuation-protocol](continuation-protocol.md) | **续聊协议终局记录**：blob 分类判别、AgentConversationTurn 四层引用结构、`rootPromptMessagesJson` = LLM 上下文消息列表（终局机制）、state anchor 递归展开、错误分类学（每种解析错误的真实含义）与验证 checklist |
 | [engine-state-persistence](engine-state-persistence.md) | **engine 适配设计记录**：provider 状态为何跨进程丢失（per-模型配置缓存）、官方 SQLite 持久化参考、v2 replayable state 方案（B 案）、跨模型切换与 compact 边界场景现状（compact 对 cursor 失效且 auto-compact 可能永不触发） |
+| [engine-adaptation-research](engine-adaptation-research.md) | **engine 适配原始调研固化**：三次并行 explore 的逐行代码事实与行号索引（session 双轨持久化/wire replay 守卫/两引擎 provider 缓存机制/挂点三案对比、官方 SQLite schema 与 metadata 全集/恢复按需加载流程、跨模型与 compact 场景的全部代码路径）+ 三报告交叉后的设计定案与遗留不确定项 |
 
 ## 约定
 
