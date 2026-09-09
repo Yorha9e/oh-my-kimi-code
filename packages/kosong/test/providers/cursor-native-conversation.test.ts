@@ -9,6 +9,7 @@ import {
   buildConversationState,
   buildRunRequest,
   mapTurnEndedUsage,
+  toTokenDetails,
   toUiTurns,
   type CursorUiMessage,
 } from '#/providers/cursor-native/conversation';
@@ -99,6 +100,46 @@ describe('buildRunRequest first round', () => {
     const runRequest = runRequestOf(frame);
     expect(runRequest['conversationState']).toEqual({ turns: ['AAAA', 'BBBB'] });
     expect(runRequest['preFetchedBlobs']).toEqual(blobs);
+  });
+
+  it('merges tokenDetails budget into continuation conversationState', () => {
+    const frame = buildRunRequest({
+      modelId: 'default',
+      history: [createUserMessage('follow-up')],
+      turns: ['AAAA', 'BBBB'],
+      tokenDetails: { usedTokens: 900, maxTokens: 200000, breakdown: { totalUsedTokens: 900, maxTokens: 200000 } },
+    });
+    const runRequest = runRequestOf(frame);
+    expect(runRequest['conversationState']).toEqual({
+      turns: ['AAAA', 'BBBB'],
+      tokenDetails: { usedTokens: 900, maxTokens: 200000, breakdown: { totalUsedTokens: 900, maxTokens: 200000 } },
+    });
+  });
+
+  it('keeps root-prompt blobs in rootPromptMessagesJson, not in turns', () => {
+    const frame = buildRunRequest({
+      modelId: 'default',
+      history: [createUserMessage('follow-up')],
+      turns: ['AAAA', 'BBBB'],
+      rootPromptIds: ['ROOT1', 'ROOT2'],
+    });
+    const runRequest = runRequestOf(frame);
+    expect(runRequest['conversationState']).toEqual({
+      rootPromptMessagesJson: ['ROOT1', 'ROOT2'],
+      turns: ['AAAA', 'BBBB'],
+    });
+  });
+
+  it('builds tokenDetails from accumulated usage via toTokenDetails', () => {
+    const details = toTokenDetails({
+      inputOther: 100,
+      output: 50,
+      inputCacheRead: 20,
+      inputCacheCreation: 30,
+    });
+    expect(details.usedTokens).toBe(200);
+    expect(details.maxTokens).toBe(200000);
+    expect(details.breakdown).toEqual({ totalUsedTokens: 200, maxTokens: 200000 });
   });
 
   it('folds fresh-run workspace context into an otherwise empty conversationState', () => {

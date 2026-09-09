@@ -62,6 +62,25 @@ export interface PreFetchedBlob {
 }
 
 /**
+ * Token budget detail carried as `conversationState.tokenDetails`
+ * (agent.v1.ConversationTokenDetails, wire field 5). Mirrors the proto JSON
+ * camelCase shape confirmed from the SDK descriptor: `usedTokens` /
+ * `maxTokens` at the top level plus an optional `breakdown` of per-category
+ * usage. The official CLI persists this from the server checkpoint and replays
+ * it verbatim on continuation; we synthesize it from the previous run's usage
+ * so the server sees the expected budget field on resume.
+ */
+export interface CursorTokenDetails {
+  usedTokens?: number;
+  maxTokens?: number;
+  breakdown?: {
+    totalUsedTokens?: number;
+    maxTokens?: number;
+    categories?: { id: string; label: string; estimatedTokens: number; characterCount?: number }[];
+  };
+}
+
+/**
  * Continuation half of the first frame: the `conversationState` object plus
  * the blob table it references, if any.
  */
@@ -105,11 +124,19 @@ export interface BuildRunRequestOptions {
   checkpoint?: Record<string, unknown>;
   /**
    * Server-issued message blob ids (KV set_blob_args), in arrival order.
-   * Sent as `conversationState.turns` — the server resolves each id
-   * content-addressed; ids it never issued are ignored, which is why the
-   * old self-computed hashes left continuations memoryless.
+   * Sent as `conversationState.turns` (agent.v1 field 8) — the conversation
+   * turns proper. Root-prompt blobs (the leading system/rules messages) must
+   * NOT land here: they belong in {@link BuildRunRequestOptions.rootPromptIds}
+   * and mixing them in makes the server's hydrate fail to parse the list.
    */
   turns?: string[];
+  /**
+   * Server-issued root-prompt blob ids (the leading system message and the
+   * rules payload). Sent as `conversationState.rootPromptMessagesJson`
+   * (agent.v1 field 1). Kept separate from `turns` because the two fields
+   * hold different message classes on the wire.
+   */
+  rootPromptIds?: string[];
   /**
    * Server-issued message blob payloads to persist back, sent as
    * `preFetchedBlobs` (f17). The server only keeps what the client writes
@@ -123,6 +150,13 @@ export interface BuildRunRequestOptions {
    * conversation with no workspace context may never see checkpoints.
    */
   workspace?: CursorWorkspaceContext;
+  /**
+   * Token budget detail for `conversationState.tokenDetails` (agent.v1 field
+   * 5), synthesized from the previous run's usage. The official CLI replays
+   * the server-issued checkpoint budget on continuation; providing it here
+   * mirrors that so the server sees the expected budget field on resume.
+   */
+  tokenDetails?: CursorTokenDetails;
   /**
    * Engine tools declared to the model via `mcpTools` (field 4). Without a
    * declaration the model cannot request any tool — the exec channel only
@@ -258,11 +292,28 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
   // the conversation. The old self-invented keys are intentionally gone — the
   // server's JSON parser ignores unknown keys, which is exactly why the
   // previous continuation never saw history.
+  // Continuation runs replay the server's blob ids as `conversationState.turns`
+// (the server content-addresses history under those ids); workspace context
+// rides BOTH fresh and continuation runs — the CLI's shape-b replay carries
+// turns + workspace together, and a continuation with only `turns` hydrates
+// nothing (observed: model answers without memory).
   const conversationState =
     options.checkpoint ??
     (options.turns !== undefined && options.turns.length > 0
-      ? { turns: options.turns }
+      ? { turns: options.turns, ...initialConversationState(options.workspace) }
       : initialConversationState(options.workspace));
+  // Root-prompt blobs ride field 1 (rootPromptMessagesJson), separate from the
+  // turn list on field 8 — the two are different message classes on the wire.
+  const withRoot =
+    options.rootPromptIds === undefined || options.rootPromptIds.length === 0
+      ? conversationState
+      : { rootPromptMessagesJson: options.rootPromptIds, ...conversationState };
+  // Token budget detail rides alongside turns/workspace (agent.v1 field 5).
+  // Kept as a separate merge so an explicit checkpoint still wins wholesale.
+  const conversationStateWithBudget =
+    options.tokenDetails === undefined
+      ? withRoot
+      : { ...withRoot, tokenDetails: options.tokenDetails };
   const entries = options.modelParams === undefined ? [] : Object.entries(options.modelParams);
   const blobs = options.blobs !== undefined && options.blobs.length > 0 ? options.blobs : undefined;
   return {
@@ -284,7 +335,7 @@ export function buildRunRequest(options: BuildRunRequestOptions): Record<string,
             : undefined,
       },
       runId: options.runId ?? randomUUID(),
-      conversationState,
+      conversationState: conversationStateWithBudget,
       conversationId: options.conversationId,
       preFetchedBlobs: blobs,
       // Tool declaration, mirroring the CLI's wire shape exactly (decoded
@@ -321,6 +372,33 @@ export function mapTurnEndedUsage(event: TurnEndedUsageEvent): TokenUsage {
     output: toCount(event.output),
     inputCacheRead: toCount(event.cacheRead),
     inputCacheCreation: toCount(event.cacheWrite),
+  };
+}
+
+/**
+ * Default `maxTokens` budget for `toTokenDetails`, aligned with the upstream
+ * CLI's checkpoint scale (~200k). The server uses the budget field to judge
+ * the context window on resume; a concrete model-specific cap can be passed
+ * by callers by overriding the fields after this helper returns.
+ */
+export const DEFAULT_CURSOR_TOKEN_MAX = 200_000;
+
+/**
+ * Synthesize `conversationState.tokenDetails` (agent.v1 field 5) from a
+ * previous run's aggregated `TokenUsage`. The official CLI replays the
+ * server-issued checkpoint budget verbatim on continuation; since the JSON
+ * wire hands budgets via usage events rather than a checkpoint, we rebuild
+ * the expected `{usedTokens, maxTokens, breakdown}` shape from what we
+ * measured. `breakdown.categories` stays absent — the per-category split is
+ * not recoverable from aggregated usage and the field is optional on the wire.
+ */
+export function toTokenDetails(usage: TokenUsage): CursorTokenDetails {
+  const used = usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation + usage.output;
+  const budget = { totalUsedTokens: used, maxTokens: DEFAULT_CURSOR_TOKEN_MAX };
+  return {
+    usedTokens: used,
+    maxTokens: DEFAULT_CURSOR_TOKEN_MAX,
+    breakdown: budget,
   };
 }
 

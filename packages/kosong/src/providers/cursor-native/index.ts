@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import {
   buildRunRequest,
   mapTurnEndedUsage,
+  toTokenDetails,
   type CursorWorkspaceContext,
   type TurnEndedUsageEvent,
 } from './conversation';
@@ -71,11 +72,13 @@ export interface CursorNativeStreamOptions {
   readonly onRequestSent?: () => void;
   /** Called with each server-issued `conversationCheckpointUpdate` payload. */
   readonly onCheckpoint?: (checkpoint: Record<string, unknown>) => void;
-  /**
-   * Called with each server-issued blob (KV set_blob_args). Implementations
-   * keep the payload for the get_blob_args answer channel.
-   */
+  /** Called when a turn ends with the accumulated usage (for budget replay). */
+  readonly onUsage?: (usage: TokenUsage) => void;
+  /** Called with each server-issued blob (KV set_blob_args). Implementations
+   * keep the payload for the get_blob_args answer channel. */
   readonly onBlob?: (blob: { id: string; value: string }) => void;
+  /** Called for each get_blob_args with the answer hit/miss outcome. */
+  readonly onKvGet?: (outcome: { id: string; hit: boolean }) => void;
   /** Blob payload store backing the get_blob_args answer channel. */
   readonly blobStore: ReadonlyMap<string, string>;
 }
@@ -122,10 +125,29 @@ export class CursorNativeChatProvider implements ChatProvider {
   private _checkpoint: Record<string, unknown> | null = null;
   /** Server-issued blob payload store (id → base64), backing the KV answer channel. */
   private _blobStore: Map<string, string> = new Map();
-  /** Continuation turns: checkpoint-derived blob id list, when issued. */
-  private _checkpointTurnIds: string[] | null = null;
-  /** Provisional turns: non-JSON, non-snapshot blob ids (no checkpoint yet). */
-  private _fallbackTurnIds: string[] = [];
+  /**
+   * Every server-issued turn blob id in `setBlobArgs` arrival order — the chain
+   * the server replays to rebuild history. Two failure modes to guard: slicing
+   * or filtering the list drops the assistant answer (the turn a continuation
+   * must recall), while admitting non-turn blobs — intra-turn step fragments,
+   * reference packs — makes the server's hydrate fail to parse it. Root-prompt
+   * blobs are split off into {@link _rootPromptIds}, steps skipped on arrival.
+   */
+  private _turnIds: string[] = [];
+  /**
+   * Leading root-prompt blob ids (system message + rules payload). The wire
+   * keeps them in `rootPromptMessagesJson` (field 1), not in `turns`
+   * (field 8); they are split out on arrival.
+   */
+  private _rootPromptIds: string[] = [];
+  /** Self-issued conversation id (`agent-<uuid>`), sent from the 2nd run on. */
+  private _conversationId: string | null = null;
+  /** Most recent run's accumulated usage, replayed as tokenDetails budget. */
+  private _lastUsage: TokenUsage | null = null;
+  /** KV answer-channel diagnostics. */
+  private _kvGets = 0;
+  private _kvHits = 0;
+  private _kvMisses = 0;
 
   /**
    * Create a native cursor provider. The token defaults to the constructor
@@ -151,14 +173,33 @@ export class CursorNativeChatProvider implements ChatProvider {
     return this._checkpoint;
   }
 
-  /** Continuation turns: checkpoint blob ids when issued, else provisional ids. */
+  /**
+   * Continuation turns: every server-issued message blob id in arrival order.
+   * The full chain — not a slice, and not filtered by payload shape — is what
+   * the server needs to rebuild history.
+   */
   get turnBlobIds(): readonly string[] {
-    return this._checkpointTurnIds ?? this._fallbackTurnIds;
+    return this._turnIds;
+  }
+
+  /** Leading root-prompt blob ids (system message + rules), when issued. */
+  get rootPromptIds(): readonly string[] {
+    return this._rootPromptIds;
   }
 
   /** Blob payload store backing the KV answer channel. */
   get blobStore(): ReadonlyMap<string, string> {
     return this._blobStore;
+  }
+
+  /** KV answer-channel diagnostics: {gets, hits, misses}. */
+  get kvDiagnostics(): { gets: number; hits: number; misses: number } {
+    return { gets: this._kvGets, hits: this._kvHits, misses: this._kvMisses };
+  }
+
+  /** Most recent run's accumulated usage (null before the first completed run). */
+  get lastUsage(): TokenUsage | null {
+    return this._lastUsage;
   }
 
   get modelName(): string {
@@ -189,6 +230,9 @@ export class CursorNativeChatProvider implements ChatProvider {
       );
     }
     const runId = randomUUID();
+    if (this._conversationId === null) {
+      this._conversationId = `agent-${randomUUID()}`;
+    }
     const firstFrame = buildRunRequest({
       modelId: this._model,
       history,
@@ -198,10 +242,17 @@ export class CursorNativeChatProvider implements ChatProvider {
       runId,
       checkpoint: this._checkpoint ?? undefined,
       turns: this.turnBlobIds.length > 0 ? [...this.turnBlobIds] : undefined,
-      // conversationId is intentionally NOT sent: the CLI's id is
-      // server-issued (a locally fabricated `agent-<uuid>` poisons the
-      // server's hydrate — two distinct proto-parser crashes observed).
+      rootPromptIds: this._rootPromptIds.length > 0 ? [...this._rootPromptIds] : undefined,
+      // Self-issued conversation id, sent from the FIRST run on and reused
+      // for the whole session (CLI shape): the server claims the session
+      // under the client-provided id, so a round2-only id has no session.
+      conversationId: this._conversationId,
       workspace: this._workspace,
+      // Budget replay (agent.v1 field 5): the CLI persists the server-issued
+      // checkpoint budget and sends it back on resume; we rebuild the same
+      // shape from the previous run's usage so the server sees the expected
+      // field on continuation runs.
+      tokenDetails: this._lastUsage === null ? undefined : toTokenDetails(this._lastUsage),
     });
     return new CursorNativeStreamedMessage({
       token,
@@ -221,18 +272,30 @@ export class CursorNativeChatProvider implements ChatProvider {
       onCheckpoint: (checkpoint) => {
         this._checkpoint = checkpoint;
       },
+      onUsage: (usage) => {
+        this._lastUsage = usage;
+      },
+      onKvGet: (outcome) => {
+        this._kvGets += 1;
+        if (outcome.hit) this._kvHits += 1;
+        else this._kvMisses += 1;
+      },
       onBlob: (blob) => {
         if (!this._blobStore.has(blob.id)) {
           this._blobStore.set(blob.id, blob.value);
         }
-        if (isStateSnapshotBlob(blob.value)) {
-          // State pack: its f1 carries the session's blob-id list (the real
-          // `turns`) — parse and take it over. Content blobs only feed the
-          // answer channel; they are never turns themselves.
-          const ids = extractTurnIds(blob.value);
-          if (ids !== null && ids.length > 0) this._checkpointTurnIds = ids;
-        } else if (this._checkpointTurnIds === null) {
-          this._fallbackTurnIds.push(blob.id);
+        // Replay only complete turns. The server issues intra-turn fragments
+        // (thinking / intermediate text) alongside them; those are steps, and
+        // handing them back as turns crashes the server's hydrate.
+        switch (classifyBlob(blob.value)) {
+          case 'pack':
+          case 'step':
+            break;
+          case 'root':
+            if (!this._rootPromptIds.includes(blob.id)) this._rootPromptIds.push(blob.id);
+            break;
+          default:
+            if (!this._turnIds.includes(blob.id)) this._turnIds.push(blob.id);
         }
       },
       blobStore: this._blobStore,
@@ -401,6 +464,10 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
           // `id` is echoed when the server frame carried one.
           const id = getReq['blobId'];
           const value = typeof id === 'string' ? options.blobStore.get(id) : undefined;
+          options.onKvGet?.({
+            id: typeof id === 'string' ? id : '',
+            hit: value !== undefined,
+          });
           if (value === undefined) {
             console.warn(`[cursor-native] getBlobArgs for unknown blob ${String(id)}; answering empty`);
           }
@@ -456,6 +523,9 @@ export class CursorNativeStreamedMessage implements StreamedMessage {
             if (event !== null) {
               const mapped = mapTurnEndedUsage(event);
               this._usage = this._usage === null ? mapped : addUsage(this._usage, mapped);
+              // Surface the accumulated usage so the provider can replay the
+              // budget as tokenDetails on the next continuation run.
+              options.onUsage?.(this._usage);
             }
             // The upstream keeps the bidi stream open after a turn ends
             // (heartbeats continue indefinitely) — the turn, not the stream
@@ -569,86 +639,226 @@ function kvServerIdOf(msg: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Extract the session blob-id list (the real `turns`) from a state-pack blob:
- * proto field 8 (repeated bytes, 32-byte entries). Field 1 is
- * `root_prompt_messages_json` — issuing those ids as turns crashes the
- * server's hydrate. Returns null when the payload is not a walkable pack.
+ * True when a blob payload is a reference pack (state snapshot / aggregate
+ * index) rather than a message. A pack's field 1 is a nested proto that opens
+ * with a 32-byte length-delimited entry (`0a 20 <32B blob id>`) — either at
+ * the top level or one level down (`0a <len> 0a 20 …`). Message blobs open
+ * with readable text/plain JSON instead.
+ *
+ * A payload that starts with `{` is NOT a pack: the server issues system,
+ * rules, user and — critically — assistant messages as plain JSON, and the
+ * assistant message is what a continuation must recall. Treating JSON as a
+ * pack dropped the assistant turn from `turns` and left resumptions
+ * memoryless (gateway tap measured flat inputTokens across rounds).
  */
-function extractTurnIds(blobData: string): string[] | null {
-  let buf: Buffer;
+function isStateSnapshotBlob(data: string): boolean {
+  if (data === '') return false;
+  let raw: Buffer;
   try {
-    buf = Buffer.from(blobData, 'base64');
+    raw = Buffer.from(data, 'base64');
   } catch {
-    return null;
+    return true;
   }
-  const ids: string[] = [];
+  if (raw.length === 0) return true;
+  if (raw[0] !== 0x0a) return false; // message blobs start with text or '{'
+  // field 1, wire type 2: read the varint length, then inspect the payload.
+  let i = 1;
+  let len = 0;
+  let shift = 0;
+  for (; i < raw.length; i += 1) {
+    const b = raw[i]!;
+    len |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
+    shift += 7;
+    if (shift > 63) return false;
+  }
+  const inner = raw.subarray(i + 1);
+  // A pack either holds a 32-byte blob id directly (len === 32) or nests a
+  // proto that opens with one (`0a 20 <32B>`).
+  if (len === 32) return true;
+  return inner.length >= 2 && inner[0] === 0x0a && inner[1] === 0x20;
+}
+
+/**
+ * Classify a server-issued blob so the continuation can replay the right set:
+ * - `pack`: a reference container (state snapshot / aggregate index) — never a
+ *   turn; the server fails to parse it as one.
+ * - `root`: a leading root-prompt message (system prompt, rules).
+ * - `assistant` / `user`: a complete conversation turn.
+ * - `step`: an intra-turn fragment (thinking / intermediate text) issued while
+ *   the assistant is composing its answer. Steps are NOT turns — including
+ *   them in `turns` crashes the server's hydrate with `illegal tag` (gateway
+ *   tap: a 49B and a 75B fragment were the culprits).
+ * - `other`: unclassified binary, treated as a turn so history is not dropped.
+ */
+function classifyBlob(data: string): 'pack' | 'root' | 'assistant' | 'user' | 'step' | 'other' {
+  let raw: Buffer;
+  try {
+    raw = Buffer.from(data, 'base64');
+  } catch {
+    return 'pack';
+  }
+  if (raw.length === 0) return 'pack';
+  if (raw[0] === 0x7b) {
+    // Plain JSON message: its top-level `role` decides the class.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.toString('utf8'));
+    } catch {
+      return 'other';
+    }
+    if (typeof parsed !== 'object' || parsed === null) return 'other';
+    const role = (parsed as { role?: unknown }).role;
+    if (role === 'assistant') return 'assistant';
+    if (role === 'system') return 'root';
+    if (role === 'user') return isRulesPayload(parsed) ? 'root' : 'user';
+    return 'other';
+  }
+  if (isStateSnapshotBlob(data)) return 'pack';
+  // Binary fragment: field 3 (thinking_message) is a ConversationStep's oneof
+  // member, and a field-1 payload that is a single plain-text field is a
+  // step's assistant_message. Either way it is a step, not a turn.
+  return isStepFragment(raw) ? 'step' : 'other';
+}
+
+/**
+ * True when a binary blob is a {@code ConversationStep} rather than a turn.
+ *
+ * Both are encoded as a message body wrapped in an outer field 1, so the outer
+ * shape cannot tell them apart — the inner `field 2` can, when present:
+ * - a turn carries `messageId` there, a length-delimited string (wire type 2);
+ * - a step carries a timestamp there, a varint (wire type 0).
+ * Bodies with no second field are plain user messages and stay turns. Counting
+ * inner fields does not work either: a step's two fields (text + varint
+ * timestamp) look just as numerous as a turn's (text + messageId), which is
+ * what mis-classified a 49B step as a turn and crashed the server's hydrate
+ * (gateway tap: `illegal tag: field no 6`).
+ */
+function isStepFragment(raw: Buffer): boolean {
+  const outer = firstLengthDelimited(raw);
+  if (outer === null) return false;
+  // field 3 is thinking_message — unmistakably a step.
+  if (outer.fieldNo === 3) return true;
+  if (outer.fieldNo !== 1) return false;
+  // A payload that is plain readable text is a user message body, not a step:
+  // steps wrap their text in a nested field (`0a <len> text`) instead.
+  if (isReadableText(outer.payload)) return false;
+  // Inspect the inner message's field 2, when it has one: a length-delimited
+  // field 2 is the messageId of a real turn, while a varint one is the
+  // timestamp of a step. A body with no second field is a plain user message
+  // (text only) and stays a turn — erring that way keeps history intact.
+  const inner = secondFieldWireType(outer.payload);
+  return inner === 0;
+}
+
+/**
+ * True when a protobuf payload is plain readable text rather than a nested
+ * message: user message bodies arrive as bare text, while steps wrap theirs in
+ * a nested field. Reading a bare-text payload as proto would surface a
+ * meaningless `field 2` and mis-classify a real turn as a step.
+ */
+function isReadableText(buf: Buffer): boolean {
+  if (buf.length === 0) return false;
+  const text = buf.toString('utf8');
+  // Reject anything with control characters (proto tags / lengths live there).
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) return false;
+  }
+  return true;
+}
+
+/** Read the first length-delimited field of a protobuf body. */
+function firstLengthDelimited(raw: Buffer): { fieldNo: number; payload: Buffer } | null {
   let i = 0;
-  while (i < buf.length) {
+  let tag = 0;
+  let shift = 0;
+  for (;;) {
+    if (i >= raw.length) return null;
+    const b = raw[i]!;
+    i += 1;
+    tag |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
+    shift += 7;
+    if (shift > 63) return null;
+  }
+  if ((tag & 7) !== 2) return null;
+  let len = 0;
+  let ls = 0;
+  for (;;) {
+    if (i >= raw.length) return null;
+    const b = raw[i]!;
+    i += 1;
+    len |= (b & 0x7f) << ls;
+    if ((b & 0x80) === 0) break;
+    ls += 7;
+    if (ls > 63) return null;
+  }
+  if (i + len > raw.length) return null;
+  return { fieldNo: tag >> 3, payload: raw.subarray(i, i + len) };
+}
+
+/**
+ * Wire type of the message body's second field, or null when it has none.
+ */
+function secondFieldWireType(body: Buffer): number | null {
+  let i = 0;
+  let seen = 0;
+  while (i < body.length) {
     let tag = 0;
     let shift = 0;
     for (;;) {
-      if (i >= buf.length) return null;
-      const b = buf[i]!;
+      if (i >= body.length) return null;
+      const b = body[i]!;
       i += 1;
       tag |= (b & 0x7f) << shift;
       if ((b & 0x80) === 0) break;
       shift += 7;
       if (shift > 63) return null;
     }
-    const fno = tag >> 3;
     const wt = tag & 7;
+    seen += 1;
     if (wt === 2) {
-      let len = 0;
-      let lshift = 0;
-      for (;;) {
-        if (i >= buf.length) return null;
-        const b = buf[i]!;
-        i += 1;
-        len |= (b & 0x7f) << lshift;
-        if ((b & 0x80) === 0) break;
-        lshift += 7;
-        if (lshift > 63) return null;
-      }
-      if (i + len > buf.length) return null;
-      if (fno === 8 && len === 32) {
-        ids.push(buf.subarray(i, i + 32).toString('base64'));
-      }
-      i += len;
+      const len = readVarintAt(body, i);
+      if (len === null) return null;
+      i = len.next + len.value;
     } else if (wt === 0) {
-      for (;;) {
-        if (i >= buf.length) return null;
-        const b = buf[i]!;
-        i += 1;
-        if ((b & 0x80) === 0) break;
-      }
-    } else if (wt === 5) {
-      i += 4;
-    } else if (wt === 1) {
-      i += 8;
-    } else {
-      return null;
-    }
+      const v = readVarintAt(body, i);
+      if (v === null) return null;
+      i = v.next;
+    } else if (wt === 5) i += 4;
+    else if (wt === 1) i += 8;
+    else return null;
+    if (seen === 2) return wt;
   }
-  return ids.length > 0 ? ids : null;
+  return null;
 }
 
-/**
- * True when a blob payload is a state/root-prompt pack rather than a turn:
- * those payloads start with a length-32 length-delimited field (0x0A 0x20)
- * holding a nested blob id, while turn payloads start with a plain text,
- * JSON, or a non-32-length field. Non-ASCII/base64-invalid payloads are
- * treated as turns (keep them — better over-inclusion than dropped history).
- */
-function isStateSnapshotBlob(data: string): boolean {
-  if (data === '') return false;
-  try {
-    const head = Buffer.from(data, 'base64');
-    if (head.length === 0) return true;
-    if (head[0] === 0x7b) return true; // '{' — JSON-plain message, not a Turn proto
-    return head.length >= 2 && head[0] === 0x0a && head[1] === 0x20;
-  } catch {
-    return true;
+/** Read a varint at `i`, returning its value and the index after it. */
+function readVarintAt(buf: Buffer, i: number): { value: number; next: number } | null {
+  let value = 0;
+  let shift = 0;
+  for (;;) {
+    if (i >= buf.length) return null;
+    const b = buf[i]!;
+    i += 1;
+    value |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) return { value, next: i };
+    shift += 7;
+    if (shift > 63) return null;
   }
+}
+/**
+ * True when a parsed JSON message is the rules payload rather than a
+ * conversation turn. The server ships the rules block as a `user` message
+ * whose content is one plain string starting with `<rules>`; real user turns
+ * carry structured content. Keying on the rules marker rather than on
+ * "content is a string" keeps ordinary string-content user messages as turns —
+ * classifying those as root prompts would drop them from the history.
+ */
+function isRulesPayload(parsed: object): boolean {
+  const content = (parsed as { content?: unknown }).content;
+  return typeof content === 'string' && content.trimStart().startsWith('<rules');
 }
 
 function deltaText(payload: unknown, keys: ReadonlyArray<string>): string | null {
