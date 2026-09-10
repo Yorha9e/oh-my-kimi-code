@@ -19,6 +19,7 @@ import {
   type CursorWorkspaceContext,
   type TurnEndedUsageEvent,
 } from './conversation';
+import { compactCursorSnapshot, type CompactCursorSnapshotOptions } from './compact';
 import {
   classifyTrailerError,
   CursorProtocolError,
@@ -445,6 +446,18 @@ export class CursorNativeChatProvider implements ChatProvider {
     this._conversationId = snapshot.conversationId;
     this._lastRunId = snapshot.lastRunId;
     this._lastUsage = snapshot.lastUsage === null ? null : { ...snapshot.lastUsage };
+  }
+
+  /**
+   * Compact the protocol state in place, mirroring the server's post-compaction
+   * shape: history collapses to one summary blob, stale turn references and
+   * their blobs are dropped, and the next generate builds a fresh state anchor
+   * under the unchanged `conversationId`. Returns the compacted snapshot.
+   */
+  compactState(summaryText: string, opts?: CompactCursorSnapshotOptions): CursorProviderSnapshot {
+    const compacted = compactCursorSnapshot(this.snapshotState(), summaryText, opts);
+    this.restoreState(compacted);
+    return compacted;
   }
 
   get modelName(): string {
@@ -1279,3 +1292,6 @@ function turnEndedEventOf(payload: unknown): TurnEndedUsageEvent | null {
     reasoning: record['reasoning'] ?? record['reasoningTokens'] ?? record['reasoning_tokens'],
   };
 }
+
+export { compactCursorSnapshot } from './compact';
+export type { CompactCursorSnapshotOptions } from './compact';

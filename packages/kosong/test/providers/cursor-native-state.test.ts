@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createUserMessage } from '#/message';
+import { createAssistantMessage, createUserMessage } from '#/message';
 import {
   computeBlobId,
   type BuildRunRequestOptions,
 } from '#/providers/cursor-native/conversation';
 import {
+  compactCursorSnapshot,
   CursorNativeChatProvider,
   type CursorProviderSnapshot,
 } from '#/providers/cursor-native/index';
@@ -155,5 +156,103 @@ describe('cursor provider snapshot round-trip', () => {
     expect(userMessageOf(runRequest)['conversationStateBlobId']).toBeDefined();
     expect(runRequest['conversationId']).toBe(snapshot.conversationId);
     expect(restored.snapshotState()).toEqual(original.snapshotState());
+  });
+});
+
+describe('cursor provider local compaction', () => {
+  beforeEach(() => {
+    buildCalls.calls.length = 0;
+    uuidState.n = 0;
+  });
+
+  it('compactState collapses history into a summary blob and GCs dead blobs', () => {
+    const snapshot = makeSnapshot();
+    const provider = new CursorNativeChatProvider({ model: 'default' });
+    provider.restoreState(snapshot);
+
+    const compacted = provider.compactState('talked about widgets');
+
+    expect(compacted.conversationId).toBe(snapshot.conversationId);
+    expect(compacted.lastRunId).toBeNull();
+    expect(compacted.latestStateBlobId).toBeNull();
+    expect(compacted.lastUsage).toEqual(snapshot.lastUsage);
+    expect(compacted.rootPromptIds).toEqual(snapshot.rootPromptIds);
+    expect(compacted.turnIds).toEqual([]);
+    expect(compacted.promptMessageIds).toHaveLength(1);
+    const summaryId = compacted.promptMessageIds[0]!;
+    const summaryJson = JSON.stringify({
+      role: 'user',
+      content: [{ type: 'text', text: '[Previous conversation summary]:\ntalked about widgets' }],
+    });
+    expect(summaryId).toBe(computeBlobId(Buffer.from(summaryJson, 'utf8')));
+    expect(compacted.blobStore[summaryId]).toBe(Buffer.from(summaryJson, 'utf8').toString('base64'));
+    expect(Object.keys(compacted.blobStore).sort()).toEqual(
+      [...snapshot.rootPromptIds, summaryId].sort(),
+    );
+    expect(provider.snapshotState()).toEqual(compacted);
+  });
+
+  it('compactCursorSnapshot leaves the input snapshot untouched', () => {
+    const snapshot = makeSnapshot();
+    const frozen = structuredClone(snapshot);
+
+    const compacted = compactCursorSnapshot(snapshot, 'summary');
+
+    expect(snapshot).toEqual(frozen);
+    expect(compacted).not.toEqual(snapshot);
+    expect(compacted.conversationId).toBe(snapshot.conversationId);
+  });
+
+  it('keeps tail messages after the summary blob', () => {
+    const snapshot = makeSnapshot();
+    const keptUser = createUserMessage('latest question');
+    const keptAssistant = createAssistantMessage([{ type: 'text', text: 'latest answer' }]);
+
+    const compacted = compactCursorSnapshot(snapshot, 'summary', {
+      keptMessages: [keptUser, keptAssistant],
+    });
+
+    expect(compacted.promptMessageIds).toHaveLength(3);
+    expect(compacted.turnIds).toEqual(compacted.promptMessageIds.slice(1));
+    const [keptUserId, keptAssistantId] = compacted.turnIds;
+    const keptUserJson = JSON.stringify({
+      role: 'user',
+      content: [{ type: 'text', text: 'latest question' }],
+    });
+    const keptAssistantJson = JSON.stringify({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'latest answer' }],
+    });
+    expect(keptUserId).toBe(computeBlobId(Buffer.from(keptUserJson, 'utf8')));
+    expect(keptAssistantId).toBe(computeBlobId(Buffer.from(keptAssistantJson, 'utf8')));
+    expect(compacted.blobStore[keptUserId!]).toBe(
+      Buffer.from(keptUserJson, 'utf8').toString('base64'),
+    );
+    expect(compacted.blobStore[keptAssistantId!]).toBe(
+      Buffer.from(keptAssistantJson, 'utf8').toString('base64'),
+    );
+  });
+
+  it('a restored compacted snapshot generates a first frame with only roots and summary', async () => {
+    const snapshot = makeSnapshot();
+    const compacted = compactCursorSnapshot(snapshot, 'summary here');
+
+    const provider = new CursorNativeChatProvider({ model: 'default' });
+    provider.restoreState(compacted);
+    uuidState.n = 0;
+    await provider.generate('system', [], [createUserMessage('follow-up')], {
+      auth: { apiKey: 'test-key' },
+    });
+
+    expect(buildCalls.calls).toHaveLength(1);
+    const runRequest = runRequestOf(buildCalls.calls[0]!.result);
+    const conversationState = runRequest['conversationState'] as Record<string, unknown>;
+    expect(conversationState['turns']).toBeUndefined();
+    expect(conversationState['rootPromptMessagesJson']).toEqual([
+      ...snapshot.rootPromptIds,
+      ...compacted.promptMessageIds,
+    ]);
+    expect(userMessageOf(runRequest)['conversationStateBlobId']).toBeUndefined();
+    expect(runRequest['conversationId']).toBe(snapshot.conversationId);
   });
 });

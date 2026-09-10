@@ -1,14 +1,18 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
+import { compactCursorSnapshot } from '@moonshot-ai/kosong';
+
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
+import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentEvent2 } from '#/app/event/event2';
+import { IEventBus } from '#/app/event/eventBus';
 import {
   clearCursorBridge,
   setCursorBridge,
@@ -125,6 +129,43 @@ function copyCursorSnapshot(
   };
 }
 
+function compactionSummaryText(result: {
+  readonly summary?: unknown;
+  readonly contextSummary?: unknown;
+}): string | null {
+  return summaryCandidateText(result.contextSummary) ?? summaryCandidateText(result.summary);
+}
+
+function summaryCandidateText(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value === '' ? null : value;
+  }
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const content = (value as { readonly content?: unknown }).content;
+  if (typeof content === 'string') {
+    return content === '' ? null : content;
+  }
+  if (!Array.isArray(content)) {
+    return null;
+  }
+  let text = '';
+  for (const part of content) {
+    if (
+      typeof part === 'object' &&
+      part !== null &&
+      (part as { readonly type?: unknown }).type === 'text'
+    ) {
+      const item = (part as { readonly text?: unknown }).text;
+      if (typeof item === 'string') {
+        text += item;
+      }
+    }
+  }
+  return text === '' ? null : text;
+}
+
 /**
  * Owner service for the `cursorNative` replayable key. Each agent holds its
  * own snapshot behind a stacked bridge registration: the innermost live
@@ -149,6 +190,7 @@ export class CursorStateService extends Service implements ICursorStateService {
     @IAgentStateService private readonly agentState: IAgentStateService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @IEventBus eventBus: IEventBus,
   ) {
     super();
     this.agentState.contributeState(cursorStateKey);
@@ -164,6 +206,11 @@ export class CursorStateService extends Service implements ICursorStateService {
         clearCursorBridge(bridge);
       }),
     );
+    this._register(
+      eventBus.subscribe(CompactionCompleted, (event) => {
+        this.onCompactionCompleted(event);
+      }),
+    );
   }
 
   fold(snapshot: CursorProviderSnapshot): void {
@@ -177,6 +224,21 @@ export class CursorStateService extends Service implements ICursorStateService {
 
   current(): CursorProviderSnapshot {
     return copyCursorSnapshot(this.agentState.get(cursorStateKey));
+  }
+
+  private onCompactionCompleted(event: CompactionCompleted): void {
+    if (event.agentId !== this.scopeContext.agentId) {
+      return;
+    }
+    const current = this.current();
+    if (current.conversationId === null) {
+      return;
+    }
+    const summary = compactionSummaryText(event.result);
+    if (summary === null) {
+      return;
+    }
+    this.fold(compactCursorSnapshot(current, summary));
   }
 }
 

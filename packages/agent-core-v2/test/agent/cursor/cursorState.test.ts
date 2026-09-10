@@ -27,6 +27,8 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { LifecycleScope } from '#/app/scopes';
 import { IEventBus } from '#/app/event/eventBus';
+import type { Event2, Event2Class } from '#/app/event/event2';
+import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
 import { EventBusService } from '#/app/event/eventBusService';
 import type { ChatProvider, StreamedMessage } from '#/kosong/contract/provider';
 import { APIStatusError } from '#/kosong/contract/errors';
@@ -111,12 +113,14 @@ interface CursorTestContainer {
   readonly dispatcher: () => IEventDispatcher;
   readonly states: () => IAgentStateService;
   readonly cursor: () => ICursorStateService;
+  readonly scope: () => IAgentScopeContext;
+  readonly bus: () => IEventBus;
 }
 
-function createCursorTestContainer(journal: WireRecord[]): CursorTestContainer {
+function createCursorTestContainer(journal: WireRecord[], bus?: IEventBus): CursorTestContainer {
   const store = new DisposableStore();
   const container = store.add(new TestInstantiationService());
-  container.set(IEventBus, new SyncDescriptor(EventBusService));
+  container.set(IEventBus, bus ?? new SyncDescriptor(EventBusService));
   container.set(IAgentBlobService, noopBlob);
   container.set(
     IAgentScopeContext,
@@ -131,6 +135,8 @@ function createCursorTestContainer(journal: WireRecord[]): CursorTestContainer {
     dispatcher: () => container.get(IEventDispatcher),
     states: () => container.get(IAgentStateService),
     cursor: () => container.get(ICursorStateService),
+    scope: () => container.get(IAgentScopeContext),
+    bus: () => container.get(IEventBus),
   };
 }
 
@@ -614,5 +620,133 @@ describe('cursor persistence wiring (scoped)', () => {
     expect(attempts).toBe(2);
     expect(events.some((event) => event.type === 'finish')).toBe(true);
     expect(folded).toHaveLength(1);
+  });
+});
+
+function captureCompactionBus(): {
+  bus: IEventBus;
+  fire: (event: CompactionCompleted) => void;
+} {
+  const handlers: Array<(event: CompactionCompleted) => void> = [];
+  const bus = {
+    _serviceBrand: undefined,
+    publish: () => {},
+    subscribe: ((typeOrHandler: unknown, handler?: unknown) => {
+      const type =
+        typeof typeOrHandler === 'string'
+          ? typeOrHandler
+          : (typeOrHandler as Event2Class).type;
+      if (type === CompactionCompleted.type && typeof handler === 'function') {
+        handlers.push(handler as (event: CompactionCompleted) => void);
+      }
+      return toDisposable(() => {});
+    }) as IEventBus['subscribe'],
+  } as IEventBus;
+  return {
+    bus,
+    fire: (event) => {
+      for (const handler of [...handlers]) handler(event);
+    },
+  };
+}
+
+describe('CursorStateService compaction linkage', () => {
+  let disposables: DisposableStore;
+  let journal: WireRecord[];
+  let active: CursorTestContainer;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    journal = [];
+    active = createCursorTestContainer(journal);
+    disposables.add(active.store);
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+  });
+
+  function activateAgent(): void {
+    (active.bus() as EventBusService).activateAgent(active.scope().agentContext);
+  }
+
+  function compactionOf(summary: string): CompactionCompleted {
+    return new CompactionCompleted({
+      agentId: 'main',
+      result: { summary, compactedCount: 4, tokensBefore: 100, tokensAfter: 20 },
+    });
+  }
+
+  it('folds a compacted snapshot when compaction completes on a cursor session', async () => {
+    const before = makeSnapshot('one');
+    active.cursor().fold(before);
+    activateAgent();
+
+    await active.dispatcher().dispatch(compactionOf('discussed widgets'));
+
+    const current = active.cursor().current();
+    expect(current.conversationId).toBe(before.conversationId);
+    expect(current.turnIds).toEqual([]);
+    expect(current.promptMessageIds).toHaveLength(1);
+    expect(current.latestStateBlobId).toBeNull();
+    expect(current.lastRunId).toBeNull();
+    expect(current.lastUsage).toEqual(before.lastUsage);
+    expect(current.rootPromptIds).toEqual(before.rootPromptIds);
+    const summaryId = current.promptMessageIds[0]!;
+    const parsed: unknown = JSON.parse(
+      Buffer.from(current.blobStore[summaryId]!, 'base64').toString('utf8'),
+    );
+    expect(parsed).toEqual({
+      role: 'user',
+      content: [{ type: 'text', text: '[Previous conversation summary]:\ndiscussed widgets' }],
+    });
+    expect(Object.keys(current.blobStore).sort()).toEqual(
+      [...before.rootPromptIds, summaryId].sort(),
+    );
+    expect(
+      journal.filter((record) => record.type === 'cursor.checkpoint_updated'),
+    ).toHaveLength(2);
+  });
+
+  it('leaves a non-cursor session untouched when compaction completes', async () => {
+    activateAgent();
+
+    await active.dispatcher().dispatch(compactionOf('discussed widgets'));
+
+    expect(active.cursor().current()).toEqual(emptySnapshot());
+    expect(journal).toHaveLength(0);
+  });
+
+  it('ignores compaction completed for another agent', () => {
+    const capture = captureCompactionBus();
+    const foreign = createCursorTestContainer(journal, capture.bus);
+    disposables.add(foreign.store);
+    foreign.cursor().fold(makeSnapshot('one'));
+    const stored = journal.length;
+
+    capture.fire(
+      new CompactionCompleted({
+        agentId: 'other',
+        result: { summary: 'foreign summary', compactedCount: 2, tokensBefore: 50, tokensAfter: 10 },
+      }),
+    );
+
+    expect(foreign.cursor().current()).toEqual(makeSnapshot('one'));
+    expect(journal).toHaveLength(stored);
+  });
+
+  it('replays the compacted snapshot on restore', async () => {
+    const before = makeSnapshot('one');
+    active.cursor().fold(before);
+    activateAgent();
+    await active.dispatcher().dispatch(compactionOf('discussed widgets'));
+    const records = [...journal];
+
+    const replayed = createCursorTestContainer([...records]);
+    disposables.add(replayed.store);
+    const replayedOwner = replayed.cursor();
+    await replayed.dispatcher().restore();
+
+    expect(replayedOwner.current()).toEqual(active.cursor().current());
   });
 });
