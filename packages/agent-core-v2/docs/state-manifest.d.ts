@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 94 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 95 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -67,6 +67,7 @@
 //     contextMemory                                   src/agent/contextMemory/contextOps.ts
 //     contextProjector.lastRepairSignature            src/agent/contextProjector/contextProjectorService.ts
 //     cron                                            src/session/cron/cronOps.ts
+//     cursorNative                                    src/agent/cursor/cursorState.ts
 //     dateChange.seed                                 src/features/dateChange/dateChangeService.ts
 //     externalHooks.stopHookContinuationUsed          src/features/externalHooks/agent/agentExternalHooksService.ts
 //     fullCompaction                                  src/agent/fullCompaction/compactionOps.ts
@@ -1174,6 +1175,24 @@ export interface AgentStateSnapshot {
   })[];
   // src/agent/contextProjector/contextProjectorService.ts
   'contextProjector.lastRepairSignature': string | null;
+  // src/agent/cursor/cursorState.ts
+  // replayable · durable — folds: CursorCheckpointUpdated
+  'cursorNative': /* CursorProviderSnapshot — packages/agent-core-v2/src/agent/cursor/cursorState.ts */ {
+    protocolVersion: 1;
+    blobStore: Record<string, string>;
+    turnIds: string[];
+    promptMessageIds: string[];
+    rootPromptIds: string[];
+    latestStateBlobId: string | null;
+    conversationId: string | null;
+    lastRunId: string | null;
+    lastUsage: {
+      inputOther: number;
+      output: number;
+      inputCacheRead: number;
+      inputCacheCreation: number;
+    } | null;
+  };
   // src/agent/fullCompaction/compactionOps.ts
   // replayable · durable — folds: FullCompactionBegin, FullCompactionCancel, FullCompactionComplete
   'fullCompaction': /* CompactionState — packages/agent-core-v2/src/agent/fullCompaction/compactionOps.ts */ {
@@ -1231,6 +1250,13 @@ export interface AgentStateSnapshot {
       readonly usedContextTokens?: number;
       readonly maxContextTokens?: number;
       readonly onTraceId?: (traceId: string | null) => void;
+      readonly toolInvoker?: /* HostToolExecutor — packages/kosong/src/provider.ts */ (name: string, args: Record<string, unknown>) => Promise</* HostToolResult — packages/kosong/src/provider.ts */ {
+        readonly content: readonly {
+          type: 'text';
+          text: string;
+        }[];
+        readonly isError?: boolean;
+      }>;
     };
     readonly systemPrompt: string;
   }>;

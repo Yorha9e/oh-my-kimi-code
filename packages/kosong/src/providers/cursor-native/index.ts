@@ -100,6 +100,25 @@ export const DEFAULT_TOOL_NAME_MAP: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Persistable snapshot of a {@link CursorNativeChatProvider}'s protocol
+ * state: every server-issued blob id and payload the continuation needs to
+ * rebuild the next run request. Blob contents ride verbatim (base64) so the
+ * restored provider answers the server's KV hydrate from the same bytes.
+ * `protocolVersion` reserves the format for future migrations.
+ */
+export interface CursorProviderSnapshot {
+  protocolVersion: 1;
+  blobStore: Record<string, string>;
+  turnIds: string[];
+  promptMessageIds: string[];
+  rootPromptIds: string[];
+  latestStateBlobId: string | null;
+  conversationId: string | null;
+  lastRunId: string | null;
+  lastUsage: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number } | null;
+}
+
+/**
  * `ChatProvider` over the hand-written Connect bidi JSON client. Assembles the
  * M1 frame layer, the M2 conversation mapping, and the M3 exec tool loop:
  * text and thinking deltas stream as parts, `turnEnded` feeds usage, exec
@@ -370,6 +389,43 @@ export class CursorNativeChatProvider implements ChatProvider {
   /** Most recent run's accumulated usage (null before the first completed run). */
   get lastUsage(): TokenUsage | null {
     return this._lastUsage;
+  }
+
+  /**
+   * Capture the full protocol state as a plain snapshot: blob payloads plus
+   * every id list and pointer the next continuation reads. The result is a
+   * deep copy — mutating it never affects the provider.
+   */
+  snapshotState(): CursorProviderSnapshot {
+    return {
+      protocolVersion: 1,
+      blobStore: Object.fromEntries(this._blobStore),
+      turnIds: [...this._turnIds],
+      promptMessageIds: [...this._promptMessageIds],
+      rootPromptIds: [...this._rootPromptIds],
+      latestStateBlobId: this._latestStateBlobId,
+      conversationId: this._conversationId,
+      lastRunId: this._lastRunId,
+      lastUsage: this._lastUsage === null ? null : { ...this._lastUsage },
+    };
+  }
+
+  /**
+   * Replace the full protocol state from a snapshot produced by
+   * {@link snapshotState}. Blob payloads are re-registered by id so the KV
+   * answer channel resolves exactly the blobs the snapshotted run had seen.
+   * The snapshot's `protocolVersion` is reserved for future migrations and
+   * does not affect the restore.
+   */
+  restoreState(snapshot: CursorProviderSnapshot): void {
+    this._blobStore = new Map(Object.entries(snapshot.blobStore));
+    this._turnIds = [...snapshot.turnIds];
+    this._promptMessageIds = [...snapshot.promptMessageIds];
+    this._rootPromptIds = [...snapshot.rootPromptIds];
+    this._latestStateBlobId = snapshot.latestStateBlobId;
+    this._conversationId = snapshot.conversationId;
+    this._lastRunId = snapshot.lastRunId;
+    this._lastUsage = snapshot.lastUsage === null ? null : { ...snapshot.lastUsage };
   }
 
   get modelName(): string {

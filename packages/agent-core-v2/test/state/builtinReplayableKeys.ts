@@ -1,6 +1,7 @@
 import type { ReplayableStateKey } from '#/state/state';
 
 import { contextMemoryKey } from '#/agent/contextMemory/contextOps';
+import { cursorStateKey } from '#/agent/cursor/cursorState';
 import { staleGuardKey } from '#/features/staleGuard/staleGuardOps';
 import { fullCompactionKey } from '#/agent/fullCompaction/compactionOps';
 import { goalForkNoticeKey, goalKey } from '#/features/goal/goalOps';
@@ -29,6 +30,7 @@ import { interactionKey } from '#/session/interaction/interactionOps';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
   contextMemoryKey,
+  cursorStateKey,
   staleGuardKey,
   fullCompactionKey,
   goalKey,

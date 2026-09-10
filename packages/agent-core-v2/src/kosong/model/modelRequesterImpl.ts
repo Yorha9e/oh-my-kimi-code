@@ -11,10 +11,12 @@ import type {
 } from '#/kosong/contract/provider';
 import { translateProviderError } from '#/kosong/protocol/errors';
 import type { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
+import { readCursorSnapshot } from '#/kosong/provider/bases/cursor/cursorBridge';
 
 import type { AuthProvider, Model } from './catalog';
 import type {
   ModelRequestEvent,
+  ModelRequesterHooks,
   ModelRequestInput,
   ModelRequestParams,
   ModelRequester,
@@ -27,20 +29,24 @@ export class ModelRequesterImpl implements ModelRequester {
   constructor(
     readonly model: Model,
     private readonly protocolRegistry: IProtocolAdapterRegistry,
+    private readonly hooks?: ModelRequesterHooks,
   ) {}
 
   private resolveChatProvider(): ChatProvider {
     if (this.cachedChatProvider !== undefined) return this.cachedChatProvider;
     const model = this.model;
-    this.cachedChatProvider = this.protocolRegistry.createChatProvider({
+    const provider = this.protocolRegistry.createChatProvider({
       protocol: model.protocol,
       providerType: model.providerType,
       baseUrl: model.baseUrl,
       modelName: model.name,
       defaultHeaders: model.headers,
       providerOptions: model.providerOptions,
+      hydrate: this.hooks?.hydrate,
     });
-    return this.cachedChatProvider;
+    this.hooks?.hydrate?.(provider);
+    this.cachedChatProvider = provider;
+    return provider;
   }
 
   request(
@@ -134,6 +140,11 @@ export class ModelRequesterImpl implements ModelRequester {
     } catch (error) {
       if (isAbortError(error) || signal?.aborted === true) throw error;
       throw translateProviderError(error);
+    }
+
+    if (signal?.aborted !== true) {
+      const snapshot = readCursorSnapshot(provider);
+      if (snapshot !== undefined) this.hooks?.onSnapshot?.(snapshot);
     }
 
     if (result.usage !== undefined && result.usage !== null) {

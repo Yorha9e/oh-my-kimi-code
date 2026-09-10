@@ -1,10 +1,12 @@
-import { CursorNativeChatProvider } from '@moonshot-ai/kosong';
+import { CursorNativeChatProvider, type CursorProviderSnapshot } from '@moonshot-ai/kosong';
 
 import type { ChatProvider, GenerateOptions, StreamedMessage } from '#/kosong/contract/provider';
 import type { Message } from '#/kosong/contract/message';
 import type { Tool } from '#/kosong/contract/tool';
 
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
+
+import { cursorHydrateProvider } from './cursorBridge';
 
 class CursorProtocolAdapter implements ChatProvider {
   readonly name: string = 'cursor';
@@ -16,6 +18,14 @@ class CursorProtocolAdapter implements ChatProvider {
   constructor(inner: CursorNativeChatProvider, modelName: string) {
     this._inner = inner;
     this.modelName = modelName;
+  }
+
+  snapshotState(): CursorProviderSnapshot {
+    return this._inner.snapshotState();
+  }
+
+  restoreState(snapshot: CursorProviderSnapshot): void {
+    this._inner.restoreState(snapshot);
   }
 
   generate(
@@ -37,6 +47,9 @@ registerProtocolBase({
       gatewayUrl: config.baseUrl,
       modelParams: config.providerOptions?.modelParams,
     });
-    return new CursorProtocolAdapter(inner, config.modelName);
+    const adapter = new CursorProtocolAdapter(inner, config.modelName);
+    cursorHydrateProvider(adapter);
+    config.hydrate?.(adapter);
+    return adapter;
   },
 });

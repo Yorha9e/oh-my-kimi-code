@@ -13,6 +13,10 @@ import {
   type Protocol,
   type ProtocolProviderOptions,
 } from '#/kosong/protocol/protocol';
+import {
+  cursorHydrateProvider,
+  storeCursorSnapshot,
+} from '#/kosong/provider/bases/cursor/cursorBridge';
 
 import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
 import {
@@ -63,12 +67,17 @@ import {
 } from './modelAuth';
 import { IModelOAuthTokens } from './modelOAuth';
 import type { ResolvedModelAuthMaterial } from './model.types';
-import type { ModelRequester } from './modelRequester';
+import type { ModelRequester, ModelRequesterHooks } from './modelRequester';
 import { ModelRequesterImpl } from './modelRequesterImpl';
 import { drivesThinkingThroughTraits } from './thinking';
 
 type MutableProtocolProviderOptions = {
   -readonly [K in keyof ProtocolProviderOptions]: ProtocolProviderOptions[K];
+};
+
+const CURSOR_REQUESTER_HOOKS: ModelRequesterHooks = {
+  hydrate: cursorHydrateProvider,
+  onSnapshot: storeCursorSnapshot,
 };
 
 interface CatalogEntry {
@@ -123,7 +132,11 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     const model = this.buildModel(id, trace);
     const entry: CatalogEntry = {
       model,
-      requester: new ModelRequesterImpl(model, this.protocolRegistry),
+      requester: new ModelRequesterImpl(
+        model,
+        this.protocolRegistry,
+        model.protocol === 'cursor' ? CURSOR_REQUESTER_HOOKS : undefined,
+      ),
       trace,
     };
     this.cache.set(id, entry);

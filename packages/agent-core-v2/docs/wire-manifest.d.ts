@@ -24,7 +24,7 @@
 // cross-reducers), blobs (the folding states whose blob codec offloads inline
 // media to blob storage), owner (the source file declaring the class).
 
-// Index (55 record types)
+// Index (56 record types)
 //   config.update                      profile                                                         src/agent/profile/profileOps.ts
 //   context.append_loop_event          contextMemory, turn                                             src/agent/contextMemory/contextEvents.ts
 //   context.append_message             contextMemory, goalForkNotice, plan, task.notificationDelivery  src/agent/contextMemory/contextEvents.ts
@@ -34,6 +34,7 @@
 //   cron.add                           cron                                                            src/session/cron/cronOps.ts
 //   cron.cursor                        cron                                                            src/session/cron/cronOps.ts
 //   cron.delete                        cron                                                            src/session/cron/cronOps.ts
+//   cursor.checkpoint_updated          cursorNative                                                    src/agent/cursor/cursorState.ts
 //   forked                             goal, goalForkNotice                                            src/features/goal/goalOps.ts
 //   full_compaction.begin              fullCompaction                                                  src/agent/fullCompaction/compactionOps.ts
 //   full_compaction.cancel             fullCompaction                                                  src/agent/fullCompaction/compactionOps.ts
@@ -212,6 +213,26 @@ interface CronCursorPayload {
 interface CronDeletePayload {
   _name: 'cron.delete';
   ids: string[];
+}
+
+/**
+ * states: cursorNative
+ * owner: src/agent/cursor/cursorState.ts
+ */
+interface CursorCheckpointUpdatedPayload {
+  _name: 'cursor.checkpoint_updated';
+  agentId: string;
+  snapshot: {
+    protocolVersion: 1;
+    blobStore: Record<string, string>;
+    turnIds: string[];
+    promptMessageIds: string[];
+    rootPromptIds: string[];
+    latestStateBlobId: string | null;
+    conversationId: string | null;
+    lastRunId: string | null;
+    lastUsage: object | null;
+  };
 }
 
 /**
@@ -835,6 +856,7 @@ interface WirePayloadMap {
   "cron.add": CronAddPayload;
   "cron.cursor": CronCursorPayload;
   "cron.delete": CronDeletePayload;
+  "cursor.checkpoint_updated": CursorCheckpointUpdatedPayload;
   "forked": ForkedPayload;
   "full_compaction.begin": FullCompactionBeginPayload;
   "full_compaction.cancel": FullCompactionCancelPayload;

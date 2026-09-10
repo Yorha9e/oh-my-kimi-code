@@ -39,6 +39,12 @@ export interface ProtocolAdapterConfig {
   readonly apiKey?: string;
   readonly defaultHeaders?: Readonly<Record<string, string>>;
   readonly providerOptions?: ProtocolProviderOptions;
+  /**
+   * Post-creation hook restoring persisted channel state into a stateful
+   * provider before its first request. Stateful channels reload their own
+   * snapshot through it; stateless providers ignore it.
+   */
+  readonly hydrate?: (provider: ChatProvider) => void;
 }
 
 export interface ExplainedCapability {
