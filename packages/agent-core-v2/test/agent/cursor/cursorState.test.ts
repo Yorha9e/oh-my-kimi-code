@@ -43,6 +43,13 @@ import {
   cursorHydrateProvider,
   storeCursorSnapshot,
 } from '#/kosong/provider/bases/cursor/cursorBridge';
+import {
+  cursorSwitchbackWatermark,
+  ensureCursorSwitchbackInjected,
+  selectPendingSwitchbackMessages,
+  setCursorSwitchbackWatermark,
+  trackCursorSwitchbackCompletion,
+} from '#/kosong/provider/bases/cursor/cursorSwitchback';
 import { ProtocolAdapterRegistry } from '#/kosong/provider/protocolAdapterRegistry';
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -650,6 +657,70 @@ function captureCompactionBus(): {
   };
 }
 
+function switchbackUser(text: string): Message {
+  return { role: 'user', content: [{ type: 'text', text }], toolCalls: [] };
+}
+
+function switchbackAssistant(text: string): Message {
+  return { role: 'assistant', content: [{ type: 'text', text }], toolCalls: [] };
+}
+
+class SwitchbackStubProvider implements ChatProvider {
+  readonly name = 'cursor-switchback-stub';
+  readonly modelName = 'cursor-switchback-model';
+  readonly thinkingEffort = null;
+  restored: CursorProviderSnapshot[] = [];
+
+  constructor(private state: CursorProviderSnapshot) {}
+
+  restoreState(snapshot: CursorProviderSnapshot): void {
+    this.restored.push(structuredClone(snapshot));
+    this.state = structuredClone(snapshot);
+  }
+
+  snapshotState(): CursorProviderSnapshot {
+    return structuredClone(this.state);
+  }
+
+  async generate(): Promise<StreamedMessage> {
+    throw new Error('switchback stub has no transport');
+  }
+}
+
+function stubStream(parts: StreamedMessagePart[], fail = false): StreamedMessage {
+  return {
+    id: 'stub-stream',
+    usage: emptyUsage(),
+    finishReason: 'completed',
+    rawFinishReason: null,
+    async *[Symbol.asyncIterator]() {
+      for (const part of parts) yield part;
+      if (fail) throw new Error('stub stream failed');
+    },
+  };
+}
+
+async function drainStream(stream: StreamedMessage): Promise<StreamedMessagePart[]> {
+  const parts: StreamedMessagePart[] = [];
+  for await (const part of stream) parts.push(part);
+  return parts;
+}
+
+function decodedSwitchbackContents(snapshot: CursorProviderSnapshot, ids: string[]): unknown[] {
+  return ids.map((id) =>
+    JSON.parse(Buffer.from(snapshot.blobStore[id]!, 'base64').toString('utf8')),
+  );
+}
+
+function switchbackSummary(text: string): Message {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'compaction_summary' },
+  } as Message;
+}
+
 describe('CursorStateService compaction linkage', () => {
   let disposables: DisposableStore;
   let journal: WireRecord[];
@@ -748,5 +819,189 @@ describe('CursorStateService compaction linkage', () => {
     await replayed.dispatcher().restore();
 
     expect(replayedOwner.current()).toEqual(active.cursor().current());
+  });
+});
+
+describe('cursor switch-back injection', () => {
+  let disposables: DisposableStore;
+  let journal: WireRecord[];
+  let active: CursorTestContainer;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    journal = [];
+    active = createCursorTestContainer(journal);
+    disposables.add(active.store);
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+  });
+
+  function activateAgent(): void {
+    (active.bus() as EventBusService).activateAgent(active.scope().agentContext);
+  }
+
+  it('injects intermediate turns once when switching back to cursor', async () => {
+    active.cursor().fold(makeSnapshot('base'));
+    const provider = new SwitchbackStubProvider(emptySnapshot());
+
+    const firstQuestion = [switchbackUser('q1')];
+    expect(ensureCursorSwitchbackInjected(provider, firstQuestion)).toBe(false);
+    expect(journal).toHaveLength(1);
+    await drainStream(trackCursorSwitchbackCompletion(stubStream([]), firstQuestion.length));
+    expect(cursorSwitchbackWatermark()).toBe(2);
+
+    const switchedBack = [
+      switchbackUser('q1'),
+      switchbackAssistant('a1'),
+      switchbackUser('q2-other'),
+      switchbackAssistant('a2-other'),
+      switchbackUser('q3-new'),
+    ];
+    expect(ensureCursorSwitchbackInjected(provider, switchedBack)).toBe(true);
+
+    const current = active.cursor().current();
+    expect(provider.restored).toHaveLength(1);
+    expect(provider.restored[0]).toEqual(current);
+    expect(current.promptMessageIds).toHaveLength(3);
+    expect(decodedSwitchbackContents(current, current.promptMessageIds.slice(-2))).toEqual([
+      { role: 'user', content: 'q2-other' },
+      { role: 'user', content: 'a2-other' },
+    ]);
+    expect(current.latestStateBlobId).toBeNull();
+    expect(current.conversationId).toBe('agent-base');
+    expect(journal).toHaveLength(2);
+
+    expect(ensureCursorSwitchbackInjected(provider, switchedBack)).toBe(false);
+    expect(journal).toHaveLength(2);
+  });
+
+  it('does not re-inject on consecutive cursor calls without new non-cursor messages', async () => {
+    active.cursor().fold(makeSnapshot('base'));
+    const provider = new SwitchbackStubProvider(emptySnapshot());
+    setCursorSwitchbackWatermark(2);
+
+    const switchedBack = [
+      switchbackUser('q1'),
+      switchbackAssistant('a1'),
+      switchbackUser('q2-other'),
+      switchbackAssistant('a2-other'),
+      switchbackUser('q3-new'),
+    ];
+    expect(ensureCursorSwitchbackInjected(provider, switchedBack)).toBe(true);
+    expect(journal).toHaveLength(2);
+
+    await drainStream(trackCursorSwitchbackCompletion(stubStream([]), switchedBack.length));
+    const followUp = [...switchedBack, switchbackAssistant('a3-cursor'), switchbackUser('q4')];
+    expect(ensureCursorSwitchbackInjected(provider, followUp)).toBe(false);
+    expect(active.cursor().current().promptMessageIds).toHaveLength(3);
+    expect(journal).toHaveLength(2);
+  });
+
+  it('performs zero state mutations when switching away from cursor', () => {
+    const base = makeSnapshot('base');
+    active.cursor().fold(base);
+
+    const nonCursorOnly = { name: 'other-stub' } as ChatProvider;
+    expect(
+      ensureCursorSwitchbackInjected(nonCursorOnly, [switchbackUser('q1'), switchbackUser('q2')]),
+    ).toBe(false);
+
+    expect(active.cursor().current()).toEqual(base);
+    expect(journal).toHaveLength(1);
+    expect(cursorSwitchbackWatermark()).toBe(0);
+  });
+
+  it('resets the watermark on compaction and injects kept tails without the summary', async () => {
+    active.cursor().fold(makeSnapshot('base'));
+    const provider = new SwitchbackStubProvider(emptySnapshot());
+    setCursorSwitchbackWatermark(2);
+    activateAgent();
+
+    await active.dispatcher().dispatch(
+      new CompactionCompleted({
+        agentId: 'main',
+        result: { summary: 'q1 a1 q2 a2', compactedCount: 4, tokensBefore: 100, tokensAfter: 20 },
+      }),
+    );
+    expect(cursorSwitchbackWatermark()).toBe(0);
+
+    const compacted = [
+      switchbackUser('t1-kept'),
+      switchbackAssistant('t2-kept'),
+      switchbackSummary('compacted context'),
+      switchbackUser('q4-live'),
+    ];
+    expect(ensureCursorSwitchbackInjected(provider, compacted)).toBe(true);
+    const current = active.cursor().current();
+    expect(current.promptMessageIds).toHaveLength(3);
+    expect(decodedSwitchbackContents(current, current.promptMessageIds.slice(-2))).toEqual([
+      { role: 'user', content: 't1-kept' },
+      { role: 'user', content: 't2-kept' },
+    ]);
+    expect(journal).toHaveLength(3);
+  });
+
+  it('resets the watermark through the compaction notification', () => {
+    active.cursor().fold(makeSnapshot('base'));
+    setCursorSwitchbackWatermark(2);
+
+    active.cursor().notifyCompactionCompleted(3);
+
+    expect(cursorSwitchbackWatermark()).toBe(3);
+  });
+
+  it('re-injects the kept tail when compaction skips the watermark reset', () => {
+    active.cursor().fold(makeSnapshot('base'));
+    const provider = new SwitchbackStubProvider(emptySnapshot());
+    setCursorSwitchbackWatermark(2);
+
+    const compacted = [
+      switchbackUser('[Previous conversation summary]: q1 a1 q2 a2'),
+      switchbackUser('t1-kept'),
+      switchbackAssistant('t2-kept'),
+      switchbackUser('q4-live'),
+    ];
+    expect(ensureCursorSwitchbackInjected(provider, compacted)).toBe(true);
+    expect(decodedSwitchbackContents(active.cursor().current(), active.cursor().current().promptMessageIds.slice(-1))).toEqual([
+      { role: 'user', content: 't2-kept' },
+    ]);
+  });
+
+  it('selects only the slice between the watermark and the live input', () => {
+    const history = [
+      switchbackUser('q1'),
+      switchbackAssistant('a1'),
+      switchbackUser('q2'),
+      switchbackAssistant('a2'),
+      switchbackUser('q3-live'),
+    ];
+
+    expect(selectPendingSwitchbackMessages(history, 2)).toEqual({
+      pending: [history[2], history[3]],
+      coveredLength: 4,
+    });
+    expect(selectPendingSwitchbackMessages(history, 4).pending).toEqual([]);
+    expect(selectPendingSwitchbackMessages(history, 99).pending).toEqual([]);
+    expect(selectPendingSwitchbackMessages([], 0)).toEqual({ pending: [], coveredLength: 0 });
+    const withSummary = [switchbackUser('q1'), switchbackSummary('s'), switchbackUser('q2-live')];
+    expect(selectPendingSwitchbackMessages(withSummary, 0).pending).toEqual([withSummary[0]]);
+  });
+
+  it('advances the watermark only when the tracked stream drains cleanly', async () => {
+    active.cursor().fold(makeSnapshot('base'));
+
+    const completed = trackCursorSwitchbackCompletion(
+      stubStream([{ type: 'text', text: 'hi' }]),
+      3,
+    );
+    expect(await drainStream(completed)).toEqual([{ type: 'text', text: 'hi' }]);
+    expect(completed.id).toBe('stub-stream');
+    expect(cursorSwitchbackWatermark()).toBe(4);
+
+    const failed = trackCursorSwitchbackCompletion(stubStream([], true), 10);
+    await expect(drainStream(failed)).rejects.toThrow('stub stream failed');
+    expect(cursorSwitchbackWatermark()).toBe(4);
   });
 });

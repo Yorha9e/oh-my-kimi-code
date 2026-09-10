@@ -56,6 +56,15 @@ export function clearCursorBridge(bridge: CursorBridge): void {
 }
 
 /**
+ * Newest registered snapshot source driving hydration and persistence, if any
+ * registration is live. Switch-back injection keys its per-agent watermark on
+ * this handle so nested agents track independently.
+ */
+export function activeCursorBridge(): CursorBridge | undefined {
+  return bridgeStack.at(-1);
+}
+
+/**
  * Restore a snapshot-capable provider from the newest registered snapshot
  * source, if any source is registered. Providers without snapshot support are
  * left untouched.

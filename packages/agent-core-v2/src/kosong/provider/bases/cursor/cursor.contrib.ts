@@ -7,6 +7,10 @@ import type { Tool } from '#/kosong/contract/tool';
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 
 import { cursorHydrateProvider } from './cursorBridge';
+import {
+  ensureCursorSwitchbackInjected,
+  trackCursorSwitchbackCompletion,
+} from './cursorSwitchback';
 
 class CursorProtocolAdapter implements ChatProvider {
   readonly name: string = 'cursor';
@@ -34,7 +38,10 @@ class CursorProtocolAdapter implements ChatProvider {
     history: Message[],
     options?: GenerateOptions,
   ): Promise<StreamedMessage> {
-    return this._inner.generate(systemPrompt, tools, history, options);
+    ensureCursorSwitchbackInjected(this._inner, history);
+    return this._inner.generate(systemPrompt, tools, history, options).then((stream) => {
+      return trackCursorSwitchbackCompletion(stream, history.length);
+    });
   }
 }
 
