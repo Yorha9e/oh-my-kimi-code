@@ -67,6 +67,26 @@ describe('cursor protocol hydration', () => {
     expect(hydrate).toHaveBeenCalledWith(provider);
   });
 
+  it('routes a single hydration when both a bridge and an explicit hook are present', () => {
+    const loadSnapshot = vi.fn(() => snapshot);
+    const bridge = { loadSnapshot, storeSnapshot: () => {} };
+    setCursorBridge(bridge);
+    try {
+      const hydrate = vi.fn();
+      const provider = registry.createChatProvider({
+        protocol: 'cursor',
+        modelName: 'cursor-test',
+        hydrate,
+      });
+
+      expect(hydrate).toHaveBeenCalledTimes(1);
+      expect(hydrate).toHaveBeenCalledWith(provider);
+      expect(loadSnapshot).not.toHaveBeenCalled();
+    } finally {
+      clearCursorBridge(bridge);
+    }
+  });
+
   it('round-trips a snapshot through the adapter', () => {
     const provider = registry.createChatProvider({ protocol: 'cursor', modelName: 'cursor-test' });
     const capable = asSnapshotCapable(provider);

@@ -119,6 +119,25 @@ export interface CursorProviderSnapshot {
 }
 
 /**
+ * Empty cursor provider snapshot: the typed starting point for a fresh
+ * conversation. Cross-checked against the engine's cursor snapshot schema so
+ * provider/engine schema drift fails fast in tests.
+ */
+export function createEmptyCursorSnapshot(): CursorProviderSnapshot {
+  return {
+    protocolVersion: 1,
+    blobStore: {},
+    turnIds: [],
+    promptMessageIds: [],
+    rootPromptIds: [],
+    latestStateBlobId: null,
+    conversationId: null,
+    lastRunId: null,
+    lastUsage: null,
+  };
+}
+
+/**
  * `ChatProvider` over the hand-written Connect bidi JSON client. Assembles the
  * M1 frame layer, the M2 conversation mapping, and the M3 exec tool loop:
  * text and thinking deltas stream as parts, `turnEnded` feeds usage, exec

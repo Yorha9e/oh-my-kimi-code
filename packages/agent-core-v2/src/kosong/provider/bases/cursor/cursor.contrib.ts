@@ -48,8 +48,8 @@ registerProtocolBase({
       modelParams: config.providerOptions?.modelParams,
     });
     const adapter = new CursorProtocolAdapter(inner, config.modelName);
-    cursorHydrateProvider(adapter);
-    config.hydrate?.(adapter);
+    const hydrate = config.hydrate ?? cursorHydrateProvider;
+    hydrate(adapter);
     return adapter;
   },
 });

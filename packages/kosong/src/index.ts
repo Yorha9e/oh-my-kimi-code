@@ -36,7 +36,7 @@ export { KimiChatProvider } from './providers/kimi';
 // host tool executor behind the engine permission gate). Exported so callers
 // can narrow a `ChatProvider` (instanceof) and construct a cursor provider
 // for a gateway or direct backend.
-export { CursorNativeChatProvider } from './providers/cursor-native';
+export { CursorNativeChatProvider, createEmptyCursorSnapshot } from './providers/cursor-native';
 export type { CursorNativeOptions, CursorProviderSnapshot } from './providers/cursor-native';
 export type { ExtraBody, GenerationKwargs, KimiOptions, ThinkingConfig } from './providers/kimi';
 export { classifyKimiQuotaError } from './providers/kimi-errors';

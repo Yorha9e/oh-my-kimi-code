@@ -4,9 +4,10 @@ import type { ChatProvider } from '#/kosong/contract/provider';
 
 /**
  * Per-agent cursor snapshot source backing provider hydration and snapshot
- * persistence. The owning agent-scope service registers itself here; the
- * registration is process-wide under the single-agent assumption that one
- * agent at a time drives the cursor channel.
+ * persistence. Every agent-scope cursor service registers its own source;
+ * registrations form a stack so a nested sub-agent hydrates from and folds
+ * into its own snapshot while it lives, and its parent resumes once the
+ * sub-agent disposes.
  */
 export interface CursorBridge {
   /** Latest snapshot for the active agent, including the replayed initial state. */
@@ -20,7 +21,7 @@ interface SnapshotCapable {
   snapshotState(): CursorProviderSnapshot;
 }
 
-let activeBridge: CursorBridge | null = null;
+const bridgeStack: CursorBridge[] = [];
 
 function asSnapshotCapable(provider: ChatProvider): SnapshotCapable | null {
   const candidate = provider as Partial<SnapshotCapable>;
@@ -34,31 +35,35 @@ function asSnapshotCapable(provider: ChatProvider): SnapshotCapable | null {
 }
 
 /**
- * Register the active agent's snapshot source, replacing any previous one.
- * The cursor channel is driven by a single agent per process; when several
- * agents share a cursor model they share the underlying provider instance,
- * so the newest registration wins.
+ * Register an agent snapshot source on top of the bridge stack, moving it to
+ * the top when it is already registered. The newest registration drives
+ * hydration and snapshot persistence until it is withdrawn.
  */
 export function setCursorBridge(bridge: CursorBridge): void {
-  activeBridge = bridge;
+  const registered = bridgeStack.indexOf(bridge);
+  if (registered !== -1) bridgeStack.splice(registered, 1);
+  bridgeStack.push(bridge);
 }
 
 /**
  * Withdraw a snapshot source previously installed with
- * {@link setCursorBridge}, leaving a newer registration untouched.
+ * {@link setCursorBridge}. The newest remaining registration, if any, becomes
+ * the active source.
  */
 export function clearCursorBridge(bridge: CursorBridge): void {
-  if (activeBridge === bridge) activeBridge = null;
+  const registered = bridgeStack.indexOf(bridge);
+  if (registered !== -1) bridgeStack.splice(registered, 1);
 }
 
 /**
- * Restore a snapshot-capable provider from the active agent's snapshot, if
- * any source is registered. Providers without snapshot support are left
- * untouched.
+ * Restore a snapshot-capable provider from the newest registered snapshot
+ * source, if any source is registered. Providers without snapshot support are
+ * left untouched.
  */
 export function cursorHydrateProvider(provider: ChatProvider): void {
-  if (activeBridge === null) return;
-  asSnapshotCapable(provider)?.restoreState(activeBridge.loadSnapshot());
+  const active = bridgeStack.at(-1);
+  if (active === undefined) return;
+  asSnapshotCapable(provider)?.restoreState(active.loadSnapshot());
 }
 
 /**
@@ -71,9 +76,9 @@ export function readCursorSnapshot(provider: ChatProvider): CursorProviderSnapsh
 }
 
 /**
- * Persist a snapshot through the active agent's source, if one is
+ * Persist a snapshot through the newest registered snapshot source, if one is
  * registered. Drops the snapshot silently when no agent owns the channel.
  */
 export function storeCursorSnapshot(snapshot: CursorProviderSnapshot): void {
-  activeBridge?.storeSnapshot(snapshot);
+  bridgeStack.at(-1)?.storeSnapshot(snapshot);
 }
