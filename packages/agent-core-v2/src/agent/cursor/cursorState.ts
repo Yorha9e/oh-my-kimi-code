@@ -18,6 +18,7 @@ import {
   setCursorBridge,
   type CursorBridge,
 } from '#/kosong/provider/bases/cursor/cursorBridge';
+import { setCursorSwitchbackWatermark } from '#/kosong/provider/bases/cursor/cursorSwitchback';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState, type DeepReadonly } from '#/state/state';
 
@@ -178,6 +179,8 @@ export interface ICursorStateService {
   fold(snapshot: CursorProviderSnapshot): void;
   /** Latest snapshot, defensively copied. */
   current(): CursorProviderSnapshot;
+  /** Reset the switch-back watermark to the post-compaction history point. */
+  notifyCompactionCompleted(historyLength: number): void;
 }
 
 export const ICursorStateService: ServiceIdentifier<ICursorStateService> =
@@ -185,6 +188,8 @@ export const ICursorStateService: ServiceIdentifier<ICursorStateService> =
 
 export class CursorStateService extends Service implements ICursorStateService {
   declare readonly _serviceBrand: undefined;
+
+  private readonly bridge: CursorBridge;
 
   constructor(
     @IAgentStateService private readonly agentState: IAgentStateService,
@@ -200,6 +205,7 @@ export class CursorStateService extends Service implements ICursorStateService {
         this.fold(snapshot);
       },
     };
+    this.bridge = bridge;
     setCursorBridge(bridge);
     this._register(
       toDisposable(() => {
@@ -239,6 +245,11 @@ export class CursorStateService extends Service implements ICursorStateService {
       return;
     }
     this.fold(compactCursorSnapshot(current, summary));
+    setCursorSwitchbackWatermark(0, this.bridge);
+  }
+
+  notifyCompactionCompleted(historyLength: number): void {
+    setCursorSwitchbackWatermark(historyLength, this.bridge);
   }
 }
 

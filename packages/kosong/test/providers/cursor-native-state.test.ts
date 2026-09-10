@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createAssistantMessage, createUserMessage } from '#/message';
+import { createAssistantMessage, createUserMessage, type Message } from '#/message';
 import {
   computeBlobId,
   type BuildRunRequestOptions,
 } from '#/providers/cursor-native/conversation';
+import { injectMessagesIntoCursorSnapshot } from '#/providers/cursor-native/inject';
 import {
   compactCursorSnapshot,
   CursorNativeChatProvider,
@@ -254,5 +255,79 @@ describe('cursor provider local compaction', () => {
     ]);
     expect(userMessageOf(runRequest)['conversationStateBlobId']).toBeUndefined();
     expect(runRequest['conversationId']).toBe(snapshot.conversationId);
+  });
+});
+
+function decodedPromptContents(snapshot: CursorProviderSnapshot, ids: string[]): unknown[] {
+  return ids.map((id) => JSON.parse(Buffer.from(snapshot.blobStore[id]!, 'base64').toString('utf8')));
+}
+
+describe('cursor provider cross-model message injection', () => {
+  it('registers one user blob per message and resets the state anchor', () => {
+    const snapshot = makeSnapshot();
+    const messages: Message[] = [
+      createUserMessage('hello from the other model'),
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'other model answer' }],
+        toolCalls: [],
+      },
+    ];
+
+    const injected = injectMessagesIntoCursorSnapshot(snapshot, messages);
+
+    expect(injected).not.toBe(snapshot);
+    expect(snapshot.promptMessageIds).toHaveLength(2);
+    expect(injected.promptMessageIds).toHaveLength(4);
+    expect(injected.turnIds.slice(-2)).toEqual(injected.promptMessageIds.slice(-2));
+    expect(decodedPromptContents(injected, injected.promptMessageIds.slice(-2))).toEqual([
+      { role: 'user', content: 'hello from the other model' },
+      { role: 'user', content: 'other model answer' },
+    ]);
+    for (const id of injected.promptMessageIds.slice(-2)) {
+      expect(injected.blobStore[id]).toBeDefined();
+    }
+    expect(injected.latestStateBlobId).toBeNull();
+    expect(injected.conversationId).toBe(snapshot.conversationId);
+    expect(injected.rootPromptIds).toEqual(snapshot.rootPromptIds);
+  });
+
+  it('degrades rich content to the v1 transcript vocabulary', () => {
+    const snapshot = makeSnapshot();
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'image_url', imageUrl: { url: 'https://example.test/chart.png' } },
+          { type: 'think', think: 'silent reasoning' },
+        ],
+        toolCalls: [{ type: 'function', id: 'call-1', name: 'Read', arguments: '{"path":"a"}' }],
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'file contents' }],
+        toolCalls: [],
+        toolCallId: 'call-1',
+      },
+    ];
+
+    const injected = injectMessagesIntoCursorSnapshot(snapshot, messages);
+
+    expect(decodedPromptContents(injected, injected.promptMessageIds.slice(-2))).toEqual([
+      { role: 'user', content: '[Image]silent reasoning[Tool Call: Read({"path":"a"})]' },
+      { role: 'user', content: '[Tool Result: file contents]' },
+    ]);
+  });
+
+  it('returns the input snapshot untouched for empty messages', () => {
+    const snapshot = makeSnapshot();
+    const before = Object.keys(snapshot.blobStore);
+
+    const injected = injectMessagesIntoCursorSnapshot(snapshot, []);
+
+    expect(injected).toBe(snapshot);
+    expect(Object.keys(injected.blobStore)).toEqual(before);
+    expect(injected.promptMessageIds).toHaveLength(2);
+    expect(injected.latestStateBlobId).toBe(snapshot.latestStateBlobId);
   });
 });

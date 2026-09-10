@@ -29,6 +29,8 @@ import { decodeExecServerMessage, handleExecServerMessage } from './exec-tools';
 import { decodeFramePayload, encodeFrame, FRAME_FLAG_TRAILER, parseFrameJson, parseTrailers } from './frame';
 import { DEFAULT_CURSOR_GATEWAY_URL, openRunStream, type RunStreamTransport } from './run-stream';
 
+export * from './inject';
+
 /**
  * Constructor options for {@link CursorNativeChatProvider}.
  */
