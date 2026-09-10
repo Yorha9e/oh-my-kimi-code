@@ -1,4 +1,5 @@
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { VideoURLPart } from '#/kosong/contract/message';
 import { APIStatusError, isAbortError, VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import { generate, type GenerateResult } from '#/kosong/contract/generate';
@@ -44,7 +45,6 @@ export class ModelRequesterImpl implements ModelRequester {
       providerOptions: model.providerOptions,
       hydrate: this.hooks?.hydrate,
     });
-    this.hooks?.hydrate?.(provider);
     this.cachedChatProvider = provider;
     return provider;
   }
@@ -143,8 +143,12 @@ export class ModelRequesterImpl implements ModelRequester {
     }
 
     if (signal?.aborted !== true) {
-      const snapshot = readCursorSnapshot(provider);
-      if (snapshot !== undefined) this.hooks?.onSnapshot?.(snapshot);
+      try {
+        const snapshot = readCursorSnapshot(provider);
+        if (snapshot !== undefined) this.hooks?.onSnapshot?.(snapshot);
+      } catch (error) {
+        onUnexpectedError(error);
+      }
     }
 
     if (result.usage !== undefined && result.usage !== null) {

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import { createEmptyCursorSnapshot } from '@moonshot-ai/kosong';
+
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import {
@@ -10,11 +12,14 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair, TestInstantiationService } from '#/_base/di/test';
 import { BugIndicatingError } from '#/_base/errors/errors';
+import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import {
   CursorCheckpointUpdated,
   CursorStateService,
   ICursorStateService,
+  cursorCheckpointUpdatedSchema,
+  cursorSnapshotSchema,
   type CursorProviderSnapshot,
 } from '#/agent/cursor/cursorState';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -24,6 +29,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import type { ChatProvider, StreamedMessage } from '#/kosong/contract/provider';
+import { APIStatusError } from '#/kosong/contract/errors';
 import type { Message, StreamedMessagePart } from '#/kosong/contract/message';
 import type { Tool } from '#/kosong/contract/tool';
 import { emptyUsage } from '#/kosong/contract/usage';
@@ -205,6 +211,65 @@ describe('CursorStateService', () => {
 
     expect(() => active.states().contributeState(lateKey)).toThrow(BugIndicatingError);
   });
+
+  it('accepts the provider snapshot factory through the snapshot schemas', () => {
+    const sample = createEmptyCursorSnapshot();
+
+    expect(cursorSnapshotSchema.safeParse(sample).success).toBe(true);
+    expect(
+      cursorCheckpointUpdatedSchema.safeParse({ agentId: 'main', snapshot: sample }).success,
+    ).toBe(true);
+  });
+
+  it('skips a schema-mismatched checkpoint on restore and keeps the default state', async () => {
+    const replayed = createCursorTestContainer([
+      {
+        type: 'cursor.checkpoint_updated',
+        agentId: 'main',
+        snapshot: { ...makeSnapshot('corrupt'), protocolVersion: 999 },
+        time: Date.now(),
+      },
+    ]);
+    disposables.add(replayed.store);
+    const owner = replayed.cursor();
+    const unexpected: unknown[] = [];
+    setUnexpectedErrorHandler((error) => {
+      unexpected.push(error);
+    });
+    try {
+      await replayed.dispatcher().restore();
+    } finally {
+      resetUnexpectedErrorHandler();
+    }
+
+    expect(owner.current()).toEqual(emptySnapshot());
+    expect(unexpected).toHaveLength(1);
+  });
+
+  it('skips a checkpoint with a mismatched agentId on restore', async () => {
+    const replayed = createCursorTestContainer([
+      {
+        type: 'cursor.checkpoint_updated',
+        agentId: 'other',
+        snapshot: makeSnapshot('foreign'),
+        time: Date.now(),
+      },
+    ]);
+    disposables.add(replayed.store);
+    const owner = replayed.cursor();
+    const unexpected: unknown[] = [];
+    setUnexpectedErrorHandler((error) => {
+      unexpected.push(error);
+    });
+    try {
+      await replayed.dispatcher().restore();
+    } finally {
+      resetUnexpectedErrorHandler();
+    }
+
+    expect(owner.current()).toEqual(emptySnapshot());
+    expect(unexpected).toHaveLength(1);
+  });
 });
 
 class FakeCursorProvider implements ChatProvider {
@@ -256,6 +321,7 @@ registerProtocolBase({
   createChatProvider: (context) => {
     seenConfigHydrates.push(context.config.hydrate);
     if (injectedProvider === null) throw new Error('no fake cursor provider injected');
+    context.config.hydrate?.(injectedProvider);
     return injectedProvider;
   },
 });
@@ -383,6 +449,7 @@ describe('cursor persistence wiring (scoped)', () => {
     );
     expect(events.some((event) => event.type === 'finish')).toBe(true);
     expect(hydrate).toHaveBeenCalledWith(fake);
+    expect(hydrate).toHaveBeenCalledTimes(1);
     expect(fake.restored).toEqual(makeSnapshot('one'));
     expect(seenConfigHydrates.at(-1)).toBe(hydrate);
     expect(stored2).toHaveLength(1);
@@ -416,5 +483,136 @@ describe('cursor persistence wiring (scoped)', () => {
     expect(stored2).toHaveLength(0);
     expect(owner.current()).toEqual(makeSnapshot('one'));
     expect(journal).toHaveLength(stored);
+  });
+
+  it('restores the parent bridge once a nested agent disposes', async () => {
+    const parent = host.childOf(session, LifecycleScope.Agent, 'parent', agentSeeds(journal));
+    const parentOwner = parent.accessor.get(ICursorStateService);
+    parentOwner.fold(makeSnapshot('parent'));
+    const child = host.childOf(session, LifecycleScope.Agent, 'child', agentSeeds(journal));
+    const childOwner = child.accessor.get(ICursorStateService);
+    childOwner.fold(makeSnapshot('child'));
+
+    const nested = new FakeCursorProvider(emptySnapshot());
+    injectedProvider = nested;
+    const registry = host.app.accessor.get(IProtocolAdapterRegistry);
+    const nestedRequester = new ModelRequesterImpl(cursorTestModel(), registry, {
+      hydrate: cursorHydrateProvider,
+      onSnapshot: storeCursorSnapshot,
+    });
+    const nestedEvents = await collectEvents(
+      nestedRequester.request({ systemPrompt: 'sys', tools: [], messages: [] }),
+    );
+    expect(nestedEvents.some((event) => event.type === 'finish')).toBe(true);
+    expect(nested.restored).toEqual(makeSnapshot('child'));
+
+    child.dispose();
+
+    const revived = new FakeCursorProvider(emptySnapshot());
+    cursorHydrateProvider(revived);
+    expect(revived.restored).toEqual(makeSnapshot('parent'));
+    storeCursorSnapshot(makeSnapshot('parent-next'));
+    expect(parentOwner.current()).toEqual(makeSnapshot('parent-next'));
+  });
+
+  it('completes the request when the snapshot hook throws', async () => {
+    const agent = host.childOf(session, LifecycleScope.Agent, 'main', agentSeeds(journal));
+    agent.accessor.get(ICursorStateService).fold(makeSnapshot('one'));
+
+    const fake = new FakeCursorProvider(emptySnapshot());
+    injectedProvider = fake;
+    const unexpected: unknown[] = [];
+    setUnexpectedErrorHandler((error) => {
+      unexpected.push(error);
+    });
+    try {
+      const registry = host.app.accessor.get(IProtocolAdapterRegistry);
+      const requester = new ModelRequesterImpl(cursorTestModel(), registry, {
+        hydrate: cursorHydrateProvider,
+        onSnapshot: () => {
+          throw new Error('snapshot hook failed');
+        },
+      });
+
+      const events = await collectEvents(
+        requester.request({ systemPrompt: 'sys', tools: [], messages: [] }),
+      );
+      expect(events.some((event) => event.type === 'finish')).toBe(true);
+    } finally {
+      resetUnexpectedErrorHandler();
+    }
+    expect(unexpected).toHaveLength(1);
+  });
+
+  it('completes the request when reading the provider snapshot throws', async () => {
+    const agent = host.childOf(session, LifecycleScope.Agent, 'main', agentSeeds(journal));
+    agent.accessor.get(ICursorStateService).fold(makeSnapshot('one'));
+
+    const fake = new FakeCursorProvider(emptySnapshot());
+    injectedProvider = fake;
+    vi.spyOn(fake, 'snapshotState').mockImplementation(() => {
+      throw new Error('snapshot read failed');
+    });
+    const unexpected: unknown[] = [];
+    setUnexpectedErrorHandler((error) => {
+      unexpected.push(error);
+    });
+    try {
+      const registry = host.app.accessor.get(IProtocolAdapterRegistry);
+      const requester = new ModelRequesterImpl(cursorTestModel(), registry, {
+        hydrate: cursorHydrateProvider,
+        onSnapshot: storeCursorSnapshot,
+      });
+
+      const events = await collectEvents(
+        requester.request({ systemPrompt: 'sys', tools: [], messages: [] }),
+      );
+      expect(events.some((event) => event.type === 'finish')).toBe(true);
+    } finally {
+      resetUnexpectedErrorHandler();
+    }
+    expect(unexpected).toHaveLength(1);
+  });
+
+  it('folds the snapshot exactly once when a 401 retry succeeds', async () => {
+    const agent = host.childOf(session, LifecycleScope.Agent, 'main', agentSeeds(journal));
+    const owner = agent.accessor.get(ICursorStateService);
+    owner.fold(makeSnapshot('one'));
+
+    const fake = new FakeCursorProvider(emptySnapshot());
+    injectedProvider = fake;
+    let attempts = 0;
+    const generate = fake.generate.bind(fake);
+    fake.generate = async (systemPrompt, tools, history) => {
+      attempts += 1;
+      if (attempts === 1) throw new APIStatusError(401, 'unauthorized');
+      return generate(systemPrompt, tools, history);
+    };
+    const folded: CursorProviderSnapshot[] = [];
+    const registry = host.app.accessor.get(IProtocolAdapterRegistry);
+    const requester = new ModelRequesterImpl(
+      {
+        ...cursorTestModel(),
+        authProvider: {
+          canRefresh: true,
+          getAuth: () => Promise.resolve({ apiKey: 'test-key' }),
+        },
+      },
+      registry,
+      {
+        hydrate: cursorHydrateProvider,
+        onSnapshot: (snapshot) => {
+          folded.push(snapshot);
+          storeCursorSnapshot(snapshot);
+        },
+      },
+    );
+
+    const events = await collectEvents(
+      requester.request({ systemPrompt: 'sys', tools: [], messages: [] }),
+    );
+    expect(attempts).toBe(2);
+    expect(events.some((event) => event.type === 'finish')).toBe(true);
+    expect(folded).toHaveLength(1);
   });
 });

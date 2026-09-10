@@ -47,7 +47,11 @@ const cursorUsageSchema = z.object({
   inputCacheCreation: z.number(),
 });
 
-const cursorSnapshotSchema = z.object({
+/**
+ * Wire schema for a cursor provider snapshot, shared by the durable
+ * checkpoint record and the replayable `cursorNative` state key.
+ */
+export const cursorSnapshotSchema = z.object({
   protocolVersion: z.literal(1),
   blobStore: z.record(z.string(), z.string()),
   turnIds: z.array(z.string()),
@@ -59,7 +63,11 @@ const cursorSnapshotSchema = z.object({
   lastUsage: cursorUsageSchema.nullable(),
 });
 
-const cursorCheckpointUpdatedSchema = z.object({
+/**
+ * Wire schema for the durable cursor checkpoint record pairing an agent with
+ * its full provider snapshot.
+ */
+export const cursorCheckpointUpdatedSchema = z.object({
   agentId: z.string(),
   snapshot: cursorSnapshotSchema,
 });
@@ -119,10 +127,9 @@ function copyCursorSnapshot(
 
 /**
  * Owner service for the `cursorNative` replayable key. Each agent holds its
- * own snapshot; the underlying provider instance is shared per model, so
- * when several agents drive the cursor channel the newest agent's snapshot
- * wins hydration and every completed request folds back into that same
- * agent. Single-agent cursor usage is unaffected by this limitation.
+ * own snapshot behind a stacked bridge registration: the innermost live
+ * agent drives provider hydration and receives folded snapshots, and
+ * disposing it reveals the parent registration underneath.
  */
 export interface ICursorStateService {
   readonly _serviceBrand: undefined;
