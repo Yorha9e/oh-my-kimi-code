@@ -81,7 +81,30 @@ compact（`ContextApplyCompaction`）发生在 cursor session 时，**重建 cur
 - 图片/工具调用等富内容段落首版降级为文本转述；
 - 极端场景（cursor → 非 cursor → cursor 快速往返）靠游标幂等，不重复注入。
 
-## 5. 实施切分（tower，建议单 mission 或两 mission）
+## 5. 边界问题裁定（2026-09-10 讨论）
+
+### 5.1 "远端 compact 后本地不同步"的真实风险方向
+
+- **服务端压缩 ≠ 暗变**：压缩结果经 `conversation_checkpoint_update` 下发，provider 内存（turns/anchor/summary 字段）与 P0 快照在下一轮 fold 自动跟进；usage 来自 checkpoint `tokenDetails`，本地上下文估计每轮向服务端视图收敛。协议状态层面不存在"远端压了本地不知道"。
+- **真正危险的是反方向（P1 之前的现状）**：本地 compact 缩了引擎历史，但 cursor 协议状态仍挂着全量旧 turn → 服务端实际上下文 ≫ 本地估计 → 服务端悄悄逼近窗口而本地永不触发 compact。**P1 的快照重建顺带消灭此不同步**（本地缩，协议状态同缩），并修正 HANDOVER §5 担心的"压缩后 token rebase 令 auto-compact 不再触发"——压缩后 rebase 小值与协议骤减状态一致，后续触发判定恢复正常。
+- **双压缩（服务端压了、本地又压）**：语义安全（客户端权威 state，骤减快照即官方压缩后形态），代价是多压一次、细节多丢一档。优化项（非首版）：fold 时若 checkpoint 已带服务端 summary，优先消费之，跳过本地二次压缩。
+
+### 5.2 不同步/压缩状态下切换其他模型
+
+- 非 cursor provider 纯由引擎历史构造请求，与 cursor 协议状态正交 → **切换本身无协议风险**。
+- 两边视图可能短暂不同（如服务端已压缩、本地历史仍全量），各自自洽；官方 IDE 同样如此（UI 全量、服务端压缩后），视为固有语义而非 bug。
+
+### 5.3 "从 cursor 切出到普通模型"方向（用户问的 P2 反方向）
+
+- **天然成立，零工作量**：普通模型读引擎历史，cursor 轮次全部在历史中；唯一前提是本地 compact 后所有模型一致看"摘要+尾部"（语义统一，本来如此）。
+- P2 仅需实现"切回 cursor"方向的注入。**P2 游标必须把 P1 fold 视为重置点**：compact 重建快照后，此前"已注入"记录作废，从 compact 后历史重新计游标——否则切回时会出现漏注/重注。
+
+### 5.4 实现期待核实项
+
+- v2 引擎 auto-compact 判定是否消费 ModelRequestEvent 的 usage 事件（决定"本地估计跟随服务端"收敛速度）；若用本地估算为主，cursor 渠道需确认估算窗口用网关下发的 context 字段。
+- 服务端 summary 字段（f6/f11）在 checkpoint update 中的实际出现频率（抓包仅 2/80000），决定 5.1 优化项的优先级。
+
+## 6. 实施切分（tower，建议单 mission 或两 mission）
 
 P1 与 P2 共享注入原语（`rebuildFromMessages`），改动同域（cursorBridge/cursorState/kosong provider + v2 监听器）：
 
