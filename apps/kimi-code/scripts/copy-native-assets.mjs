@@ -1,5 +1,4 @@
-import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { cp, mkdir, rm, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,20 +36,3 @@ for (const platform of PLATFORMS) {
 }
 
 console.log(`Copied pi-tui native prebuilds to ${target}`);
-
-// @cursor/sdk is bundled into dist/main.mjs, but its webpack runtime loads
-// numbered chunks (`import("./" + id + ".js")`, e.g. 986.js) relative to the
-// entry file at runtime. Ship those chunk files next to main.mjs so the
-// loader resolves inside the installed package instead of 404-ing.
-const kosongRequire = createRequire(resolve(repoRoot, 'packages/kosong/package.json'));
-const sdkEntry = kosongRequire.resolve('@cursor/sdk');
-const sdkEsmDir = resolve(dirname(sdkEntry).replace(/dist[\\/]cjs([\\/])?$/, 'dist/esm$1') ?? dirname(sdkEntry));
-const distDir = resolve(appRoot, 'dist');
-await mkdir(distDir, { recursive: true });
-let chunkCount = 0;
-for (const file of await readdir(sdkEsmDir)) {
-  if (!/^\d+\.js$/.test(file)) continue;
-  await cp(resolve(sdkEsmDir, file), resolve(distDir, file));
-  chunkCount++;
-}
-console.log(`Copied ${chunkCount} @cursor/sdk chunks to ${distDir}`);
