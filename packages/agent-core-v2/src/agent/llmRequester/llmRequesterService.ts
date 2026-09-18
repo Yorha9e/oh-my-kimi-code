@@ -311,7 +311,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     return async (name, args) => {
       const call: ToolCall = {
         type: 'function',
-        id: `cursor-host-${randomUUID()}`,
+        id: `host-${randomUUID()}`,
         name,
         arguments: JSON.stringify(args),
       };

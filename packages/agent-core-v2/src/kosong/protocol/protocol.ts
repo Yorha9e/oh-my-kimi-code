@@ -12,7 +12,6 @@ export const ProtocolSchema = z.enum([
   'openai',
   'openai_responses',
   'google-genai',
-  'cursor',
 ]);
 
 export type Protocol = z.infer<typeof ProtocolSchema>;
@@ -28,7 +27,6 @@ export interface ProtocolProviderOptions {
   readonly vertexai?: boolean;
   readonly project?: string;
   readonly location?: string;
-  readonly modelParams?: Readonly<Record<string, string>>;
 }
 
 export interface ProtocolAdapterConfig {
@@ -39,12 +37,6 @@ export interface ProtocolAdapterConfig {
   readonly apiKey?: string;
   readonly defaultHeaders?: Readonly<Record<string, string>>;
   readonly providerOptions?: ProtocolProviderOptions;
-  /**
-   * Post-creation hook restoring persisted channel state into a stateful
-   * provider before its first request. Stateful channels reload their own
-   * snapshot through it; stateless providers ignore it.
-   */
-  readonly hydrate?: (provider: ChatProvider) => void;
 }
 
 export interface ExplainedCapability {

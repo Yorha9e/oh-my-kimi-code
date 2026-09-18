@@ -1,8 +1,5 @@
-import type { CursorProviderSnapshot } from '@moonshot-ai/kosong';
-
 import type { Message, StreamedMessagePart, VideoURLPart } from '#/kosong/contract/message';
 import type {
-  ChatProvider,
   FinishReason,
   HostToolExecutor,
   ResponseFormat,
@@ -54,8 +51,8 @@ export interface ModelRequestParams {
   readonly maxContextTokens?: number;
   readonly onTraceId?: (traceId: string | null) => void;
   /**
-   * Host tool invoker for protocols that execute tool calls in-process
-   * (cursor). Built per request by the agent loop from the agent-scope tool
+   * Host tool invoker for protocols that execute tool calls in-process.
+   * Built per request by the agent loop from the agent-scope tool
    * executor so permission gating stays on the host side.
    */
   readonly toolInvoker?: HostToolExecutor;
@@ -74,17 +71,6 @@ export interface ModelRequester {
     input: string | VideoUploadInput,
     options?: { readonly signal?: AbortSignal },
   ): Promise<VideoURLPart>;
-}
-
-/**
- * Lifecycle hooks for stateful providers, injected per model. `hydrate`
- * restores persisted channel state right after the provider is lazily
- * created and before its first request; `onSnapshot` receives a full state
- * snapshot after each successfully completed request.
- */
-export interface ModelRequesterHooks {
-  readonly hydrate?: (provider: ChatProvider) => void;
-  readonly onSnapshot?: (snapshot: CursorProviderSnapshot) => void;
 }
 
 export function effectiveMaxCompletionTokens(params?: ModelRequestParams): number | undefined {

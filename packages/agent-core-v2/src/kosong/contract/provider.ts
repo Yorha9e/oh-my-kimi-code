@@ -78,7 +78,7 @@ export interface GenerateOptions {
   auth?: ProviderRequestAuth;
   /**
    * Per-request host tool executor (kosong HostToolExecutor). Only consumed
-   * by protocols that run tool calls in-process (cursor); other protocols
+   * by protocols that run tool calls in-process; other protocols
    * ignore it.
    */
   toolExecutor?: HostToolExecutor;

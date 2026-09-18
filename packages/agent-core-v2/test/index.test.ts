@@ -99,7 +99,6 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'cron.add',
   'cron.delete',
   'cron.cursor',
-  'cursor.checkpoint_updated',
   'token_counting.turn_recorded',
 ]);
 

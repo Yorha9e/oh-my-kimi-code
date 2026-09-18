@@ -1,5 +1,4 @@
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { VideoURLPart } from '#/kosong/contract/message';
 import { APIStatusError, isAbortError, VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import { generate, type GenerateResult } from '#/kosong/contract/generate';
@@ -12,12 +11,10 @@ import type {
 } from '#/kosong/contract/provider';
 import { translateProviderError } from '#/kosong/protocol/errors';
 import type { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
-import { readCursorSnapshot } from '#/kosong/provider/bases/cursor/cursorBridge';
 
 import type { AuthProvider, Model } from './catalog';
 import type {
   ModelRequestEvent,
-  ModelRequesterHooks,
   ModelRequestInput,
   ModelRequestParams,
   ModelRequester,
@@ -30,7 +27,6 @@ export class ModelRequesterImpl implements ModelRequester {
   constructor(
     readonly model: Model,
     private readonly protocolRegistry: IProtocolAdapterRegistry,
-    private readonly hooks?: ModelRequesterHooks,
   ) {}
 
   private resolveChatProvider(): ChatProvider {
@@ -43,7 +39,6 @@ export class ModelRequesterImpl implements ModelRequester {
       modelName: model.name,
       defaultHeaders: model.headers,
       providerOptions: model.providerOptions,
-      hydrate: this.hooks?.hydrate,
     });
     this.cachedChatProvider = provider;
     return provider;
@@ -140,15 +135,6 @@ export class ModelRequesterImpl implements ModelRequester {
     } catch (error) {
       if (isAbortError(error) || signal?.aborted === true) throw error;
       throw translateProviderError(error);
-    }
-
-    if (signal?.aborted !== true) {
-      try {
-        const snapshot = readCursorSnapshot(provider);
-        if (snapshot !== undefined) this.hooks?.onSnapshot?.(snapshot);
-      } catch (error) {
-        onUnexpectedError(error);
-      }
     }
 
     if (result.usage !== undefined && result.usage !== null) {

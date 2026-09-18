@@ -211,7 +211,6 @@ export * from '#/app/kosongConfig/modelsDevImportService';
 export * from '#/app/kosongConfig/modelsDevUpstream';
 export * from '#/app/kosongConfig/modelsDev';
 import '#/kosong/provider/bases/anthropic/index';
-import '#/kosong/provider/bases/cursor/index';
 import '#/kosong/provider/bases/google-genai/index';
 import '#/kosong/provider/bases/openai/index';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
@@ -741,4 +740,3 @@ export type { AgentToolContributionOptions } from '#/agent/toolRegistry/toolCont
 export * from '#/agent/userTool/userTool';
 export * from '#/agent/userTool/userToolOps';
 export * from '#/agent/userTool/userToolService';
-export * from '#/agent/cursor/cursorState';
