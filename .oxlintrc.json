@@ -169,6 +169,7 @@
     }
   ],
   "ignorePatterns": [
+    "attic/",
     "dist/",
     "dist-web/",
     "coverage/",
