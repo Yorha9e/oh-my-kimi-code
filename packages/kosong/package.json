@@ -44,7 +44,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
-    "@cursor/sdk": "1.0.30",
     "@google/genai": "^1.49.0",
     "openai": "^6.34.0",
     "zod": "^4.3.6",

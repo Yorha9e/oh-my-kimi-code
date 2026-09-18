@@ -7,7 +7,6 @@ import {
   getOpenAILegacyModelCapability,
   getOpenAIResponsesModelCapability,
 } from './capability-registry';
-import { CursorNativeChatProvider, type CursorNativeOptions } from './cursor-native';
 import { GoogleGenAIChatProvider, type GoogleGenAIOptions } from './google-genai';
 import { KimiChatProvider, type KimiOptions } from './kimi';
 import { OpenAILegacyChatProvider, type OpenAILegacyOptions } from './openai-legacy';
@@ -17,7 +16,6 @@ export type ProviderConfig =
   | ({ type: 'anthropic' } & AnthropicOptions)
   | ({ type: 'openai' } & OpenAILegacyOptions)
   | ({ type: 'kimi' } & KimiOptions)
-  | ({ type: 'cursor' } & CursorNativeOptions)
   | ({ type: 'google-genai' } & GoogleGenAIOptions)
   | ({ type: 'openai_responses' } & OpenAIResponsesOptions)
   | ({ type: 'vertexai' } & GoogleGenAIOptions);
@@ -32,8 +30,6 @@ export function createProvider(config: ProviderConfig): ChatProvider {
       return new OpenAILegacyChatProvider(config);
     case 'kimi':
       return new KimiChatProvider(config);
-    case 'cursor':
-      return new CursorNativeChatProvider(config);
     case 'google-genai':
       return new GoogleGenAIChatProvider(config);
     case 'openai_responses':
@@ -67,7 +63,6 @@ export function getModelCapability(wire: ProviderType, modelName: string): Model
     case 'vertexai':
       return getGoogleGenAIModelCapability(modelName);
     case 'kimi':
-    case 'cursor':
       return UNKNOWN_CAPABILITY;
     default: {
       const exhaustive: never = wire;
