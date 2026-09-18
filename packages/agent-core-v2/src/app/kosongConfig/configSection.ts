@@ -183,7 +183,6 @@ export const ModelOverrideSchema = ModelBaseSchema.omit({
 
 export const ModelRecordSchema = ModelBaseSchema.extend({
   overrides: ModelOverrideSchema.optional(),
-  modelParams: z.record(z.string(), z.string()).optional(),
 }).passthrough();
 
 export const ModelsSectionSchema = z.record(z.string(), ModelRecordSchema);
