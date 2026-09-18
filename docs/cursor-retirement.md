@@ -34,4 +34,4 @@
 ## 5. 备注
 
 - cursor 协议研究成果全部沉淀在 `docs/cursor/`（协议记录、官方对齐、proto 字段图、逆向探索），渠道若未来重启，从本文档 §2 锚点 + attic 即可复原。
-- 依赖项：`@bufbuild/protobuf`、`@connectrpc/*`、`@fastify/busboy` 为 cursor 传递依赖，经核实全仓库零消费后已随剥离删除（`pnpm install --frozen-lockfile` 验证通过，critic 复核确认）。
+- 依赖项：`@bufbuild/protobuf`、`@connectrpc/*` 为 cursor 传递依赖，经核实全仓库零消费后已随剥离删除（`pnpm install --frozen-lockfile` 验证通过）；`@fastify/busboy` 保留——它是 kap-server `@fastify/multipart`（文件上传路由，#2312/#2593，早于 cursor 工作）的运行时依赖，与 cursor 无关。
