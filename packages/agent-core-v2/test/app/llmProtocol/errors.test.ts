@@ -663,6 +663,24 @@ describe('isRecoverableRequestStructureError', () => {
     ).toBe(true);
   });
 
+  it('matches the Google GenAI thought_signature rejections', () => {
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(400, 'Please ensure that the number of thought parts... Text part is missing a thought_signature'),
+      ),
+    ).toBe(true);
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(400, '400 Invalid value at ... thought_signature: INVALID_ARGUMENT'),
+      ),
+    ).toBe(true);
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(400, 'invalid thought signature on function call part'),
+      ),
+    ).toBe(true);
+  });
+
   it('does not match context overflow, auth, or non-status errors', () => {
     expect(
       isRecoverableRequestStructureError(new APIContextOverflowError(400, 'context length exceeded')),
