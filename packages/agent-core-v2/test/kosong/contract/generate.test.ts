@@ -97,6 +97,20 @@ describe('generate() stream normalization', () => {
     expect(result.id).toBe('gen-1');
   });
 
+  it('keeps the first signature when merging signed text deltas', async () => {
+    const stream = new FakeStreamedMessage([
+      { type: 'text', text: 'Hello, ', signature: 'sig-first' },
+      { type: 'text', text: 'world', signature: 'sig-second' },
+    ]);
+    const { provider } = createFakeProvider(stream);
+
+    const result = await generate(provider, SYSTEM_PROMPT, NO_TOOLS, HISTORY);
+
+    expect(result.message.content).toEqual([
+      { type: 'text', text: 'Hello, world', signature: 'sig-first' },
+    ]);
+  });
+
   it('assembles tool calls from streamed argument deltas by stream index', async () => {
     const callA: ToolCall = {
       type: 'function',

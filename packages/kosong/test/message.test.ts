@@ -292,6 +292,22 @@ describe('mergeInPlace', () => {
     expect(target.text).toBe('hello world');
   });
 
+  it('merges TextPart + TextPart and keeps the first signature among the merged parts', () => {
+    const target: TextPart = { type: 'text', text: 'hello', signature: 'sig-1' };
+    const source: TextPart = { type: 'text', text: ' world', signature: 'sig-2' };
+    expect(mergeInPlace(target, source)).toBe(true);
+    expect(target.text).toBe('hello world');
+    expect(target.signature).toBe('sig-1');
+  });
+
+  it('adopts the source signature when the unsigned target merges a signed text part', () => {
+    const target: TextPart = { type: 'text', text: 'hello' };
+    const source: TextPart = { type: 'text', text: ' world', signature: 'sig-2' };
+    expect(mergeInPlace(target, source)).toBe(true);
+    expect(target.text).toBe('hello world');
+    expect(target.signature).toBe('sig-2');
+  });
+
   it('merges ThinkPart + ThinkPart', () => {
     const target: ThinkPart = { type: 'think', think: 'step1' };
     const source: ThinkPart = { type: 'think', think: ' step2' };

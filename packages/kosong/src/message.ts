@@ -5,6 +5,15 @@ export type Role = 'system' | 'user' | 'assistant' | 'tool';
 export interface TextPart {
   type: 'text';
   text: string;
+  /**
+   * Provider-specific signature the model attached to this text part (Google
+   * GenAI emits a `thoughtSignature` on plain text parts for some models).
+   * Carried opaquely so the part can be replayed to the same provider with its
+   * original signature; when several text parts merge into one, the merged
+   * part keeps the first signature among them (the signature of the earliest
+   * signed part in merge order).
+   */
+  signature?: string;
 }
 
 export interface ThinkPart {
@@ -172,6 +181,12 @@ export function mergeInPlace(target: StreamedMessagePart, source: StreamedMessag
   // TextPart + TextPart
   if (target.type === 'text' && source.type === 'text') {
     target.text += source.text;
+    // The signature belongs to a specific upstream part; when parts merge we
+    // keep the first signature seen so the merged block still replays with
+    // one valid signature instead of dropping the field entirely.
+    if (target.signature === undefined && source.signature !== undefined) {
+      target.signature = source.signature;
+    }
     return true;
   }
 

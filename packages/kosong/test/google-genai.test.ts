@@ -518,6 +518,43 @@ describe('GoogleGenAIChatProvider', () => {
       });
     });
 
+    it('assistant text part with a signature replays the signature on the same text part', async () => {
+      // js-genai #1116: image-generation models return a SIGNED plain text
+      // part. Dropping the signature used to 400 the next request with
+      // "Text part is missing a thought_signature" — the signature must be
+      // stored on the TextPart and replayed onto the same text part.
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Draw a cat' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Here is your cat.', signature: 'sig-text-1' }],
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['contents']).toEqual([
+        { parts: [{ text: 'Draw a cat' }], role: 'user' },
+        {
+          parts: [{ text: 'Here is your cat.', thoughtSignature: 'sig-text-1' }],
+          role: 'model',
+        },
+      ]);
+    });
+
+    it('assistant text part without a signature replays unchanged (regression)', () => {
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Hello back' }], toolCalls: [] },
+      ];
+
+      expect(messagesToGoogleGenAIContents(messages)).toEqual([
+        { parts: [{ text: 'Hi' }], role: 'user' },
+        { parts: [{ text: 'Hello back' }], role: 'model' },
+      ]);
+    });
+
     it('tool message with image_url result yields functionResponse + inline data part', () => {
       const messages: Message[] = [
         {
@@ -1317,6 +1354,95 @@ describe('GoogleGenAIChatProvider', () => {
           extras: { thought_signature_b64: 'sig_abc123' },
         },
       ]);
+    });
+
+    it('yields a signed TextPart from a signed plain text part in the response', async () => {
+      // js-genai #1116: image-generation models emit thoughtSignature on a
+      // plain (non-thought) text part. The signature must surface on the
+      // TextPart instead of being silently dropped.
+      async function* mockStream() {
+        yield {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { text: 'Here is your cat.', thoughtSignature: 'sig-1' },
+                ],
+              },
+            },
+          ],
+        };
+      }
+
+      const msg = new GoogleGenAIStreamedMessage(mockStream(), true);
+      expect(await collectParts(msg)).toEqual([
+        { type: 'text', text: 'Here is your cat.', signature: 'sig-1' },
+      ]);
+    });
+
+    it('yields an unsigned TextPart from a plain text part without a signature (regression)', async () => {
+      async function* mockStream() {
+        yield { candidates: [{ content: { parts: [{ text: 'plain answer' }] } }] };
+      }
+
+      const msg = new GoogleGenAIStreamedMessage(mockStream(), true);
+      expect(await collectParts(msg)).toEqual([{ type: 'text', text: 'plain answer' }]);
+    });
+
+    it('round-trips a signed text part through the assembled assistant message', async () => {
+      // Parse the signed text part, replay the assembled history, and assert
+      // the signature lands back on the same text part.
+      const provider = createProvider();
+      const mockModels = (provider as any)._client.models as Record<string, unknown>;
+
+      async function* mockStream() {
+        yield {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { text: 'Answer part one.', thoughtSignature: 'sig-first' },
+                  { text: ' Part two.', thoughtSignature: 'sig-second' },
+                ],
+              },
+            },
+          ],
+        };
+      }
+
+      mockModels['generateContentStream'] = vi.fn().mockImplementation(() =>
+        Promise.resolve(mockStream()),
+      );
+
+      const stream = await provider.generate(
+        '',
+        [],
+        [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
+      );
+      const parts = await collectParts(stream);
+      expect(parts).toEqual([
+        { type: 'text', text: 'Answer part one.', signature: 'sig-first' },
+        { type: 'text', text: ' Part two.', signature: 'sig-second' },
+      ]);
+
+      const replay = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: parts as Message['content'],
+          toolCalls: [],
+        },
+      ]);
+
+      const contents = replay['contents'] as Array<{ parts: Array<Record<string, unknown>> }>;
+      expect(contents[1]!.parts[0]).toEqual({
+        text: 'Answer part one.',
+        thoughtSignature: 'sig-first',
+      });
+      expect(contents[1]!.parts[1]).toEqual({
+        text: ' Part two.',
+        thoughtSignature: 'sig-second',
+      });
     });
 
     it('accumulates usage from last chunk', async () => {

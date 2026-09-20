@@ -743,6 +743,70 @@ describe('reasoning-only assistant history projection', () => {
   });
 });
 
+describe('Google GenAI text-part thought signature round trip', () => {
+  const SIGNED_TEXT_HISTORY: Message[] = [
+    { role: 'user', content: [{ type: 'text', text: 'Draw a cat' }], toolCalls: [] },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Here is your cat.', signature: 'sig-text-1' }],
+      toolCalls: [],
+    },
+  ];
+
+  it('replays the signature on the same text part of the outbound contents', async () => {
+    const provider = new GoogleGenAIChatProvider({
+      model: 'gemini-2.5-flash',
+      apiKey: 'sk-probe',
+      stream: false,
+    });
+
+    const body = await captureGoogleBody(provider, undefined, SIGNED_TEXT_HISTORY);
+    const contents = body['contents'] as Array<Record<string, unknown>>;
+
+    expect(contents).toEqual([
+      { role: 'user', parts: [{ text: 'Draw a cat' }] },
+      { role: 'model', parts: [{ text: 'Here is your cat.', thoughtSignature: 'sig-text-1' }] },
+    ]);
+  });
+
+  it('parses a signed plain text part into a signed TextPart', async () => {
+    const provider = new GoogleGenAIChatProvider({
+      model: 'gemini-2.5-flash',
+      apiKey: 'sk-probe',
+      stream: false,
+    });
+
+    const client = sdkClient(provider) as { models: { generateContent: unknown } };
+    client.models.generateContent = vi.fn().mockResolvedValue({
+      candidates: [
+        {
+          content: { parts: [{ text: 'Here is your cat.', thoughtSignature: 'sig-1' }], role: 'model' },
+          finishReason: 'STOP',
+        },
+      ],
+    });
+
+    const parts: unknown[] = [];
+    for await (const part of await provider.generate('', [], PROBE_HISTORY)) {
+      parts.push(part);
+    }
+    expect(parts).toEqual([{ type: 'text', text: 'Here is your cat.', signature: 'sig-1' }]);
+  });
+
+  it('leaves plain unsigned text parts untouched on the outbound contents (regression)', async () => {
+    const provider = new GoogleGenAIChatProvider({
+      model: 'gemini-2.5-flash',
+      apiKey: 'sk-probe',
+      stream: false,
+    });
+
+    const body = await captureGoogleBody(provider, undefined, PROBE_HISTORY);
+    const contents = body['contents'] as Array<Record<string, unknown>>;
+
+    expect(contents).toEqual([{ role: 'user', parts: [{ text: 'Hi' }] }]);
+  });
+});
+
 describe('tool-call-only assistant history projection (issue #3017)', () => {
   it('emits content: null for an assistant message carrying only tool_calls', async () => {
     const provider = new OpenAILegacyChatProvider({

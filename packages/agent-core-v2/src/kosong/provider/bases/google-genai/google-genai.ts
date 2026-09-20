@@ -220,9 +220,14 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
 
   for (const part of message.content) {
     switch (part.type) {
-      case 'text':
-        parts.push({ text: part.text });
+      case 'text': {
+        const textPart: GooglePart = { text: part.text };
+        if (part.signature !== undefined && part.signature.length > 0) {
+          textPart.thoughtSignature = part.signature;
+        }
+        parts.push(textPart);
         break;
+      }
       case 'think': {
         const thoughtPart: GooglePart = { text: part.think, thought: true };
         if (part.encrypted !== undefined && part.encrypted.length > 0) {
@@ -519,7 +524,15 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
           }
           parts.push(thinkPart);
         } else if (p['text']) {
-          parts.push({ type: 'text', text: p['text'] as string });
+          const textSignature = p['thoughtSignature'] ?? p['thought_signature'];
+          const textPart: { type: 'text'; text: string; signature?: string } = {
+            type: 'text',
+            text: p['text'] as string,
+          };
+          if (typeof textSignature === 'string' && textSignature.length > 0) {
+            textPart.signature = textSignature;
+          }
+          parts.push(textPart);
         } else if (p['functionCall'] || p['function_call']) {
           const fc = (p['functionCall'] ?? p['function_call']) as Record<string, unknown>;
           const name = fc['name'] as string;
