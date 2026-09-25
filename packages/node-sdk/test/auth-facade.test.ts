@@ -16,9 +16,10 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiHarness, ErrorCodes, KimiError } from '#/index';
+import { ErrorCodes, KimiError } from '#/index';
 
 import { ProviderManager } from '../../agent-core/src/session/provider-manager';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 let homeDir: string;

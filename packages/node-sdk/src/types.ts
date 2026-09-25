@@ -1,14 +1,13 @@
-import type {
-  ExportSessionManifest,
-  ResumeSessionResult,
-  ShellEnvironment,
-  TelemetryClient,
-  TelemetryContextPatch,
-  TelemetryProperties,
-} from '@moonshot-ai/agent-core';
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart } from '@moonshot-ai/kosong';
+
+import type {
+  ExportSessionManifest,
+  ShellEnvironment,
+} from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExport';
+import type { ResumeSessionResult } from '#/replay';
+import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/telemetry';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -23,44 +22,58 @@ export interface AgentRuntimeBinding {
 
 export type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 
+export type { AgentReplayRecord, ResumedAgentState } from '#/replay';
 export type {
-  AgentReplayRecord,
   AgentBackgroundTaskInfo,
+  BackgroundTaskInfo,
+  BackgroundTaskStatus,
+  ProcessBackgroundTaskInfo,
+  QuestionBackgroundTaskInfo,
+} from '#/task';
+export type {
   AppMcpServerAuthState,
   AppMcpServerConfig,
   AppMcpServerDescriptor,
   AppMcpServerInspection,
-  BackgroundConfig,
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-  ConfigDiagnostics,
-  ContextMessage,
-  CronTaskSnapshot,
-  ExperimentalFeatureState,
-  ExperimentalFlagMap,
-  ExperimentalFlagSource,
-  ExportSessionManifest,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GetCronTasksResult,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
   GlobalMcpServerAuthState,
   GlobalMcpServerAuthStatus,
-  KimiConfig,
-  KimiConfigPatch,
-  LoopControl,
   McpManagedServerInfo,
   McpServerInfo,
   McpServerLocator,
   McpServerSource,
   McpStartupMetrics,
+  GlobalMcpServerConfig as McpServerConfig,
+  GlobalMcpServerTestResult as McpTestResult,
+} from '#/mcp';
+export type {
+  BackgroundConfig,
+  KimiConfig,
+  KimiConfigPatch,
+  LoopControl,
   ModelAlias,
   MoonshotServiceConfig,
   OAuthRef,
+  ProviderConfig,
+  ProviderType,
+  ServicesConfig,
+  ThinkingConfig,
+} from '#/config/index';
+export type { ContextMessage, PromptOrigin } from '#/context';
+export type {
+  ExperimentalFeatureState,
+  ExperimentalFlagMap,
+  ExperimentalFlagSource,
+} from '#/flag';
+export type {
+  GoalBudgetLimits,
+  GoalBudgetReport,
+  GoalChange,
+  GoalChangeStats,
+  GoalSnapshot,
+  GoalStatus,
+  GoalToolResult,
+} from '@moonshot-ai/agent-core-v2/features/goal/types';
+export type {
   PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
@@ -68,21 +81,33 @@ export type {
   PluginMcpServerInfo,
   PluginSource,
   PluginSummary,
-  ProcessBackgroundTaskInfo,
-  PromptOrigin,
-  ProviderConfig,
-  ProviderType,
-  QuestionBackgroundTaskInfo,
   ReloadSummary,
-  ResumedAgentState,
-  ServicesConfig,
+} from '@moonshot-ai/agent-core-v2/app/plugin/types';
+export type { SkillSummary } from '@moonshot-ai/agent-core-v2/app/skillCatalog/types';
+export type { ToolInfo } from '#/tool';
+export type {
+  ExportSessionManifest,
   ShellEnvironment,
-  SkillSummary,
-  ThinkingConfig,
-  ToolInfo,
-  GlobalMcpServerConfig as McpServerConfig,
-  GlobalMcpServerTestResult as McpTestResult,
-} from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExport';
+
+/** Warnings from the most recent config.toml load attempt; empty when fully valid. */
+export interface ConfigDiagnostics {
+  readonly warnings: readonly string[];
+}
+
+export interface CronTaskSnapshot {
+  readonly id: string;
+  readonly cron: string;
+  readonly recurring: boolean;
+  readonly createdAt: number;
+  readonly lastFiredAt: number | undefined;
+  /** Post-jitter next fire (epoch ms), or null when no future fire exists. */
+  readonly nextFireAt: number | null;
+}
+
+export interface GetCronTasksResult {
+  readonly tasks: readonly CronTaskSnapshot[];
+}
 
 export type { KimiHostIdentity, OAuthRefreshOutcome };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };

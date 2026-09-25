@@ -8,7 +8,7 @@ import type { KimiConfig } from '@moonshot-ai/agent-core';
 import { createKimiDefaultHeaders, KIMI_CODE_PLATFORM } from '@moonshot-ai/kimi-code-oauth';
 
 import { ProviderManager } from '../../agent-core/src/session/provider-manager';
-import { SDKRpcClient } from '#/index';
+import { SDKRpcClient } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

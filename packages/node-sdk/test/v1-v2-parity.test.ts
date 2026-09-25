@@ -28,10 +28,8 @@ import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 
 import {
-  createKimiHarness,
   createKimiHarnessV2,
   ErrorCodes,
-  SDKRpcClient,
   SDKRpcClientV2,
   type ApprovalRequest,
   type ApprovalResponse,
@@ -60,6 +58,7 @@ import {
   type SDKRpcClientBase,
 } from '#/index';
 
+import { createKimiHarness, SDKRpcClient } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

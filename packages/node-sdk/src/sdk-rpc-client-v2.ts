@@ -153,17 +153,6 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  ensureConfigFile,
-  ErrorCodes,
-  HookDefSchema,
-  KimiError,
-  limitAgentReplayByTurns,
-  noopTelemetryClient,
-  type AgentContextData,
-  type BeginGlobalMcpServerAuthResult,
-  type ExperimentalFeatureState,
-} from '@moonshot-ai/agent-core';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { MCP_SECTION, type McpSection } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';
@@ -258,6 +247,7 @@ import {
   subagentAllowlistFor,
   withoutDelegatingTargets,
   summarizeSkill,
+  isError2,
   type IAgentScopeHandle,
   type IDisposable,
   type ISessionScopeHandle,
@@ -270,7 +260,14 @@ import { createKlient } from '@moonshot-ai/klient/memory';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { KimiAuthFacade } from '#/auth';
+import { ensureConfigFile, HookDefSchema } from '#/config/index';
+import type { AgentContextData } from '#/context';
+import { ErrorCodes, isKimiErrorCode, KimiError, type KimiErrorCode } from '#/errors';
+import type { ExperimentalFeatureState } from '#/flag';
 import { KimiHarness } from '#/kimi-harness';
+import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
+import { limitAgentReplayByTurns } from '#/replay';
+import { noopTelemetryClient } from '#/telemetry';
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -1419,17 +1416,21 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.runSessionAccessAll(
       input.forkId === undefined ? [input.id] : [input.id, input.forkId],
       async () => {
-        const program = await programForSession(this.engineAccessor, input.id);
-        if (program === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
-        const handle = await this.engineAccessor.get(ISessionManager).fork({
-          sourceSessionId: input.id,
-          newSessionId: input.forkId,
-          title: input.title,
-          metadata: input.metadata,
-          turnIndex: input.turnIndex,
-        });
-        this.wireSession(handle);
-        return this.resumedSessionSummary(handle);
+        try {
+          const program = await programForSession(this.engineAccessor, input.id);
+          if (program === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
+          const handle = await this.engineAccessor.get(ISessionManager).fork({
+            sourceSessionId: input.id,
+            newSessionId: input.forkId,
+            title: input.title,
+            metadata: input.metadata,
+            turnIndex: input.turnIndex,
+          });
+          this.wireSession(handle);
+          return await this.resumedSessionSummary(handle);
+        } catch (error) {
+          throw restateEngineError(error);
+        }
       },
     );
   }
@@ -3208,4 +3209,24 @@ function describeWorkspaceMcpServer(
     };
   }
   return { name, transport: config.transport, url: config.url };
+}
+
+/**
+ * Restate an engine `Error2` in the SDK's public error shape (`KimiError`,
+ * what `isKimiError` branches on) so the delegated engine plane throws
+ * the same class the v1 client throws for the same failure. Non-Error2
+ * failures (DI resolution bugs, aborts) pass through untouched.
+ *
+ * An engine code this build's registry does not declare (a newer engine than
+ * the pinned SDK) restates as `internal` — stamping the unknown code would
+ * mint a `KimiError` that `toKimiErrorPayload` cannot serialize (its
+ * `KIMI_ERROR_INFO` lookup throws on undeclared codes).
+ */
+function restateEngineError(error: unknown): unknown {
+  if (!isError2(error)) return error;
+  const code: KimiErrorCode = isKimiErrorCode(error.code) ? error.code : ErrorCodes.INTERNAL;
+  return new KimiError(code, error.message, {
+    details: error.details as Record<string, unknown> | undefined,
+    cause: error.cause,
+  });
 }

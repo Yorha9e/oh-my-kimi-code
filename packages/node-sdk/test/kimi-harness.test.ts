@@ -4,8 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, ImageLimits, KimiHarness, SDKRpcClientBase } from '#/index';
+import { ImageLimits, KimiHarness, SDKRpcClientBase } from '#/index';
 
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { recordingTelemetry } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
 

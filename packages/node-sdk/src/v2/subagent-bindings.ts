@@ -27,7 +27,7 @@ import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
 
-import { ErrorCodes, KimiError } from '@moonshot-ai/agent-core';
+import { ErrorCodes, KimiError } from '#/errors';
 
 import type { SubagentBinding } from '#/types';
 

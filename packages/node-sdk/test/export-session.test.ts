@@ -7,11 +7,11 @@ import * as zlib from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  createKimiHarness,
   KimiError,
   type SessionSummary,
 } from '#/index';
 import { resolveGlobalLogPath } from '../../agent-core/src/logging/logger';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import {
   WIRE_PROTOCOL_VERSION,
   exportSessionDirectory,
@@ -338,8 +338,8 @@ describe('KimiHarness.exportSession', () => {
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     const missingExport = harness.exportSession({ id: 'ses_missing', version: '1.0.0-test' });
-    await expect(missingExport).rejects.toBeInstanceOf(KimiError);
     await expect(missingExport).rejects.toMatchObject({
+      name: 'KimiError',
       code: 'session.not_found',
       details: { sessionId: 'ses_missing' },
     } satisfies Partial<KimiError>);

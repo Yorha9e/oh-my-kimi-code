@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError } from '#/index';
+import type { KimiError } from '#/index';
 
 import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

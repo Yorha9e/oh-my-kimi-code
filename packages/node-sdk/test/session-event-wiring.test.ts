@@ -8,7 +8,6 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { Event } from '@moonshot-ai/agent-core';
 import {
   IAgentLifecycleService,
   IAgentProfileService,
@@ -22,6 +21,7 @@ import {
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
 
+import type { Event } from '#/events';
 import { SessionEventWiring, type SessionEventSink } from '#/v2/session-wiring';
 
 // ---------------------------------------------------------------------------

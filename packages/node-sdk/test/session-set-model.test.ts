@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { FileTokenStorage, type TokenInfo } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError, type KimiHarness } from '#/index';
+import type { KimiError, KimiHarness } from '#/index';
 import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

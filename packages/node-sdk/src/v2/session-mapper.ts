@@ -9,7 +9,7 @@
  *   where the v1 `SessionMeta` keeps ISO strings and `workDir`.
  * Everything else is a field rename (`custom` ↔ `metadata`).
  */
-import type { AgentMeta, SessionMeta } from '@moonshot-ai/agent-core';
+import type { AgentMeta, SessionMeta } from '#/replay';
 import type {
   AgentMeta as V2AgentMeta,
   SessionMeta as V2SessionMeta,

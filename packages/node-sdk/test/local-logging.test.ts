@@ -5,8 +5,9 @@ import * as zlib from 'node:zlib';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiHarness, log } from '#/index';
+import { log } from '#/index';
 import { __resetRootLoggerForTest, getRootLogger } from '../../agent-core/src/logging/logger';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

@@ -11,7 +11,6 @@ import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import {
-  createKimiHarness,
   createKimiHarnessV2,
   type Event,
   type KimiError,
@@ -21,6 +20,7 @@ import {
 import type { SDKRpcClientBase } from '#/rpc';
 
 import { normalizeWorkDir } from '../../agent-core/src/session/store';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import {
   makeTempDir,
   removeTempDirs,

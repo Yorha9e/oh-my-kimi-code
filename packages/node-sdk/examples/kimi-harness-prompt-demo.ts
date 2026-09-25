@@ -1,4 +1,4 @@
-import { createKimiHarness, type Event, type Session } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarnessV2, type Event, type Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
 
@@ -8,7 +8,7 @@ const PROMPT =
 
 async function main(): Promise<void> {
   const workDir = process.cwd();
-  const harness = createKimiHarness({ identity: smokeIdentityFromEnv() });
+  const harness = createKimiHarnessV2({ identity: smokeIdentityFromEnv() });
 
   try {
     const config = await harness.getConfig();

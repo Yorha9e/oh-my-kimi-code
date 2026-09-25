@@ -11,13 +11,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  createKimiHarness,
   KimiHarness,
   SDKRpcClientBase,
 } from '#/index';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { TEST_IDENTITY } from './test-identity';

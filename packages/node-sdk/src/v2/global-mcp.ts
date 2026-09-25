@@ -19,17 +19,16 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import {
-  ErrorCodes,
-  KimiError,
-  McpServerConfigSchema,
-  type GlobalMcpServerConfig,
-  type McpRemoteServerConfig,
-  type McpServerConfig,
-} from '@moonshot-ai/agent-core';
 import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
 
+import {
+  McpServerConfigSchema,
+  type McpRemoteServerConfig,
+  type McpServerConfig,
+} from '#/config/index';
+import { ErrorCodes, KimiError } from '#/errors';
+import type { GlobalMcpServerConfig } from '#/mcp';
 import type {
   AppMcpServerConfig,
   AppMcpServerDescriptor,
