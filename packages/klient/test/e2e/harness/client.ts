@@ -12,26 +12,35 @@
  * **What it is NOT**: a server bootstrap helper. Connect to a server process
  * that's already running at `baseUrl` (default `http://127.0.0.1:58627`).
  */
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type {
-  ApprovalRequest,
-  ApprovalResolveResult,
-  ApprovalResponse,
-  AuthSummary,
-  CloseTerminalResponse,
-  CompactSessionRequest,
-  CompactSessionResponse,
-  CreateTerminalRequest,
-  FileMeta,
-  ForkSessionRequest,
   FsBrowseResponse,
   FsHomeResponse,
-  ListTerminalsResponse,
-  ListModelsResponse,
-  ListPendingApprovalsResponse,
-  ListPendingQuestionsResponse,
-  ListProvidersResponse,
-  Message,
+} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type {
   ProviderCatalogItem,
+  SetDefaultModelResponse,
+} from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
+import type { Terminal } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+} from '@moonshot-ai/kap-server/protocol/approval';
+import type { Message } from '@moonshot-ai/kap-server/protocol/message';
+import type {
+  QuestionRequest,
+  QuestionResponse,
+} from '@moonshot-ai/kap-server/protocol/question';
+import type {
+  ApprovalResolveResult,
+  ListPendingApprovalsResponse,
+} from '@moonshot-ai/kap-server/protocol/rest-approval';
+import type {
+  ListModelsResponse,
+  ListProvidersResponse,
+} from '@moonshot-ai/kap-server/protocol/rest-modelCatalog';
+import type {
   PromptAbortResponse,
   PromptListResponse,
   PromptPermissionMode,
@@ -39,29 +48,40 @@ import type {
   PromptSteerResult,
   PromptSubmitResult,
   PromptThinking,
-  QuestionRequest,
+} from '@moonshot-ai/kap-server/protocol/rest-prompt';
+import type {
+  ListPendingQuestionsResponse,
   QuestionResolveResult,
-  QuestionResponse,
-  ServerHelloMessage,
+} from '@moonshot-ai/kap-server/protocol/rest-question';
+import type {
+  CompactSessionRequest,
+  CompactSessionResponse,
+  ForkSessionRequest,
   SessionAbortResponse,
-  SetDefaultModelResponse,
+  UndoSessionRequest,
+  UndoSessionResponse,
+  UpdateSessionProfileRequest as SessionUpdate,
+} from '@moonshot-ai/kap-server/protocol/rest-session';
+import type {
+  CloseTerminalResponse,
+  ListTerminalsResponse,
+} from '@moonshot-ai/kap-server/protocol/rest-terminal';
+import type {
   Session,
   SessionChildCreate,
   SessionCreate,
-  SessionUpdate,
-  Terminal,
-  UndoSessionRequest,
-  UndoSessionResponse,
+} from '@moonshot-ai/kap-server/protocol/session';
+import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
-} from '@moonshot-ai/protocol';
+} from '@moonshot-ai/kap-server/protocol/workspace';
+import type { ServerHelloMessage } from '@moonshot-ai/kap-server/protocol/ws-control';
 import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
 
-import { HttpClient } from './http.js';
-import { installReverseRpcHandler } from './reverse-rpc.js';
-import { DEFAULT_FRAME_TIMEOUT_MS, waitForSessionBusy } from './wait.js';
+import { HttpClient, type CreateTerminalRequest } from './http.js';
+import { installReverseRpcHandler } from './reverse-rpc.js';import { DEFAULT_FRAME_TIMEOUT_MS, waitForSessionBusy } from './wait.js';
 import { type AnyFrame, WsClient } from './ws.js';
 
 export interface DaemonClientOptions {

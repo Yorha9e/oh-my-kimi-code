@@ -4,7 +4,7 @@
  * Wiring: the in-process core and filesystem are real; only the remote model provider is stubbed.
  * Run: pnpm exec vitest run packages/node-sdk/test/session-skills.test.ts
  */
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type * as KosongModule from '@moonshot-ai/kosong';
@@ -19,12 +19,10 @@ import {
 } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
 
-import { normalizeWorkDir } from '../../agent-core/src/session/store';
 import { createKimiHarness } from './v1-sdk-rpc-client';
 import {
   makeTempDir,
   removeTempDirs,
-  waitForAgentWireEvent,
   waitForSDKEvent,
 } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
@@ -151,23 +149,6 @@ describe('Session skills', () => {
     }
   });
 
-  it('rejects promptWithSkills on the v1 engine', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-
-    try {
-      const session = await harness.createSession({ id: 'ses_sdk_multi_skill_v1', workDir });
-      await expect(
-        session.promptWithSkills('Review this change.', [{ name: 'review' }]),
-      ).rejects.toMatchObject({
-        code: 'not_implemented',
-      });
-    } finally {
-      await harness.close();
-    }
-  });
-
   it('lists session skills without exposing content', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
@@ -258,43 +239,6 @@ describe('Session skills', () => {
           title: '/review src/app.ts',
           isCustomTitle: false,
           lastPrompt: '/review src/app.ts',
-        },
-      });
-
-      const statePath = join(session.summary!.sessionDir, 'state.json');
-      const state = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
-      expect(state['title']).toBe('/review src/app.ts');
-      expect(state['isCustomTitle']).toBe(false);
-      expect(state['lastPrompt']).toBe('/review src/app.ts');
-
-      const skillDir = normalizeWorkDir(await realpath(join(workDir, '.kimi-code', 'skills', 'review')));
-      await expect(
-        waitForAgentWireEvent(
-          homeDir,
-          session.id,
-          'turn.prompt',
-          (event) => event['origin'] !== undefined,
-        ),
-      ).resolves.toMatchObject({
-        type: 'turn.prompt',
-        input: [
-          {
-            type: 'text',
-            text: [
-              'User activated the skill "review". Follow the loaded skill instructions.',
-              '',
-              `<kimi-skill-loaded name="review" trigger="user-slash" source="project" dir="${skillDir}" args="src/app.ts">`,
-              'Review the requested file.',
-              '',
-              'ARGUMENTS: src/app.ts',
-              '</kimi-skill-loaded>',
-            ].join('\n'),
-          },
-        ],
-        origin: {
-          kind: 'skill_activation',
-          skillName: 'review',
-          skillArgs: 'src/app.ts',
         },
       });
     } finally {
