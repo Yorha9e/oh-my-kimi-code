@@ -3,9 +3,9 @@
  * types they mirror. Plain `.ts` (not `.test.ts`) — vitest must not pick it
  * up; `tsc -p tsconfig.json --noEmit` is the check.
  *
- * Wire shapes the engine imports from `@moonshot-ai/protocol` are reached
- * through indexed access on the engine service interfaces, since klient does
- * not depend on the protocol package directly.
+ * Wire shapes are reached through indexed access on the engine service
+ * interfaces, so klient needs no direct dependency for most of them; the
+ * event/task stream types come from the agent-core-v2 domain modules.
  */
 
 import type { z } from 'zod';
@@ -120,8 +120,10 @@ import type {
   Workspace,
   WorkspaceUpdate,
 } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
-// Test-only: `@moonshot-ai/protocol` is a devDependency; importing its types
-// here (never in `src/`) strengthens parity for the agent event stream.
+// Test-only: the wire event/task types previously came from
+// `@moonshot-ai/protocol`; the v2 domain modules own them now.
+import type { WarningEvent } from '@moonshot-ai/agent-core-v2/agent/profile/profileService';
+import type { AgentTaskInfo as TaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/types';
 import type {
   AssistantDeltaEvent,
   CompactionBlockedEvent,
@@ -130,7 +132,6 @@ import type {
   CompactionStartedEvent,
   PromptAbortedEvent,
   PromptCompletedEvent,
-  TaskInfo,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
@@ -138,8 +139,7 @@ import type {
   ToolResultEvent,
   TurnEndedEvent,
   TurnStartedEvent,
-  WarningEvent,
-} from '@moonshot-ai/protocol';
+} from '@moonshot-ai/agent-core-v2/events';
 
 import {
   activityLastTurnStateSchema,
@@ -316,8 +316,7 @@ type AssertWireToEngine<TSchema extends z.ZodType, TEngine> = [z.infer<TSchema>]
   ? true
   : never;
 
-// Protocol wire shapes, derived from the engine interfaces (no direct
-// `@moonshot-ai/protocol` dependency in klient).
+// Wire shapes, derived from the engine interfaces.
 type OAuthFlowStart = Awaited<ReturnType<IOAuthService['startLogin']>>;
 type OAuthFlowSnapshot = NonNullable<ReturnType<IOAuthService['getFlow']>>;
 type OAuthLoginCancelResponse = Awaited<ReturnType<IOAuthService['cancelLogin']>>;
@@ -620,9 +619,8 @@ const _runCommandPayload: AssertWire<typeof runCommandPayloadSchema, RunCommandP
 const _planData: AssertWire<typeof planDataSchema, PlanData> = true;
 const _cancelPlanPayload: AssertWire<typeof cancelPlanPayloadSchema, CancelPlanPayload> = true;
 const _getTasksPayload: AssertWire<typeof getTasksPayloadSchema, GetTasksPayload> = true;
-// The wire task union mirrors the protocol `TaskInfo`; the engine's
-// declaration-merged `AgentTaskInfo` is structurally identical but depends on
-// tool-module augmentation, so parity is pinned to the protocol type.
+// The wire task union mirrors the engine's declaration-merged
+// `AgentTaskInfo` (imported above as `TaskInfo`).
 const _agentTaskInfo: AssertWire<typeof agentTaskInfoSchema, TaskInfo> = true;
 const _stopTaskPayload: AssertWire<typeof stopTaskPayloadSchema, StopTaskPayload> = true;
 const _getTaskOutputPayload: AssertWire<typeof getTaskOutputPayloadSchema, GetTaskOutputPayload> =
@@ -634,37 +632,70 @@ const _fullCompactionInput: AssertWire<typeof fullCompactionInputSchema, FullCom
   true;
 
 // ── agent scope (events.ts) ─────────────────────────────────────────────────
-// Parity against the protocol event types (the stream carries flat
-// `{ type, ... }` events; schemas keep the `type` literal). One-directional
-// where a field is mirrored as `unknown`.
-const _turnStartedEvent: AssertEngineToWire<typeof turnStartedEventSchema, TurnStartedEvent> = true;
-const _turnEndedEvent: AssertEngineToWire<typeof turnEndedEventSchema, TurnEndedEvent> = true;
-const _assistantDeltaEvent: AssertWire<typeof assistantDeltaEventSchema, AssistantDeltaEvent> =
+// Parity against the flat `{ type, ...payload }` wire events (schemas keep
+// the `type` literal). The Event2 class-backed `*Event` aliases are asserted
+// through {@link Event2Wire} — the wire never carries a constructed instance;
+// `ToolResultEvent` and `WarningEvent` are flat interfaces already and are
+// asserted directly. One-directional where a field is mirrored as `unknown`.
+
+/**
+ * Parity projection for the Event2 class-backed `*Event` aliases: the wire
+ * carries the flat `{ type, ...payload }` event, never a constructed
+ * instance. `Omit` drops the instance-only members — `agentId` (stripped by
+ * the klient payload contract), `time` (optional on the wire), `serialize`
+ * (class method) — and `type` is re-pinned to the schema's literal because
+ * the instance type widens it to `string`.
+ */
+type Event2Wire<TSchema extends z.ZodType<{ type: string }>, TEvent> = Omit<
+  TEvent,
+  'agentId' | 'time' | 'serialize' | 'type'
+> & Pick<z.infer<TSchema>, 'type'>;
+
+type AssertEventEngineToWire<TSchema extends z.ZodType<{ type: string }>, TEvent> =
+  AssertEngineToWire<TSchema, Event2Wire<TSchema, TEvent>>;
+
+type AssertEventWire<TSchema extends z.ZodType<{ type: string }>, TEvent> = AssertWire<
+  TSchema,
+  Event2Wire<TSchema, TEvent>
+>;
+
+const _turnStartedEvent: AssertEventEngineToWire<
+  typeof turnStartedEventSchema,
+  TurnStartedEvent
+> = true;
+const _turnEndedEvent: AssertEventEngineToWire<typeof turnEndedEventSchema, TurnEndedEvent> = true;
+const _assistantDeltaEvent: AssertEventWire<typeof assistantDeltaEventSchema, AssistantDeltaEvent> =
   true;
-const _thinkingDeltaEvent: AssertWire<typeof thinkingDeltaEventSchema, ThinkingDeltaEvent> = true;
-const _toolCallStartedEvent: AssertEngineToWire<
+const _thinkingDeltaEvent: AssertEventWire<typeof thinkingDeltaEventSchema, ThinkingDeltaEvent> =
+  true;
+const _toolCallStartedEvent: AssertEventEngineToWire<
   typeof toolCallStartedEventSchema,
   ToolCallStartedEvent
 > = true;
-const _toolCallDeltaEvent: AssertWire<typeof toolCallDeltaEventSchema, ToolCallDeltaEvent> = true;
-const _toolProgressEvent: AssertWire<typeof toolProgressEventSchema, ToolProgressEvent> = true;
-const _toolResultEvent: AssertWire<typeof toolResultEventSchema, ToolResultEvent> = true;
-const _promptCompletedEvent: AssertWire<typeof promptCompletedEventSchema, PromptCompletedEvent> =
+const _toolCallDeltaEvent: AssertEventWire<typeof toolCallDeltaEventSchema, ToolCallDeltaEvent> =
   true;
-const _promptAbortedEvent: AssertWire<typeof promptAbortedEventSchema, PromptAbortedEvent> = true;
-const _compactionStartedEvent: AssertWire<
+const _toolProgressEvent: AssertEventWire<typeof toolProgressEventSchema, ToolProgressEvent> =
+  true;
+const _toolResultEvent: AssertWire<typeof toolResultEventSchema, ToolResultEvent> = true;
+const _promptCompletedEvent: AssertEventWire<
+  typeof promptCompletedEventSchema,
+  PromptCompletedEvent
+> = true;
+const _promptAbortedEvent: AssertEventWire<typeof promptAbortedEventSchema, PromptAbortedEvent> =
+  true;
+const _compactionStartedEvent: AssertEventWire<
   typeof compactionStartedEventSchema,
   CompactionStartedEvent
 > = true;
-const _compactionBlockedEvent: AssertWire<
+const _compactionBlockedEvent: AssertEventWire<
   typeof compactionBlockedEventSchema,
   CompactionBlockedEvent
 > = true;
-const _compactionCancelledEvent: AssertWire<
+const _compactionCancelledEvent: AssertEventWire<
   typeof compactionCancelledEventSchema,
   CompactionCancelledEvent
 > = true;
-const _compactionCompletedEvent: AssertWire<
+const _compactionCompletedEvent: AssertEventWire<
   typeof compactionCompletedEventSchema,
   CompactionCompletedEvent
 > = true;
