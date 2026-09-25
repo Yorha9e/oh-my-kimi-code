@@ -165,3 +165,31 @@ export class ToolCallDelta extends AgentEvent2<ToolCallDeltaPayload> {
   static override readonly observable = true;
 }
 export interface ToolCallDelta extends ToolCallDeltaPayload {}
+
+export interface TurnStartedEvent extends Omit<TurnStartedPayload, 'agentId'> {
+  readonly type: 'turn.started';
+}
+
+export interface TurnStepStartedEvent extends Omit<TurnStepStartedPayload, 'agentId'> {
+  readonly type: 'turn.step.started';
+}
+
+export interface TurnStepCompletedEvent extends Omit<TurnStepCompletedPayload, 'agentId'> {
+  readonly type: 'turn.step.completed';
+}
+
+export interface TurnStepInterruptedEvent extends Omit<TurnStepInterruptedPayload, 'agentId'> {
+  readonly type: 'turn.step.interrupted';
+}
+
+export interface AssistantDeltaEvent extends Omit<AssistantDeltaPayload, 'agentId'> {
+  readonly type: 'assistant.delta';
+}
+
+export interface ThinkingDeltaEvent extends Omit<ThinkingDeltaPayload, 'agentId'> {
+  readonly type: 'thinking.delta';
+}
+
+export interface ToolCallDeltaEvent extends Omit<ToolCallDeltaPayload, 'agentId'> {
+  readonly type: 'tool.call.delta';
+}

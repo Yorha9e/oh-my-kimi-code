@@ -137,6 +137,10 @@ export const turnKey = defineState(
     lastEnded: { turnId: e.turnId, reason: e.reason, durationMs: e.durationMs },
   }));
 
+export interface TurnEndedEvent extends Omit<TurnEndedPayload, 'agentId'> {
+  readonly type: 'turn.ended';
+}
+
 function advanceTurnClock(
   state: TurnModelState,
   nextTurnId: number,
