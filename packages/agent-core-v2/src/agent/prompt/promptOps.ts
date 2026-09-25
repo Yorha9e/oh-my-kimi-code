@@ -19,6 +19,11 @@ export interface PromptAccepted {
   readonly promptId: string;
 }
 
+export interface PromptSubmittedEvent {
+  readonly type: 'prompt.accepted';
+  readonly promptId: string;
+}
+
 export const promptAdmissionKey = defineState('promptAdmission', (): Map<string, true> => new Map())
   .replayable({ schema: z.map(z.string(), z.literal(true)) })
   .on(PromptAccepted, (state, event) => {

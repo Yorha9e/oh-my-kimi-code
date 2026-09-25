@@ -66,6 +66,10 @@ export class PromptCompleted extends AgentEvent2<PromptCompletedPayload> {
 }
 export interface PromptCompleted extends PromptCompletedPayload {}
 
+export interface PromptCompletedEvent extends Omit<PromptCompletedPayload, 'agentId'> {
+  readonly type: 'prompt.completed';
+}
+
 export interface PromptAbortedPayload {
   readonly agentId: string;
   readonly promptId: string;
@@ -77,6 +81,10 @@ export class PromptAborted extends AgentEvent2<PromptAbortedPayload> {
   static override readonly observable = true;
 }
 export interface PromptAborted extends PromptAbortedPayload {}
+
+export interface PromptAbortedEvent extends Omit<PromptAbortedPayload, 'agentId'> {
+  readonly type: 'prompt.aborted';
+}
 
 export interface PromptSteeredPayload {
   readonly agentId: string;
@@ -91,6 +99,10 @@ export class PromptSteered extends AgentEvent2<PromptSteeredPayload> {
   static override readonly observable = true;
 }
 export interface PromptSteered extends PromptSteeredPayload {}
+
+export interface PromptSteeredEvent extends Omit<PromptSteeredPayload, 'agentId'> {
+  readonly type: 'prompt.steered';
+}
 
 export interface PromptQueuedPayload {
   readonly agentId: string;

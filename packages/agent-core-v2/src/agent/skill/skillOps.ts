@@ -31,6 +31,10 @@ export class SkillActivated extends AgentEvent2<SkillActivatedPayload> {
 }
 export interface SkillActivated extends SkillActivatedPayload {}
 
+export interface SkillActivatedEvent extends Omit<SkillActivatedPayload, 'agentId'> {
+  readonly type: 'skill.activated';
+}
+
 export const skillKey = defineState('skill', (): null => null)
   .replayable({ schema: z.custom<null>(), durable: false })
   .on(SkillActivate, (_s, e, ctx) => {

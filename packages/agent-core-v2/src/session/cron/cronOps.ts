@@ -67,6 +67,10 @@ export class CronFired extends Event2<CronFiredPayload> {
 }
 export interface CronFired extends CronFiredPayload {}
 
+export interface CronFiredEvent extends CronFiredPayload {
+  readonly type: 'cron.fired';
+}
+
 export const cronKey = defineState('cron', (): CronModelState => new Map()).replayable({
   schema: z.custom<CronModelState>(),
 })
