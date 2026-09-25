@@ -137,6 +137,10 @@ export class GoalUpdated extends AgentEvent2<GoalUpdatedPayload> {
 }
 export interface GoalUpdated extends GoalUpdatedPayload {}
 
+export interface GoalUpdatedEvent extends Omit<GoalUpdatedPayload, 'agentId'> {
+  readonly type: 'goal.updated';
+}
+
 export const goalKey = defineState('goal', (): GoalModelState => null).replayable({
   schema: z.custom<GoalModelState>(),
 })
