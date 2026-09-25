@@ -42,6 +42,17 @@ export interface TaskTerminated {
   readonly outputTail?: string;
 }
 
+export interface TaskStartedEvent {
+  readonly type: 'task.started';
+  readonly info: AgentTaskInfo;
+}
+
+export interface TaskTerminatedEvent {
+  readonly type: 'task.terminated';
+  readonly info: AgentTaskInfo;
+  readonly outputTail?: string;
+}
+
 export interface TaskTerminatedNoticePayload {
   readonly agentId: string;
   readonly info: AgentTaskInfo;
