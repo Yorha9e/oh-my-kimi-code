@@ -1,13 +1,34 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import {
-  HookDefSchema,
-  KimiConfigSchema,
-  ModelAliasSchema,
+  ModelRecordSchema,
   ProviderConfigSchema,
-  transformTomlData,
-} from '@moonshot-ai/agent-core';
-import { FLAG_DEFINITIONS } from '@moonshot-ai/agent-core/flags/registry';
+  modelsFromToml,
+  providersFromToml,
+} from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
+import { HookDefSchema } from '@moonshot-ai/agent-core-v2/features/externalHooks/configSection';
+import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
+import { getContributedFlags } from '@moonshot-ai/agent-core-v2/app/flag/flagRegistry';
+import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
+
+// Skipped side-effect imports (modules absent from this tree): upstream's
+// `features/tower/flag` and `app/remoteControl/flag` — so a v1 `[tower]` /
+// `[remote_control]` top-level key is dropped during migration, the same way
+// `telemetry` is (no registered section backs it).
+import '@moonshot-ai/agent-core-v2/agent/loop/configSection';
+import '@moonshot-ai/agent-core-v2/agent/task/configSection';
+import '@moonshot-ai/agent-core-v2/agent/permissionMode/configSection';
+import '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
+import '@moonshot-ai/agent-core-v2/app/auth/configSection';
+import '@moonshot-ai/agent-core-v2/app/flag/flag';
+import '@moonshot-ai/agent-core-v2/app/skillCatalog/configSection';
+
+import '@moonshot-ai/agent-core-v2/session/subagent/flag';
+import '@moonshot-ai/agent-core-v2/session/sessionTitle/flag';
+import '@moonshot-ai/agent-core-v2/persistence/backends/minidb/flag';
+import '@moonshot-ai/agent-core-v2/agent/toolSelect/flag';
+import '@moonshot-ai/agent-core-v2/agent/tools/task/task-wait/flag';
+
 import { atomicWrite } from '../atomic-write.js';
 import { DEFAULT_CONFIG_FILE_TEXT, isTuiStubOrMissing } from '../stub-detect.js';
 import {
@@ -30,7 +51,7 @@ const BACKGROUND_FIELDS_TO_KEEP = new Set([
   'keep_alive_on_exit',
 ]);
 const REGISTERED_EXPERIMENTAL_FLAGS: ReadonlySet<string> = new Set(
-  (FLAG_DEFINITIONS as ReadonlyArray<{ readonly id: string }>).map((definition) => definition.id),
+  getContributedFlags().map((definition) => definition.id),
 );
 
 // kimi-code's tui.toml `theme` enum (mirrors apps/kimi-code TuiThemeSchema).
@@ -38,19 +59,34 @@ const REGISTERED_EXPERIMENTAL_FLAGS: ReadonlySet<string> = new Set(
 // validation, taking the migrated editor command down with it — so drop it.
 const TUI_THEMES: ReadonlySet<string> = new Set(['dark', 'light', 'auto']);
 
-function camelToSnake(s: string): string {
-  return s.replaceAll(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-}
-
-// The config.toml top-level keys kimi-code understands, derived from the live
-// KimiConfigSchema so the set tracks kimi-code automatically. `raw` is internal
-// — never migrate it. `providers` / `models` / `hooks` are filtered per-entry,
-// not via this set.
-const SUPPORTED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(KimiConfigSchema.shape)
-    .filter((k) => k !== 'raw' && k !== 'providers' && k !== 'models' && k !== 'hooks')
+// The config.toml top-level keys kimi-code understands, derived from the v2
+// config-section registry so the set tracks the v2 runtime. `providers` /
+// `models` / `hooks` are filtered per-entry, not via this set. `default_model`
+// / `default_provider` are unregistered-but-preserved v2 keys (the v2
+// ConfigRegistry passes unregistered domains through unchanged), so they are
+// kept explicitly.
+const SUPPORTED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
+  ...getConfigSectionContributions()
+    .map((contribution) => contribution.domain)
+    .filter((d) => d !== 'providers' && d !== 'models' && d !== 'hooks')
     .map(camelToSnake),
-);
+  'default_model',
+  'default_provider',
+]);
+
+// Provider `type` values the kosong runtime can construct. v2's
+// ProviderConfigSchema types `type` as a free string (unlike v1's enum), so
+// the migration keeps an explicit whitelist to avoid carrying over types the
+// runtime cannot build. Local whitelist — keep it in sync when kosong gains
+// a provider type; do not import a v2 provider registry here.
+const SUPPORTED_PROVIDER_TYPES: ReadonlySet<string> = new Set([
+  'anthropic',
+  'openai',
+  'kimi',
+  'google-genai',
+  'openai_responses',
+  'vertexai',
+]);
 
 export interface ConfigStepInput {
   readonly sourceHome: string;
@@ -127,18 +163,32 @@ function filterRegisteredExperimentalFlags(
   return keptEntries.length > 0 ? Object.fromEntries(keptEntries) : undefined;
 }
 
-/** True when the kimi-cli provider entry validates against kimi-code's schema. */
+/** True when the kimi-cli provider entry validates against kimi-code's v2 schema
+ * and its `type` is one the kosong runtime can construct. */
 function providerIsSupported(prov: Record<string, unknown>): boolean {
-  const transformed = transformTomlData({ providers: { x: prov } });
-  const entry = isRecord(transformed['providers']) ? transformed['providers']['x'] : undefined;
-  return ProviderConfigSchema.safeParse(entry).success;
+  const transformed = providersFromToml({ x: prov });
+  const entry = isRecord(transformed) ? transformed['x'] : undefined;
+  if (entry === undefined) return false;
+  try {
+    ProviderConfigSchema.parse(entry);
+  } catch {
+    return false;
+  }
+  const type = isRecord(entry) ? entry['type'] : undefined;
+  return typeof type === 'string' && SUPPORTED_PROVIDER_TYPES.has(type);
 }
 
-/** True when the kimi-cli model entry validates against kimi-code's schema. */
+/** True when the kimi-cli model entry validates against kimi-code's v2 schema. */
 function modelIsSupported(mod: Record<string, unknown>): boolean {
-  const transformed = transformTomlData({ models: { x: mod } });
-  const entry = isRecord(transformed['models']) ? transformed['models']['x'] : undefined;
-  return ModelAliasSchema.safeParse(entry).success;
+  const transformed = modelsFromToml({ x: mod });
+  const entry = isRecord(transformed) ? transformed['x'] : undefined;
+  if (entry === undefined) return false;
+  try {
+    ModelRecordSchema.parse(entry);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Order-insensitive deep-equality key, so re-ordered tables are not conflicts. */
@@ -388,26 +438,28 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   if (Object.keys(keptModels).length > 0) migratedTop['models'] = keptModels;
   if (keptHooks.length > 0) migratedTop['hooks'] = keptHooks;
 
-  // 4b) Drop any supported top-level key whose VALUE kimi-code's config
-  //     schema rejects (e.g. `telemetry = "false"`, `extra_skill_dirs = "/tmp"`).
-  //     Providers/models are already validated per-entry above, so schema
-  //     failures here can only come from plain top-level keys.
-  for (;;) {
-    const result = KimiConfigSchema.safeParse(transformTomlData(migratedTop));
-    if (result.success) break;
-    const badKeys = new Set<string>();
-    for (const issue of result.error.issues) {
-      const top = issue.path[0];
-      if (typeof top === 'string' && top !== 'providers' && top !== 'models') {
-        badKeys.add(camelToSnake(top));
-      }
-    }
-    if (badKeys.size === 0) break; // cannot attribute — stop rather than loop
-    for (const k of badKeys) {
-      if (k in migratedTop) {
-        delete migratedTop[k];
-        droppedKeys.push(k);
-      }
+  // 4b) Drop any supported top-level key whose VALUE the v2 config section
+  //     schema rejects (e.g. `extra_skill_dirs = "/tmp"`). Providers/models
+  //     are already validated per-entry above, so section failures here can
+  //     only come from plain top-level keys. Unregistered-but-preserved keys
+  //     (default_model / default_provider) have no section schema and pass.
+  const sectionsBySnake = new Map(
+    getConfigSectionContributions().map((contribution) => [
+      camelToSnake(contribution.domain),
+      contribution,
+    ]),
+  );
+  for (const [k, v] of Object.entries(migratedTop)) {
+    if (k === 'providers' || k === 'models' || k === 'hooks') continue;
+    const section = sectionsBySnake.get(k);
+    if (section === undefined) continue;
+    const transformed =
+      section.options.fromToml === undefined ? v : section.options.fromToml(v);
+    try {
+      section.schema.parse(transformed);
+    } catch {
+      delete migratedTop[k];
+      droppedKeys.push(k);
     }
   }
 

@@ -77,7 +77,8 @@ describe('migrateConfigStep', () => {
     expect(r.configConflicts).toContain('merge_all_available_skills');
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
     expect(cfg).toContain('merge_all_available_skills = false'); // target value kept
-    expect(cfg).toContain('telemetry = true'); // additively brought over
+    expect(cfg).not.toContain('telemetry'); // v2 has no telemetry section — dropped
+    expect(r.droppedKeys).toContain('telemetry');
     expect(cfg).toContain('kimi-code/kimi-for-coding'); // migrated model added
   });
 
@@ -153,10 +154,9 @@ base_url = "https://target.example/v1"
     expect(r.migrated).toBe(false);
   });
 
-  it('drops a kept-provider model missing required schema fields', async () => {
-    // `bad-model` references the kept `managed:kimi-code` provider but omits
-    // `max_context_size`, which kimi-code's ModelAliasSchema requires. Written
-    // verbatim it would make getConfig() reject the whole config post-migration.
+  it('keeps a model missing optional schema fields under the v2 model schema', async () => {
+    // v2's ModelRecordSchema treats `max_context_size` as optional, so a model
+    // that v1's ModelAliasSchema rejected now validates and migrates.
     const cfg = `[providers."managed:kimi-code"]
 type = "kimi"
 base_url = "https://api.kimi.com/coding/v1"
@@ -174,11 +174,11 @@ model = "kimi-for-coding"
     await writeFile(join(tgt, 'config.toml'), DEFAULT_CONFIG_FILE_TEXT);
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
     expect(r.migrated).toBe(true);
-    expect(r.droppedModels).toContain('bad-model');
+    expect(r.droppedModels).not.toContain('bad-model');
     expect(r.droppedModels).not.toContain('good-model');
     const written = await readFile(join(tgt, 'config.toml'), 'utf-8');
     expect(written).toContain('good-model');
-    expect(written).not.toContain('bad-model');
+    expect(written).toContain('bad-model');
   });
 
   it('does not write an empty hooks array', async () => {
