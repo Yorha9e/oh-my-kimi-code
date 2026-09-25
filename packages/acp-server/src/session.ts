@@ -32,6 +32,13 @@ import type {
 import { RequestError } from '@agentclientprotocol/sdk';
 import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
 import type {
+  ToolCallDeltaEvent,
+  ToolCallStartedEvent,
+  ToolProgressEvent,
+  ToolResultEvent,
+} from '@moonshot-ai/agent-core-v2/events';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type {
   AgentEventPayloads,
   AgentHandle,
   ContentPart,
@@ -42,13 +49,6 @@ import type {
   SessionHandle,
   SkillSummary,
 } from '@moonshot-ai/klient';
-import type {
-  ToolCallDeltaEvent,
-  ToolCallStartedEvent,
-  ToolInputDisplay,
-  ToolProgressEvent,
-  ToolResultEvent,
-} from '@moonshot-ai/protocol';
 
 import type { AcpClient } from './acp-client';
 import type { AcpTerminalCreatedEvent, IAcpConnection } from './acp-fs';

@@ -3,8 +3,8 @@
  * surface of one agent. All registrations filter the per-agent `events`
  * scope stream by `type`; the payload is the whole flat `{ type, ... }`
  * event (schemas keep the `type` literal so listeners receive it intact).
- * Payload shapes mirror `protocol/src/events.ts`; events that are loose in
- * the engine (or absent from the protocol union) are `z.looseObject`s.
+ * Payload shapes mirror the agent-core-v2 event payloads; events that are
+ * loose in the engine (or absent from the v2 event union) are `z.looseObject`s.
  */
 
 import { z } from 'zod';
@@ -120,7 +120,7 @@ export const promptCompletedEventSchema = z.object({
   promptId: z.string(),
   /** ISO 8601 datetime string on the wire. */
   finishedAt: z.string(),
-  reason: z.enum(['completed', 'failed', 'blocked']).optional(),
+  reason: z.enum(['completed', 'failed', 'blocked']),
 });
 
 export const promptAbortedEventSchema = z.object({

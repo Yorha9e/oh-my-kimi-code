@@ -10,19 +10,28 @@ import type {
   ToolCallLocation,
   ToolKind,
 } from '@agentclientprotocol/sdk';
+import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
-  ToolInputDisplay,
   ToolProgressEvent,
   ToolResultEvent,
-  TurnEndReason,
-} from '@moonshot-ai/protocol';
+} from '@moonshot-ai/agent-core-v2/events';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
 
 import { displayBlockToAcpContent, toolResultToAcpContent } from './convert';
 import type { AcpStopReason } from './types';
+
+/**
+ * Flat wire projection of a v2 Event2 event type: `events-map` consumes
+ * `{ type, ...payload }` wire objects (klient payloads and replay-synthesized
+ * events), never constructed Event2 instances — `Omit` strips the members that
+ * only exist on a constructed instance (`time` stays optional at the wire, and
+ * the payload's `agentId` is not part of the klient contract payload).
+ */
+type WireEvent<TEvent> = Omit<TEvent, 'agentId' | 'time' | 'serialize'>;
 
 /**
  * Build an ACP `session/update` notification with an
@@ -30,7 +39,7 @@ import type { AcpStopReason } from './types';
  */
 export function assistantDeltaToSessionUpdate(
   sessionId: string,
-  event: AssistantDeltaEvent,
+  event: WireEvent<AssistantDeltaEvent>,
 ): SessionNotification {
   return {
     sessionId,
@@ -193,7 +202,7 @@ export function toolCallLocations(
  */
 export function toolCallStartToSessionUpdate(
   sessionId: string,
-  event: ToolCallStartedEvent,
+  event: WireEvent<ToolCallStartedEvent>,
 ): SessionNotification {
   const title = event.description ?? event.name;
   const content: ToolCallContent[] = [
@@ -232,7 +241,7 @@ export function toolCallStartToSessionUpdate(
  */
 export function toolCallDeltaToSessionUpdate(
   sessionId: string,
-  event: ToolCallDeltaEvent,
+  event: WireEvent<ToolCallDeltaEvent>,
   accumulator: { args: string },
 ): SessionNotification {
   accumulator.args += event.argumentsPart ?? '';
@@ -264,7 +273,7 @@ export function toolCallDeltaToSessionUpdate(
  */
 export function toolCallLazyCreateToSessionUpdate(
   sessionId: string,
-  event: ToolCallDeltaEvent,
+  event: WireEvent<ToolCallDeltaEvent>,
 ): SessionNotification {
   const name = event.name ?? 'tool';
   return {
@@ -294,7 +303,7 @@ export function toolCallLazyCreateToSessionUpdate(
  */
 export function toolCallStartedUpgradeToSessionUpdate(
   sessionId: string,
-  event: ToolCallStartedEvent,
+  event: WireEvent<ToolCallStartedEvent>,
 ): SessionNotification {
   const title = event.description ?? event.name;
   const content: ToolCallContent[] = [
@@ -331,7 +340,7 @@ export function toolCallStartedUpgradeToSessionUpdate(
  */
 export function toolProgressToSessionUpdate(
   sessionId: string,
-  event: ToolProgressEvent,
+  event: WireEvent<ToolProgressEvent>,
 ): SessionNotification | null {
   if (event.update.kind === 'status' && event.update.text) {
     return {
@@ -351,7 +360,7 @@ export function toolProgressToSessionUpdate(
  */
 export function thinkingDeltaToSessionUpdate(
   sessionId: string,
-  event: ThinkingDeltaEvent,
+  event: WireEvent<ThinkingDeltaEvent>,
 ): SessionNotification {
   return {
     sessionId,
@@ -372,7 +381,7 @@ export function thinkingDeltaToSessionUpdate(
  */
 export function toolResultToSessionUpdate(
   sessionId: string,
-  event: ToolResultEvent,
+  event: WireEvent<ToolResultEvent>,
   locations?: ToolCallLocation[],
 ): SessionNotification {
   return {
