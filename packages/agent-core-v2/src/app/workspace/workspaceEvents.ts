@@ -36,3 +36,19 @@ export class WorkspaceDeleted extends Event2<{ readonly payload: WorkspaceDelete
 export interface WorkspaceDeleted {
   readonly payload: WorkspaceDeletedPayload;
 }
+
+export interface WorkspaceCreatedEvent {
+  readonly type: 'event.workspace.created';
+  readonly workspace: Workspace;
+}
+
+export interface WorkspaceUpdatedEvent {
+  readonly type: 'event.workspace.updated';
+  readonly workspace: Workspace;
+}
+
+export interface WorkspaceDeletedEvent {
+  readonly type: 'event.workspace.deleted';
+  readonly workspace_id: string;
+  readonly root: string;
+}

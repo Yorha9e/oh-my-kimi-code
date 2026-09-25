@@ -18,3 +18,13 @@ export class SessionMetaUpdated extends Event2<{ readonly payload: SessionMetaUp
 export interface SessionMetaUpdated {
   readonly payload: SessionMetaUpdatedPayload;
 }
+
+export interface SessionMetaUpdatedEvent {
+  readonly type: 'session.meta.updated';
+  readonly title?: string;
+  readonly patch?: {
+    readonly title?: string;
+    readonly isCustomTitle?: boolean;
+    readonly lastPrompt?: string;
+  };
+}

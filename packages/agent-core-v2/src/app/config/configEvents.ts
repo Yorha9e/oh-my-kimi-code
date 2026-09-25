@@ -28,3 +28,14 @@ export class ConfigChanged extends Event2<{ readonly payload: ConfigChangedPaylo
 export interface ConfigChanged {
   readonly payload: ConfigChangedPayload;
 }
+
+export interface ConfigChangedEvent {
+  readonly type: 'event.config.changed';
+  readonly changedFields: readonly string[];
+  readonly config: unknown;
+}
+
+export interface ConfigWarningEvent {
+  readonly type: 'event.config.warning';
+  readonly warnings: readonly ConfigWarningItem[];
+}
