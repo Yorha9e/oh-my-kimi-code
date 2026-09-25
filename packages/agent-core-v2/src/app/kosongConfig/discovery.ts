@@ -53,3 +53,10 @@ export interface IProviderDiscoveryService {
 
 export const IProviderDiscoveryService: ServiceIdentifier<IProviderDiscoveryService> =
   createDecorator<IProviderDiscoveryService>('providerDiscovery');
+
+export interface ModelCatalogChangedEvent {
+  readonly type: 'event.model_catalog.changed';
+  readonly changed: ProviderRefreshChange[];
+  readonly unchanged: string[];
+  readonly failed: ProviderRefreshFailure[];
+}

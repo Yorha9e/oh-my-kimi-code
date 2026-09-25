@@ -25,3 +25,8 @@ export class SessionCreated extends Event2<{ readonly payload: SessionCreatedPay
 export interface SessionCreated {
   readonly payload: SessionCreatedPayload;
 }
+
+export interface SessionCreatedEvent {
+  readonly type: 'event.session.created';
+  readonly session: unknown;
+}
