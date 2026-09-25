@@ -11,6 +11,10 @@ import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/co
 import { getContributedFlags } from '@moonshot-ai/agent-core-v2/app/flag/flagRegistry';
 import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
 
+// Skipped side-effect imports (modules absent from this tree): upstream's
+// `features/tower/flag` and `app/remoteControl/flag` — so a v1 `[tower]` /
+// `[remote_control]` top-level key is dropped during migration, the same way
+// `telemetry` is (no registered section backs it).
 import '@moonshot-ai/agent-core-v2/agent/loop/configSection';
 import '@moonshot-ai/agent-core-v2/agent/task/configSection';
 import '@moonshot-ai/agent-core-v2/agent/permissionMode/configSection';
@@ -73,7 +77,8 @@ const SUPPORTED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
 // Provider `type` values the kosong runtime can construct. v2's
 // ProviderConfigSchema types `type` as a free string (unlike v1's enum), so
 // the migration keeps an explicit whitelist to avoid carrying over types the
-// runtime cannot build.
+// runtime cannot build. Local whitelist — keep it in sync when kosong gains
+// a provider type; do not import a v2 provider registry here.
 const SUPPORTED_PROVIDER_TYPES: ReadonlySet<string> = new Set([
   'anthropic',
   'openai',
