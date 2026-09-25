@@ -34,6 +34,13 @@ export {
 export { Service } from '#/_base/di/service';
 export * from './errors';
 export * from './events';
+export type {
+  ConfigChangedEvent,
+  CronFiredEvent,
+  SessionCreatedEvent,
+  TurnEndedEvent,
+  TurnStartedEvent,
+} from './events';
 export * from '#/runtime/runtime';
 export * from '#/runtime/runtimeRegistry';
 export * from '#/runtime/runtimeWorkspaceView';
