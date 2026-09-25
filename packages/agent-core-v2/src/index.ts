@@ -33,6 +33,14 @@ export {
 } from '#/_base/di/fiber';
 export { Service } from '#/_base/di/service';
 export * from './errors';
+export * from './events';
+export type {
+  ConfigChangedEvent,
+  CronFiredEvent,
+  SessionCreatedEvent,
+  TurnEndedEvent,
+  TurnStartedEvent,
+} from './events';
 export * from '#/runtime/runtime';
 export * from '#/runtime/runtimeRegistry';
 export * from '#/runtime/runtimeWorkspaceView';
@@ -617,6 +625,7 @@ export * from '#/agent/contextMemory/loopEventFold';
 export * from '#/agent/contextMemory/messageId';
 export * from '#/agent/contextMemory/contextTranscript';
 export * from '#/agent/contextMemory/types';
+export * from '#/agent/contextMemory/toolResultRender';
 export * from '#/agent/systemReminder/systemReminder';
 export * from '#/agent/systemReminder/systemReminderService';
 export * from '#/features/dateChange/dateChange';
@@ -699,6 +708,7 @@ export * from '#/agent/prompt/promptOps';
 export * from '#/agent/prompt/promptService';
 export * from '#/agent/prompt/promptMetadataText';
 export * from '#/agent/replayBuilder/types';
+export * from '#/agent/replayBuilder/fold';
 export { type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 export * from '#/agent/undo/undo';
 export * from '#/agent/undo/undoService';
