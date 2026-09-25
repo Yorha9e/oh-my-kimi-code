@@ -44,7 +44,8 @@ import {
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
-import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
+import { McpOAuthService } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import type { McpOAuthStore } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
 
 import { TEST_IDENTITY } from './test-identity';
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
@@ -150,6 +151,26 @@ async function sessionDirExists(homeDir: string, sessionId: string): Promise<boo
   return false;
 }
 
+function fileMcpOAuthStore(homeDir: string): McpOAuthStore {
+  const dir = join(homeDir, 'credentials', 'mcp');
+  return {
+    async read<T>(key: string): Promise<T | undefined> {
+      try {
+        return JSON.parse(await readFile(join(dir, key), 'utf-8')) as T;
+      } catch {
+        return undefined;
+      }
+    },
+    async write(key: string, data: unknown): Promise<void> {
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await writeFile(join(dir, key), JSON.stringify(data), 'utf-8');
+    },
+    async remove(key: string): Promise<void> {
+      await rm(join(dir, key), { force: true });
+    },
+  };
+}
+
 describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
   it('exposes the validated runtime binding through Session', async () => {
     const { harness } = await makeHarness();
@@ -173,7 +194,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
     const statusServer = await startMcpAuthStatusServer();
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
-    const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
+    const externalOAuth = new McpOAuthService({ store: fileMcpOAuthStore(homeDir) });
     await externalOAuth
       .getProvider('oauth-authorized', authorizedUrl)
       .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });

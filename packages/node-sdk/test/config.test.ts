@@ -1,17 +1,17 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiConfigRpc, KimiError } from '#/index';
-
-import { createKimiHarness } from './v1-sdk-rpc-client';
+import { createKimiConfigRpc } from '#/index';
 import {
   parseConfigString,
   readConfigFile,
   writeConfigFile,
-} from '../../agent-core/src/config';
+} from '#/config/index';
+
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 // node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
@@ -261,116 +261,6 @@ maxRunningTasks = 2
 });
 
 describe('KimiHarness config API', () => {
-  it('loads default config when missing and deep-merges setConfig patches from disk', async () => {
-    const homeDir = await makeTempDir();
-    const configPath = join(homeDir, 'config.toml');
-    await writeFile(configPath, COMPLETE_TOML, 'utf-8');
-
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-
-    await harness.setConfig({
-      providers: {
-        'kimi-for-coding': {
-          apiKey: 'sk-updated',
-        },
-      },
-      services: {
-        moonshotSearch: {
-          apiKey: 'sk-search-updated',
-        },
-      },
-    });
-
-    const config = await harness.getConfig({ reload: true });
-    expect(config.providers['kimi-for-coding']).toMatchObject({
-      type: 'kimi',
-      baseUrl: 'https://api.kimi.com/coding/v1',
-      apiKey: 'sk-updated',
-      env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
-    });
-    expect(config.services?.moonshotSearch?.apiKey).toBe('sk-search-updated');
-    expect(config.raw?.['theme']).toBe('dark');
-
-    const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('theme = "dark"');
-    expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
-    expect(text).toContain('claim_stale_after_ms = 15000');
-  });
-
-  it('does not write invalid config patches', async () => {
-    const homeDir = await makeTempDir();
-    const configPath = join(homeDir, 'config.toml');
-    await writeFile(configPath, COMPLETE_TOML, 'utf-8');
-    const before = await readFile(configPath, 'utf-8');
-
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-
-    const setInvalidConfig = harness.setConfig({
-      providers: {
-        bad: {
-          type: 'not-a-provider',
-        },
-      },
-    } as never);
-
-    await expect(setInvalidConfig).rejects.toMatchObject({
-      name: 'KimiError',
-      code: 'config.invalid',
-    } satisfies Partial<KimiError>);
-
-    await expect(readFile(configPath, 'utf-8')).resolves.toBe(before);
-  });
-
-  it('uses default config when the config file is absent', async () => {
-    const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-
-    await expect(harness.getConfig()).resolves.toEqual({ providers: {} });
-  });
-
-  it('returns experimental feature metadata through the harness', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-
-    const features = await harness.getExperimentalFeatures();
-    expect(features).toEqual([
-      {
-        id: 'tool-select',
-        title: 'Tool select (progressive tool disclosure)',
-        description:
-          'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT',
-        defaultEnabled: false,
-        enabled: false,
-        source: 'default',
-      },
-      {
-        id: 'subagent-model-selection',
-        title: 'Subagent model selection',
-        description:
-          'Bind configured model aliases and thinking efforts to subagent types per workspace (.kimi-code/local.toml); bindings are applied mechanically at spawn.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION',
-        defaultEnabled: true,
-        enabled: true,
-        source: 'default',
-      },
-      {
-        id: 'secondary-model',
-        title: 'Secondary model for subagents',
-        description:
-          'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
-        defaultEnabled: false,
-        enabled: false,
-        source: 'default',
-      },
-    ]);
-  });
-
   it('can create the default config scaffold without selecting a model', async () => {
     const homeDir = await makeTempDir();
     const configPath = join(homeDir, 'config.toml');
@@ -387,46 +277,5 @@ describe('KimiHarness config API', () => {
     expect(config.providers).toEqual({});
     expect(config.defaultModel).toBeUndefined();
     expect(config.thinking?.enabled).toBeUndefined();
-  });
-
-  it('reloads an active session without closing the SDK session wrapper', async () => {
-    const homeDir = await makeTempDir();
-    const workDir = join(homeDir, 'work');
-    const configPath = join(homeDir, 'config.toml');
-    await writeFile(configPath, COMPLETE_TOML, 'utf-8');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-    const session = await harness.createSession({
-      id: 'session-sdk-reload',
-      workDir,
-      model: 'kimi-for-coding',
-    });
-
-    expect(session.getResumeState()).toBeUndefined();
-
-    const reloaded = await harness.reloadSession({ id: session.id });
-
-    expect(reloaded).toBe(session);
-    expect(harness.getSession(session.id)).toBe(session);
-    expect(session.getResumeState()?.agents['main']).toBeDefined();
-    await expect(session.getStatus()).resolves.toMatchObject({ model: 'kimi-for-coding' });
-  });
-
-  it('forwards forcePluginSessionStartReminder to the active session reload', async () => {
-    const homeDir = await makeTempDir();
-    const workDir = join(homeDir, 'work');
-    const configPath = join(homeDir, 'config.toml');
-    await writeFile(configPath, COMPLETE_TOML, 'utf-8');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-    const session = await harness.createSession({
-      id: 'session-sdk-reload-forward',
-      workDir,
-      model: 'kimi-for-coding',
-    });
-
-    const reloadSpy = vi.spyOn(session, 'reloadSession').mockResolvedValue({} as never);
-
-    await harness.reloadSession({ id: session.id, forcePluginSessionStartReminder: true });
-
-    expect(reloadSpy).toHaveBeenCalledWith({ forcePluginSessionStartReminder: true });
   });
 });

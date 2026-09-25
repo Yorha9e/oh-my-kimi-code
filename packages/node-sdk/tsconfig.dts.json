@@ -11,9 +11,8 @@
   },
   "include": [
     "src/**/*.ts",
-    "../agent-core/src/**/*.ts",
-    "../agent-core/src/prompt-modules.d.ts",
     "../agent-core-v2/src/**/*.ts",
+    "../agent-core-v2/src/env.d.ts",
     "../kaos/src/**/*.ts",
     "../klient/src/**/*.ts",
     "../kosong/src/**/*.ts",
