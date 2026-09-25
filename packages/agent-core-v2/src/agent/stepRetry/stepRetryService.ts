@@ -47,6 +47,10 @@ export class TurnStepRetrying extends AgentEvent2<TurnStepRetryingPayload> {
 }
 export interface TurnStepRetrying extends TurnStepRetryingPayload {}
 
+export interface TurnStepRetryingEvent extends Omit<TurnStepRetryingPayload, 'agentId'> {
+  readonly type: 'turn.step.retrying';
+}
+
 export const stepRetryLastFailedDriverIdKey = defineState<string | undefined>(
   'stepRetry.lastFailedDriverId',
   () => undefined as string | undefined,

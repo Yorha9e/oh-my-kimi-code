@@ -20,3 +20,15 @@ export class AgentStatusUpdated extends AgentEvent2<AgentStatusUpdatedPayload> {
   static override readonly observable = true;
 }
 export interface AgentStatusUpdated extends AgentStatusUpdatedPayload {}
+
+export interface AgentStatusUpdatedEvent {
+  readonly type: 'agent.status.updated';
+  readonly model?: string;
+  readonly thinkingEffort?: string;
+  readonly contextTokens?: number;
+  readonly maxContextTokens?: number;
+  readonly planMode?: boolean;
+  readonly swarmMode?: boolean;
+  readonly towerMode?: boolean;
+  readonly usage?: UsageStatus;
+}
