@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import {
-  createKimiHarness,
+  createKimiHarnessV2,
   flushDiagnosticLogs,
   log,
   resolveGlobalLogPath,
@@ -41,7 +41,7 @@ Options:
 async function main(): Promise<void> {
   const options = parseCliArgs();
   const resolvedHome = resolveKimiHome(options.homeDir);
-  const harness = createKimiHarness({
+  const harness = createKimiHarnessV2({
     identity: { productName: 'kimi-code-cli', version: 'log-marker', platform: 'kimi_code_cli' },
     homeDir: options.homeDir,
   });

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarnessV2 } from '@moonshot-ai/kimi-code-sdk';
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
@@ -10,7 +10,7 @@ import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
 async function main(): Promise<void> {
   const homeDir = await mkdtemp(join(tmpdir(), 'kimi-harness-rename-home-'));
   const workDir = await mkdtemp(join(tmpdir(), 'kimi-harness-rename-work-'));
-  const harness = createKimiHarness({
+  const harness = createKimiHarnessV2({
     identity: smokeIdentityFromEnv(),
     homeDir,
   });

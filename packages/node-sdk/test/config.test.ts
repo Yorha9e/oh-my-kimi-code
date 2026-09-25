@@ -4,8 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
+import { createKimiConfigRpc, KimiError } from '#/index';
 
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import {
   parseConfigString,
   readConfigFile,
@@ -312,8 +313,8 @@ describe('KimiHarness config API', () => {
       },
     } as never);
 
-    await expect(setInvalidConfig).rejects.toBeInstanceOf(KimiError);
     await expect(setInvalidConfig).rejects.toMatchObject({
+      name: 'KimiError',
       code: 'config.invalid',
     } satisfies Partial<KimiError>);
 

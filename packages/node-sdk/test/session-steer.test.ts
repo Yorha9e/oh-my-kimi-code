@@ -1,9 +1,10 @@
 import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiHarness, type KimiError } from '#/index';
+import type { KimiError } from '#/index';
 
 import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const fakeProviderState = vi.hoisted(() => ({

@@ -18,9 +18,10 @@ import {
   ISessionIndexMirror,
 } from '@moonshot-ai/agent-core-v2';
 
-import { createKimiHarness, SDKRpcClientV2 } from '#/index';
+import { SDKRpcClientV2 } from '#/index';
 import type { KimiError } from '#/index';
 
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import {
   SessionStore,
   encodeWorkDirKey,

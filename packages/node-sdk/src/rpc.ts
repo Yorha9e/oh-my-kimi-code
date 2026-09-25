@@ -1,28 +1,25 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import {
-  ErrorCodes,
-  KimiError,
-  makeErrorPayload,
-  type AgentContextData,
-  type ApprovalRequest,
-  type ApprovalResponse,
-  type BeginGlobalMcpServerAuthResult,
-  type CoreAPI,
-  type Event,
-  type ExperimentalFeatureState,
-  type GetCronTasksResult,
-  type QuestionRequest,
-  type QuestionResult,
-  type RPCMethods,
-  type SDKAPI,
-  type ToolCallRequest,
-  type ToolCallResponse,
-  type SwarmModeTrigger,
-} from '@moonshot-ai/agent-core';
+import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
 import type { Kaos } from '@moonshot-ai/kaos';
 
-import type { ApprovalHandler, QuestionHandler } from '#/events';
+import type { AgentContextData } from '#/context';
+import { ErrorCodes, KimiError, makeErrorPayload } from '#/errors';
+import type {
+  ApprovalHandler,
+  Event,
+  QuestionHandler,
+} from '#/events';
+import type { ExperimentalFeatureState } from '#/flag';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  QuestionRequest,
+  QuestionResult,
+  ToolCallRequest,
+  ToolCallResponse,
+} from '#/interaction';
+import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -39,6 +36,7 @@ import type {
   ForkSessionInput,
   GenerateSessionTitleInput,
   GetConfigOptions,
+  GetCronTasksResult,
   GetGlobalSubagentBindingsResult,
   GetGlobalSubagentSlotBindingsResult,
   GetSubagentBindingsResult,
@@ -188,8 +186,13 @@ export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly config?: McpServerConfig;
 }
 
-type ResolvedCoreAPI = RPCMethods<CoreAPI>;
-
+/**
+ * The RPC surface the delegating defaults inside forward to. Typed loosely so
+ * `src/` carries no `@moonshot-ai/agent-core` dependency: the v1 client that
+ * supplies the real surface now lives in the test tree, and `SDKRpcClientV2`
+ * overrides every forwarding method (its own `getRpc` throws). M6, which
+ * deletes v1, turns these defaults abstract — the upstream `bb16383aa` shape.
+ */
 export abstract class SDKRpcClientBase {
   private readonly interactiveAgentScope = new AsyncLocalStorage<string>();
   private readonly eventListeners = new Set<(event: Event) => void>();
@@ -204,7 +207,7 @@ export abstract class SDKRpcClientBase {
     return this.interactiveAgentScope.run(agentId, fn);
   }
 
-  protected abstract getRpc(): Promise<ResolvedCoreAPI>;
+  protected abstract getRpc(): Promise<any>;
 
   async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
     const rpc = await this.getRpc();
@@ -1257,30 +1260,6 @@ export abstract class SDKRpcClientBase {
     };
   }
 
-}
-
-export class ClientAPI implements SDKAPI {
-  constructor(readonly client: SDKRpcClientBase) {}
-
-  emitEvent(event: Event): void {
-    this.client.receiveEvent(event);
-  }
-
-  requestApproval(
-    request: ApprovalRequest & { sessionId: string; agentId: string },
-  ): Promise<ApprovalResponse> {
-    return this.client.requestApproval(request);
-  }
-
-  requestQuestion(
-    request: QuestionRequest & { sessionId: string; agentId: string },
-  ): Promise<QuestionResult> {
-    return this.client.requestQuestion(request);
-  }
-
-  toolCall(request: ToolCallRequest): Promise<ToolCallResponse> {
-    return this.client.toolCall(request);
-  }
 }
 
 function errorMessage(error: unknown): string {

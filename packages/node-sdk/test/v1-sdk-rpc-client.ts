@@ -1,24 +1,49 @@
+/**
+ * The v1 (`@moonshot-ai/agent-core`) SDK client — test-only since M3.
+ *
+ * The public SDK surface is v2-only (`SDKRpcClientV2` / `createKimiHarnessV2`);
+ * this client exists solely so the dual-engine parity net (`v1-v2-parity`)
+ * and the v1-driven tests can still construct a real `KimiCore` harness.
+ * `agent-core` therefore stays a devDependency of this package.
+ */
 import {
   createRPC,
   ensureConfigFile,
   getRootLogger,
   KimiCore,
-  noopTelemetryClient,
   resolveConfigPath,
   resolveKimiHome,
   resolveLoggingConfig,
+  type ApprovalRequest as V1ApprovalRequest,
+  type ApprovalResponse as V1ApprovalResponse,
   type CoreAPI,
-  type OAuthTokenProviderResolver,
+  type Event as V1Event,
+  type QuestionRequest as V1QuestionRequest,
+  type QuestionResult as V1QuestionResult,
   type RPCMethods,
   type SDKAPI,
-  type TelemetryClient,
+  type ToolCallRequest as V1ToolCallRequest,
+  type ToolCallResponse as V1ToolCallResponse,
 } from '@moonshot-ai/agent-core';
 import type { Kaos } from '@moonshot-ai/kaos';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { KimiAuthFacade } from '#/auth';
+import { readConfigFile, type ImageConfig } from '#/config/index';
 import { KimiHarness } from '#/kimi-harness';
-import { ClientAPI, SDKRpcClientBase } from '#/rpc';
+import type { OAuthTokenProviderResolver } from '#/model-provider';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  Event,
+  QuestionRequest,
+  QuestionResult,
+  ToolCallRequest,
+  ToolCallResponse,
+} from '#/events';
+import { ImageLimits } from '#/image';
+import { SDKRpcClientBase } from '#/rpc';
+import { noopTelemetryClient, type TelemetryClient } from '#/telemetry';
 import type {
   CreateSessionOptions,
   KimiHarnessOptions,
@@ -43,6 +68,45 @@ export interface SDKRpcClientOptions {
    * `'print'`.
    */
   readonly uiMode?: string;
+}
+
+/**
+ * The v1 core's reverse-RPC surface handed back to the engine (events out,
+ * approval/question/tool-call requests in). Lives here with the v1 client
+ * because only this client pairs with `createRPC<CoreAPI, SDKAPI>`.
+ *
+ * The engine hands protocol-shaped payloads (the wire union from
+ * `@moonshot-ai/agent-core`); the SDK's public `Event` / interaction types
+ * are structurally identical on every field the engine actually sends (the
+ * known deltas are type-level only), so the bridge casts at this single
+ * boundary — same technique as `translateDomainEvent` on the v2 path.
+ */
+export class ClientAPI implements SDKAPI {
+  constructor(readonly client: SDKRpcClientBase) {}
+
+  emitEvent(event: V1Event): void {
+    this.client.receiveEvent(event as unknown as Event);
+  }
+
+  requestApproval(
+    request: V1ApprovalRequest & { sessionId: string; agentId: string },
+  ): Promise<V1ApprovalResponse> {
+    return this.client.requestApproval(
+      request as unknown as ApprovalRequest & { sessionId: string; agentId: string },
+    );
+  }
+
+  requestQuestion(
+    request: V1QuestionRequest & { sessionId: string; agentId: string },
+  ): Promise<V1QuestionResult> {
+    return this.client.requestQuestion(
+      request as unknown as QuestionRequest & { sessionId: string; agentId: string },
+    );
+  }
+
+  toolCall(request: V1ToolCallRequest): Promise<V1ToolCallResponse> {
+    return this.client.toolCall(request as unknown as ToolCallRequest);
+  }
 }
 
 export class SDKRpcClient extends SDKRpcClientBase {
@@ -72,6 +136,9 @@ export class SDKRpcClient extends SDKRpcClientBase {
       onRefresh: options.onOAuthRefresh,
     });
 
+    // agent-core's root logger is the process-root singleton (node-sdk's
+    // copy shares the same slot — see `src/logging/logger.ts`), so this one
+    // configure covers both the v1 core's writes and the public `log`.
     void getRootLogger().configure(resolveLoggingConfig({ homeDir: this.homeDir }));
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
@@ -153,7 +220,22 @@ export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    imageLimits: rpc.core.imageLimits,
+    imageLimits: new ImageLimits(process.env, readImageSection(rpc.configPath)),
     sessionStartedProperties: options.sessionStartedProperties,
   });
+}
+
+/**
+ * The owner-scoped `[image]` limits the harness exposes for prompt-ingestion
+ * compression. The core loaded the same section into its own instance; this
+ * rebuilds the SDK-typed one from the (already validated — the core read it
+ * during construction) config file, falling back to built-in defaults when
+ * the file is absent or unreadable.
+ */
+function readImageSection(configPath: string): ImageConfig | undefined {
+  try {
+    return readConfigFile(configPath).image;
+  } catch {
+    return undefined;
+  }
 }

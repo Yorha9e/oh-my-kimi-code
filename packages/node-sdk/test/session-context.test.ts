@@ -10,8 +10,9 @@ import { join } from 'node:path';
 import { LocalKaos, type Environment, type Kaos } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError } from '#/index';
+import type { KimiError } from '#/index';
 
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import {
   makeTempDir,
   removeTempDirs,

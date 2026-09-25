@@ -14,8 +14,9 @@ import { KIMI_CODE_PLATFORM } from '@moonshot-ai/kimi-code-oauth';
 import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiHarness, type Event, type KimiHarness } from '#/index';
+import type { Event, KimiHarness } from '#/index';
 
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const fakeProviderState = vi.hoisted(() => ({

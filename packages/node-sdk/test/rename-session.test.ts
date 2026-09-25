@@ -5,9 +5,10 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, KimiError, type Event } from '#/index';
+import { KimiError, type Event } from '#/index';
 
 import { SessionStore } from '../../agent-core/src/session/store';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -216,8 +217,8 @@ describe('KimiHarness.renameSession', () => {
         id: 'ses_missing',
         title: 'Missing Title',
       });
-      await expect(missingRename).rejects.toBeInstanceOf(KimiError);
       await expect(missingRename).rejects.toMatchObject({
+        name: 'KimiError',
         code: 'session.not_found',
         details: { sessionId: 'ses_missing' },
       } satisfies Partial<KimiError>);

@@ -1,11 +1,8 @@
-import {
-  ErrorCodes,
-  KimiError,
-  resolveKimiHome,
-  type Logger,
-  type ModelProvider,
-  type ResolvedRuntimeProvider,
-} from '@moonshot-ai/agent-core';
+import { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
+
+import { ErrorCodes, KimiError } from '#/errors';
+import type { Logger } from '#/logging/index';
+import type { ModelProvider, ResolvedRuntimeProvider } from '#/model-provider';
 import {
   createKimiDefaultHeaders,
   KIMI_CODE_FLOW_CONFIG,

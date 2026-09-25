@@ -1,4 +1,4 @@
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarnessV2 } from '@moonshot-ai/kimi-code-sdk';
 
 import {
   smokeIdentityFromEnv,
@@ -10,7 +10,7 @@ const PROMPT =
   'Write a detailed multi-paragraph explanation of how cancellation should work in an SDK streaming session.';
 
 async function main(): Promise<void> {
-  const harness = createKimiHarness({ identity: smokeIdentityFromEnv() });
+  const harness = createKimiHarnessV2({ identity: smokeIdentityFromEnv() });
 
   try {
     const session = await createConfiguredSession(harness);

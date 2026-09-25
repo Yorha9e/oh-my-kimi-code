@@ -11,10 +11,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Kaos } from '@moonshot-ai/kaos';
-import { createKimiHarness, KimiHarness } from '#/index';
+import { KimiHarness } from '#/index';
 import type { KimiError } from '#/index';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
 import { SDKRpcClientBase } from '#/rpc';
+import { createKimiHarness } from './v1-sdk-rpc-client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { waitForAgentWireEvent } from './session-runtime-helpers';
