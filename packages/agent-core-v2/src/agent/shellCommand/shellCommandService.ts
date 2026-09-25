@@ -59,6 +59,18 @@ export class ShellCompleted extends AgentEvent2<ShellCompletedPayload> {
 }
 export interface ShellCompleted extends ShellCompletedPayload {}
 
+export interface ShellOutputEvent extends Omit<ShellOutputPayload, 'agentId'> {
+  readonly type: 'shell.output';
+}
+
+export interface ShellStartedEvent extends Omit<ShellStartedPayload, 'agentId'> {
+  readonly type: 'shell.started';
+}
+
+export interface ShellCompletedEvent extends Omit<ShellCompletedPayload, 'agentId'> {
+  readonly type: 'shell.completed';
+}
+
 const SHELL_FOREGROUND_TIMEOUT_S = 2 * 60;
 
 export const shellCommandTasksKey = defineState<Map<string, string>>(

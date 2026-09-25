@@ -46,3 +46,11 @@ export class ToolResultEvent extends AgentEvent2<ToolResultEventPayload> {
   static override readonly observable = true;
 }
 export interface ToolResultEvent extends ToolResultEventPayload {}
+
+export interface ToolCallStartedEvent extends Omit<ToolCallStartedPayload, 'agentId'> {
+  readonly type: 'tool.call.started';
+}
+
+export interface ToolProgressEvent extends Omit<ToolProgressPayload, 'agentId'> {
+  readonly type: 'tool.progress';
+}

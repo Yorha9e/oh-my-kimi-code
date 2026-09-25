@@ -42,3 +42,11 @@ export class AgentErrorEvent extends AgentEvent2<KimiErrorPayload & AgentDomainT
 export interface AgentErrorEvent extends KimiErrorPayload {
   readonly agentId: string;
 }
+
+export interface ToolListUpdatedEvent extends Omit<ToolListUpdatedPayload, 'agentId'> {
+  readonly type: 'tool.list.updated';
+}
+
+export interface McpServerStatusEvent extends Omit<McpServerStatusEventPayload, 'agentId'> {
+  readonly type: 'mcp.server.status';
+}
