@@ -1,56 +1,4 @@
-import type {
-  AgentEvent as EngineAgentEvent,
-  AssistantDeltaEvent,
-  CompactionBlockedEvent,
-  CompactionCancelledEvent,
-  CompactionCompletedEvent,
-  CompactionStartedEvent,
-  ConfigChangedEvent,
-  ConfigWarningEvent,
-  CapabilityChangedEvent,
-  CronFiredEvent,
-  ErrorEvent,
-  GoalUpdatedEvent,
-  HookResultEvent,
-  ModelCatalogChangedEvent,
-  McpServerStatusEvent,
-  PluginChangedEvent,
-  PluginCommandActivatedEvent,
-  PromptAbortedEvent,
-  PromptCompletedEvent,
-  PromptSteeredEvent,
-  PromptSubmittedEvent,
-  SessionCreatedEvent,
-  SessionMetaUpdatedEvent,
-  SkillActivatedEvent,
-  ShellCompletedEvent,
-  ShellOutputEvent,
-  ShellStartedEvent,
-  SubagentCompletedEvent,
-  SubagentFailedEvent,
-  SubagentSpawnedEvent,
-  SubagentStartedEvent,
-  SubagentSuspendedEvent,
-  TaskStartedEvent,
-  TaskTerminatedEvent,
-  ThinkingDeltaEvent,
-  ToolCallDeltaEvent,
-  ToolCallStartedEvent,
-  ToolListUpdatedEvent,
-  ToolProgressEvent,
-  ToolResultEvent,
-  TurnEndedEvent,
-  TurnStartedEvent,
-  TurnStepCompletedEvent,
-  TurnStepInterruptedEvent,
-  TurnStepRetryingEvent,
-  TurnStepStartedEvent,
-  AgentStatusUpdatedEvent,
-  WorkspaceCreatedEvent,
-  WorkspaceDeletedEvent,
-  WorkspaceUpdatedEvent,
-} from '@moonshot-ai/agent-core-v2/events';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2/agent/profile/profileService';
+import type { AgentEvent } from '@moonshot-ai/agent-core-v2/events';
 
 import type {
   ApprovalRequest,
@@ -163,9 +111,11 @@ export interface SessionWorkChangedEvent {
 
 /**
  * The SDK's `error` event carries the SDK's public error protocol
- * (`KimiErrorCode` from `#/errors`), which is wider than the engine's own
- * code registry — the engine's class type is kept for the completeness
- * assert only, the wire member below is what consumers see.
+ * (`KimiErrorCode` from `#/errors`) — a different registry from the engine's
+ * `ErrorCode` (the SDK holds ten `session.*` codes the engine registry
+ * lacks), so the public `Event` substitutes this member for the engine's
+ * `ErrorEvent` via the `Exclude` below and consumers keep the field types
+ * the pre-rewrite surface exposed.
  */
 interface SdkErrorEvent {
   readonly type: 'error';
@@ -176,89 +126,7 @@ interface SdkErrorEvent {
   readonly retryable: boolean;
 }
 
-/**
- * The v2 engine's `Event2` payloads declare their wire `type` only on the
- * class static (`static readonly type`), so the engine union's members carry
- * `type: string` and do not discriminate. The SDK's public `Event` re-attaches
- * each member's literal through this map — the values are exactly the engine
- * union's members (asserted below), the keys the literals the stream delivers.
- */
-interface EngineEventMap {
-  readonly 'error': SdkErrorEvent;
-  readonly 'warning': WarningEvent;
-  readonly 'agent.status.updated': AgentStatusUpdatedEvent;
-  readonly 'session.meta.updated': SessionMetaUpdatedEvent;
-  readonly 'event.session.created': SessionCreatedEvent;
-  readonly 'event.workspace.created': WorkspaceCreatedEvent;
-  readonly 'event.workspace.updated': WorkspaceUpdatedEvent;
-  readonly 'event.workspace.deleted': WorkspaceDeletedEvent;
-  readonly 'event.config.changed': ConfigChangedEvent;
-  readonly 'event.config.warning': ConfigWarningEvent;
-  readonly 'event.model_catalog.changed': ModelCatalogChangedEvent;
-  readonly 'event.plugin.changed': PluginChangedEvent;
-  readonly 'event.capability.changed': CapabilityChangedEvent;
-  readonly 'goal.updated': GoalUpdatedEvent;
-  readonly 'skill.activated': SkillActivatedEvent;
-  readonly 'plugin_command.activated': PluginCommandActivatedEvent;
-  readonly 'turn.started': TurnStartedEvent;
-  readonly 'turn.ended': TurnEndedEvent;
-  readonly 'turn.step.started': TurnStepStartedEvent;
-  readonly 'turn.step.completed': TurnStepCompletedEvent;
-  readonly 'turn.step.retrying': TurnStepRetryingEvent;
-  readonly 'turn.step.interrupted': TurnStepInterruptedEvent;
-  readonly 'assistant.delta': AssistantDeltaEvent;
-  readonly 'hook.result': HookResultEvent;
-  readonly 'thinking.delta': ThinkingDeltaEvent;
-  readonly 'tool.call.delta': ToolCallDeltaEvent;
-  readonly 'tool.call.started': ToolCallStartedEvent;
-  readonly 'tool.progress': ToolProgressEvent;
-  readonly 'shell.output': ShellOutputEvent;
-  readonly 'shell.started': ShellStartedEvent;
-  readonly 'shell.completed': ShellCompletedEvent;
-  readonly 'tool.result': ToolResultEvent;
-  readonly 'tool.list.updated': ToolListUpdatedEvent;
-  readonly 'mcp.server.status': McpServerStatusEvent;
-  readonly 'subagent.spawned': SubagentSpawnedEvent;
-  readonly 'subagent.started': SubagentStartedEvent;
-  readonly 'subagent.suspended': SubagentSuspendedEvent;
-  readonly 'subagent.completed': SubagentCompletedEvent;
-  readonly 'subagent.failed': SubagentFailedEvent;
-  readonly 'compaction.started': CompactionStartedEvent;
-  readonly 'compaction.blocked': CompactionBlockedEvent;
-  readonly 'compaction.cancelled': CompactionCancelledEvent;
-  readonly 'compaction.completed': CompactionCompletedEvent;
-  readonly 'task.started': TaskStartedEvent;
-  readonly 'task.terminated': TaskTerminatedEvent;
-  readonly 'cron.fired': CronFiredEvent;
-  readonly 'prompt.submitted': PromptSubmittedEvent;
-  readonly 'prompt.completed': PromptCompletedEvent;
-  readonly 'prompt.aborted': PromptAbortedEvent;
-  readonly 'prompt.steered': PromptSteeredEvent;
-}
-
-// Every engine union member must appear as a map value (and nothing else) —
-// a new/renamed engine event fails here instead of silently dropping out of
-// the SDK's `Event`. `error` is mapped to the SDK-local `SdkErrorEvent`
-// above, so the engine's own class type is unioned in for the check.
-type AssertNever<T extends never> = T;
-// oxlint-disable-next-line eslint/no-unused-vars -- the failing constraint IS the assertion.
-type UnmappedEngineEvent = AssertNever<
-  Exclude<EngineAgentEvent, EngineEventMap[keyof EngineEventMap] | ErrorEvent>
->;
-
-/**
- * The engine hands subscribers in-process `Event2` instances (own `time`,
- * prototype `serialize`) and nests some payloads under a `payload` envelope,
- * while the SDK stream delivers plain wire objects with the envelope fields
- * flattened — drop the instance-only members and unwrap the envelope so the
- * public type matches what `receiveEvent` actually delivers on both engines.
- */
-type Wire<T> = Omit<T, 'time' | 'serialize' | 'payload'> &
-  (T extends { readonly payload: infer P } ? P : unknown);
-
-type DiscriminatedEngineEvent = {
-  [K in keyof EngineEventMap]: Wire<EngineEventMap[K]> & { readonly type: K };
-}[keyof EngineEventMap];
+type EngineWireEvent = Exclude<AgentEvent, { readonly type: 'error' }> | SdkErrorEvent;
 
 type LocalWireEvent =
   | BackgroundTaskStartedEvent
@@ -266,7 +134,17 @@ type LocalWireEvent =
   | SessionStatusChangedEvent
   | SessionWorkChangedEvent;
 
-export type Event = (DiscriminatedEngineEvent | LocalWireEvent) & {
+type AssertNever<T extends never> = T;
+// oxlint-disable-next-line eslint/no-unused-vars -- the failing constraint IS the assertion.
+type OverlappingLocalWireEvent = AssertNever<Extract<LocalWireEvent, AgentEvent>>;
+
+/**
+ * What the SDK stream actually delivers: the v2 engine's wire union (its
+ * `error` member swapped for {@link SdkErrorEvent} to keep the public
+ * error-code width) plus the SDK-local v1-edge spellings, stamped with the
+ * stream's `agentId` / `sessionId`.
+ */
+export type Event = (EngineWireEvent | LocalWireEvent) & {
   agentId: string;
   sessionId: string;
 };
