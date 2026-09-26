@@ -137,10 +137,13 @@ export class StagingLeaseTracker {
   handleTurnStarted(event: TurnStartedEvent): void {
     const kind = event.origin?.kind;
     if (kind !== 'user' && kind !== 'skill_activation' && kind !== 'plugin_command') return;
-    if (event.promptId !== undefined) {
-      // Exact binding: the turn echoes the submission's client-chosen prompt
-      // id — bind that lease directly and skip the origin heuristic (and its
-      // ambiguity warning) entirely.
+    // Exact binding: the turn echoes the submission's client-chosen prompt id
+    // — bind that lease directly and skip the origin heuristic (and its
+    // ambiguity warning) entirely. Our SDK Event type does not declare
+    // `promptId` (our engine does not echo it today), but the wire schema
+    // allows it and engines that do echo deliver it, so bind when the stream
+    // actually carries it.
+    if ('promptId' in event && typeof event.promptId === 'string') {
       const exact = this.leasesBySubmissionId.get(event.promptId);
       if (exact !== undefined && exact.turnId === undefined) {
         this.bindToTurn(exact, String(event.turnId));

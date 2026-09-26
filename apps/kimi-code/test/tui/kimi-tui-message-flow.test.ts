@@ -6119,7 +6119,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: false,
-        modelAlias: 'k2-cheap',
+        model: 'k2-cheap',
       } as Event,
       sendQueued,
     );
@@ -6141,7 +6141,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: false,
-        modelAlias: 'k2-cheap',
+        model: 'k2-cheap',
       } as Event,
       sendQueued,
     );
@@ -6165,7 +6165,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: false,
-        modelAlias: 'k2-cheap',
+        model: 'k2-cheap',
         thinkingEffort: 'high',
       } as Event,
       sendQueued,
@@ -6188,7 +6188,7 @@ command = "vim"
           subagentName: 'explore',
           description: `explore ${effort}`,
           runInBackground: false,
-          modelAlias: 'k2-cheap',
+          model: 'k2-cheap',
           thinkingEffort: effort,
         } as Event,
         sendQueued,
@@ -6262,7 +6262,7 @@ command = "vim"
         description: 'Review changed files #1 (coder)',
         swarmIndex: 1,
         runInBackground: false,
-        modelAlias: 'k2-cheap',
+        model: 'k2-cheap',
       } as Event,
       sendQueued,
     );
@@ -6288,7 +6288,7 @@ command = "vim"
         subagentName: 'explore',
         description: 'explore project',
         runInBackground: true,
-        modelAlias: 'k2-cheap',
+        model: 'k2-cheap',
       } as Event,
       sendQueued,
     );

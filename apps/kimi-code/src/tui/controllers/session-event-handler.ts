@@ -9,7 +9,6 @@ import type {
   CompactionCompletedEvent,
   CompactionStartedEvent,
   CronFiredEvent,
-  ErrorEvent,
   Event,
   GoalChange,
   GoalUpdatedEvent,
@@ -716,14 +715,20 @@ export class SessionEventHandler {
       this.host.state.appState.swarmMode &&
       this.host.state.swarmModeEntry === 'task';
     const patch: Partial<AppState> = {};
-    if (event.contextUsage !== undefined) patch.contextUsage = event.contextUsage;
     if (event.contextTokens !== undefined) patch.contextTokens = event.contextTokens;
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
+    if (event.contextTokens !== undefined || event.maxContextTokens !== undefined) {
+      // Our `agent.status.updated` payload carries the token counts but no
+      // precomputed context ratio. Recompute it from the post-patch counts so
+      // it cannot go stale and drift from them — the footer and the /usage
+      // panel bar render this ratio while their texts recompute from the
+      // counts, so a stale ratio shows as a bar/percentage mismatch.
+      const tokens = patch.contextTokens ?? this.host.state.appState.contextTokens;
+      const max = patch.maxContextTokens ?? this.host.state.appState.maxContextTokens;
+      patch.contextUsage = max > 0 ? tokens / max : 0;
+    }
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
-    if (event.permission !== undefined) {
-      patch.permissionMode = event.permission;
-    }
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
@@ -961,7 +966,7 @@ export class SessionEventHandler {
     }
   }
 
-  private handleSessionError(event: ErrorEvent): void {
+  private handleSessionError(event: Extract<Event, { type: 'error' }>): void {
     this.host.streamingUI.flushNow();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
