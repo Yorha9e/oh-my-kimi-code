@@ -1,3 +1,5 @@
+import { ApiError as GoogleApiError } from '@google/genai';
+
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -1892,6 +1894,48 @@ describe('convertGoogleGenAIError (unit)', () => {
     const result = convertGoogleGenAIError(error);
     expect(result).toBeInstanceOf(APIProviderRateLimitError);
     expect((result as APIProviderRateLimitError).statusCode).toBe(429);
+  });
+
+  it('reads the server-requested retry delay out of a 429 ApiError body', () => {
+    const error = new GoogleApiError({
+      status: 429,
+      message: `quota exceeded ${JSON.stringify({
+        error: {
+          details: [
+            { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '7.5s' },
+          ],
+        },
+      })}`,
+    });
+    const result = convertGoogleGenAIError(error);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBe(7_500);
+  });
+
+  it('leaves retryAfterMs null when the error body has no usable RetryInfo', () => {
+    const error = new GoogleApiError({ status: 429, message: 'quota exceeded' });
+    const result = convertGoogleGenAIError(error);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBeNull();
+  });
+
+  it('ignores a RetryInfo delay that cannot be used as a timer', () => {
+    const error = new GoogleApiError({
+      status: 429,
+      message: `quota exceeded ${JSON.stringify({
+        error: {
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+              retryDelay: `${'9'.repeat(310)}s`,
+            },
+          ],
+        },
+      })}`,
+    });
+    const result = convertGoogleGenAIError(error);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBeNull();
   });
 
   it('normalizes numeric context overflow errors', () => {

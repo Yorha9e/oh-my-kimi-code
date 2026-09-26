@@ -24,7 +24,6 @@ import {
   catalogProviderModels,
   CatalogFetchError,
   createKimiHarness,
-  createKimiHarnessV2,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
   type Catalog,
@@ -37,7 +36,6 @@ import type { Command } from 'commander';
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 
-import { isKimiV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -563,10 +561,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        // Same engine gate as the TUI's `/provider` flow: the SDK's v2-backed
-        // harness by default, the legacy agent-core harness when
-        // KIMI_CODE_LEGACY_FLAG is set.
-        harness ??= (isKimiV2Enabled() ? createKimiHarnessV2 : createKimiHarness)({ identity });
+        harness ??= createKimiHarness({ identity });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

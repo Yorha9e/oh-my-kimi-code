@@ -176,6 +176,7 @@
     "node_modules/",
     "apps/*/scripts/",
     "docs/smoke-archive/",
+    "graphify-blocks/",
     "packages/pi-tui/",
     "*.generated.ts"
   ]

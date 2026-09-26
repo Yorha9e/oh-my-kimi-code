@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createKimiHarnessV2 as createKimiHarness, type Event, type KimiHarness } from '#/index';
+import { createKimiHarness, type Event, type KimiHarness } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
 

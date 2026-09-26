@@ -736,7 +736,12 @@ const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
 export function convertGoogleGenAIError(error: unknown): ChatProviderError {
   // Google SDK's exported ApiError carries an HTTP status code
   if (error instanceof GoogleApiError) {
-    return normalizeAPIStatusError(error.status, error.message);
+    return normalizeAPIStatusError(
+      error.status,
+      error.message,
+      undefined,
+      parseRetryInfoDelayMs(error.message),
+    );
   }
   if (error instanceof Error) {
     const msg = error.message;
@@ -1014,5 +1019,45 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     );
     clone._generationKwargs = { ...this._generationKwargs };
     return clone;
+  }
+}
+
+/**
+ * Extract `google.rpc.RetryInfo.retryDelay` from a Google API error message
+ * body. Returns milliseconds on a valid Duration (`"5s"` → `5000`), or
+ * `null` when the message has no JSON body / no RetryInfo / an invalid delay,
+ * or a delay that cannot be used safely as a timer (non-finite after the
+ * seconds→ms conversion, or beyond the 32-bit `setTimeout` ceiling — both
+ * would collapse to a ~1ms timeout and destroy backoff).
+ */
+function parseRetryInfoDelayMs(message: string): number | null {
+  const jsonStart = message.indexOf('{');
+  if (jsonStart < 0) return null;
+  try {
+    const body: unknown = JSON.parse(message.slice(jsonStart));
+    if (typeof body !== 'object' || body === null) return null;
+    const details = (body as { error?: { details?: unknown } }).error?.details;
+    if (!Array.isArray(details)) return null;
+    for (const detail of details) {
+      if (typeof detail !== 'object' || detail === null) continue;
+      const type = (detail as { '@type'?: unknown })['@type'];
+      if (typeof type !== 'string' || !type.endsWith('google.rpc.RetryInfo')) continue;
+      const retryDelay = (detail as { retryDelay?: unknown }).retryDelay;
+      if (typeof retryDelay !== 'string') continue;
+      const match = /^(\d+(?:\.\d+)?)s$/.exec(retryDelay.trim());
+      if (match?.[1] === undefined) continue;
+      const seconds = Number.parseFloat(match[1]);
+      if (!Number.isFinite(seconds) || seconds < 0) continue;
+      // `seconds` can be finite while `seconds * 1000` overflows to Infinity
+      // (e.g. ~1e308 seconds). Node also clamps any delay above 2^31-1 to
+      // 1ms, so treat both as "no usable server delay" instead of returning
+      // a value that would fire the retry immediately.
+      const ms = Math.round(seconds * 1000);
+      if (!Number.isFinite(ms) || ms > 0x7fffffff) continue;
+      return ms;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }

@@ -3149,7 +3149,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 }
 
-export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
+export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
   const rpc = new SDKRpcClientV2(options);
   return new KimiHarness(rpc, {
     identity: rpc.identity,

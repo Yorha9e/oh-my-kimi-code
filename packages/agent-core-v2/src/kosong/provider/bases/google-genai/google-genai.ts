@@ -1,5 +1,6 @@
 import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
 
+import { MAX_TIMER_DELAY_MS } from '#/_base/utils/timer';
 import {
   APIConnectionError,
   APITimeoutError,
@@ -674,7 +675,9 @@ function parseRetryInfoDelayMs(message: string): number | null {
       if (match?.[1] === undefined) continue;
       const seconds = Number.parseFloat(match[1]);
       if (!Number.isFinite(seconds) || seconds < 0) continue;
-      return Math.round(seconds * 1000);
+      const ms = Math.round(seconds * 1000);
+      if (!Number.isFinite(ms) || ms > MAX_TIMER_DELAY_MS) continue;
+      return ms;
     }
     return null;
   } catch {

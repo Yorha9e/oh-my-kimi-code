@@ -11,7 +11,6 @@ import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import {
-  createKimiHarnessV2,
   type Event,
   type KimiError,
   type SkillActivatedEvent,
@@ -118,7 +117,7 @@ describe('Session skills', () => {
       '',
       'Check the requested file for security issues.',
     ]);
-    const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_sdk_multi_skill', workDir });

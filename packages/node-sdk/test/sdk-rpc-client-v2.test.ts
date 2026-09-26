@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildDaemonFileUrl,
-  createKimiHarnessV2,
+  createKimiHarness,
   ErrorCodes,
   isDaemonFileUrl,
   KimiHarness,
@@ -95,7 +95,7 @@ function stubProcessPlatform(platform: NodeJS.Platform): () => void {
 async function makeHarness(): Promise<{ harness: KimiHarness; homeDir: string }> {
   const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
   tempDirs.push(homeDir);
-  return { harness: createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY }), homeDir };
+  return { harness: createKimiHarness({ homeDir, identity: TEST_IDENTITY }), homeDir };
 }
 
 const toPosix = (path: string): string => path.replaceAll('\\', '/');
@@ -123,7 +123,7 @@ async function makeBindingHarness(): Promise<{ harness: KimiHarness; homeDir: st
   const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-binding-'));
   tempDirs.push(homeDir);
   await writeFile(join(homeDir, 'config.toml'), SUBAGENT_TEST_CONFIG_TOML, 'utf-8');
-  return { harness: createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY }), homeDir };
+  return { harness: createKimiHarness({ homeDir, identity: TEST_IDENTITY }), homeDir };
 }
 
 async function makeBindingWorkDir(): Promise<string> {
@@ -229,7 +229,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
       }),
       'utf-8',
     );
-    const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
@@ -287,7 +287,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
       try {
         await expect(harness.ensureConfigFile()).rejects.toBeInstanceOf(HostProcessError);
         await expect(harness.ensureConfigFile()).rejects.toMatchObject({
@@ -308,7 +308,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
       try {
         await expect(harness.ensureConfigFile()).resolves.toBeUndefined();
       } finally {
@@ -422,7 +422,7 @@ key = "${titleOAuthRef.key}"
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
-    const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_generated_title_event', workDir });
@@ -755,7 +755,7 @@ key = "${titleOAuthRef.key}"
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
     await writeSkill(join(workDir, '.kimi-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
     await writeSkill(join(explicitDir, 'demo-explicit-skill'), 'demo-explicit-skill');
-    const harness = createKimiHarnessV2({
+    const harness = createKimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       skillDirs: [explicitDir],
@@ -1275,7 +1275,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-tel-work-'));
     tempDirs.push(workDir);
     const records: TelemetryRecord[] = [];
-    const harness = createKimiHarnessV2({
+    const harness = createKimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),
@@ -1297,7 +1297,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     tempDirs.push(workDir);
     await writeFile(join(homeDir, 'config.toml'), 'telemetry = false\n', 'utf-8');
     const records: TelemetryRecord[] = [];
-    const harness = createKimiHarnessV2({
+    const harness = createKimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),
