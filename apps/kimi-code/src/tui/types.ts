@@ -205,7 +205,7 @@ export type TranscriptEntryKind =
   | 'cron'
   | 'goal';
 
-export type SkillActivationTrigger = 'user-slash' | 'model-tool' | 'nested-skill';
+export type SkillActivationTrigger = string;
 
 export interface PluginCommandTranscriptData {
   readonly activationId: string;

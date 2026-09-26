@@ -1463,7 +1463,7 @@ describe('replayBackgroundProjection', () => {
 
   it('threads the persisted model (catalog-mapped) and concrete effort into the metadata', () => {
     const projection = replayBackgroundProjection(
-      [agentTask({ modelAlias: 'k2-cheap', thinkingEffort: 'low' })],
+      [agentTask({ model: 'k2-cheap', thinkingEffort: 'low' })],
       {
         'k2-cheap': {
           provider: 'managed:kimi-code',
@@ -1480,11 +1480,11 @@ describe('replayBackgroundProjection', () => {
 
   it('falls back to the raw alias and drops boolean effort states', () => {
     const projection = replayBackgroundProjection([
-      agentTask({ modelAlias: 'k2-cheap', thinkingEffort: 'on' }),
+      agentTask({ model: 'k2-cheap', thinkingEffort: 'on' }),
       agentTask({
         taskId: 'agent-task2',
         agentId: 'agent-2',
-        modelAlias: 'k2-cheap',
+        model: 'k2-cheap',
         thinkingEffort: 'off',
       }),
     ]);

@@ -130,9 +130,9 @@ export function replayBackgroundProjection(
       // them. Model maps through the catalog like the live path; boolean
       // effort states carry no level and are dropped.
       model:
-        info.modelAlias === undefined
+        info.model === undefined
           ? undefined
-          : modelDisplayName(info.modelAlias, availableModels?.[info.modelAlias]),
+          : modelDisplayName(info.model, availableModels?.[info.model]),
       effort:
         info.thinkingEffort === undefined ||
         info.thinkingEffort === 'off' ||
