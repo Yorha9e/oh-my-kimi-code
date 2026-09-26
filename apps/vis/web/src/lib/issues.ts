@@ -74,6 +74,8 @@ export function computeIssues(
           // New in-flight tool call.
           toolCallById.set(ev.toolCallId, { lineNo, name: ev.name });
         } else if (ev.type === 'tool.result') {
+          // v1 persisted `truncated` / `message`; v2 persists `note` instead.
+          const result = ev.result as { truncated?: boolean; message?: string; note?: string };
           const open = toolCallById.get(ev.toolCallId);
           if (open !== undefined) {
             toolCallById.delete(ev.toolCallId);
@@ -93,10 +95,10 @@ export function computeIssues(
               kind: 'tool_error',
               lineNo,
               summary: `${open?.name ?? 'tool'}#${ev.toolCallId.slice(-8)} returned an error`,
-              detail: ev.result.message,
+              detail: result.message ?? result.note,
             });
           }
-          if (ev.result.truncated === true) {
+          if (result.truncated === true) {
             out.push({
               severity: 'info',
               kind: 'tool_truncated',
@@ -106,10 +108,11 @@ export function computeIssues(
             });
           }
         } else if (ev.type === 'step.begin') {
+          // `step` / `turnId` are optional on v2 loop events.
           stepBeginByUuid.set(ev.uuid, {
             lineNo,
-            step: ev.step,
-            turnId: ev.turnId,
+            step: ev.step ?? -1,
+            turnId: ev.turnId ?? '',
           });
         } else if (ev.type === 'step.end') {
           stepBeginByUuid.delete(ev.uuid);
