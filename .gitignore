@@ -36,6 +36,8 @@ reports/
 
 # Agent scratch / throwaway files - do not commit
 .tmp/
+graphify-blocks/
+graphify-out/
 HANDOVER*.md
 HANDOFF*.md
 handoff.md
