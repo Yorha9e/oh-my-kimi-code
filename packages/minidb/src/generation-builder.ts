@@ -65,6 +65,7 @@ import {
   writeTextDictionaryImage,
   writeTextDocsImage,
 } from './gen-codec.js';
+import { fsyncFileData } from './backup.js';
 import type { StoreImageRecord, TextDocsImage } from './gen-codec.js';
 import { IndexManager } from './index-manager.js';
 import { DtIndex } from './dt-index.js';
@@ -712,12 +713,7 @@ export class GenerationBuilder<V> {
           snapshotLinked = true;
         } catch {
           await fs.copyFile(snapSrc, path.join(tmpDir, GEN_SNAPSHOT_FILE));
-          const h = await fs.open(path.join(tmpDir, GEN_SNAPSHOT_FILE), 'r');
-          try {
-            await h.sync();
-          } finally {
-            await h.close().catch(() => {});
-          }
+          await fsyncFileData(path.join(tmpDir, GEN_SNAPSHOT_FILE));
         }
       }
       const walSt = await fs.stat(this.deps.walPath());
@@ -774,13 +770,14 @@ export class GenerationBuilder<V> {
       // section (stage 6): a shutdown waits for it instead of cancelling a
       // half-published generation. Everything before this line is discardable.
       ctx.markPublishing();
-      // Windows cannot rename a directory with open files inside: the
-      // committed bases' live handles sit in the tmp dir, so close them first
-      // (repointPostings reopens at the final path below). POSIX keeps the
-      // handles valid across the rename — no close needed there.
+      // Windows cannot rename a directory with open files inside. Move each
+      // live postings handle onto a hardlink beside the tmp dir first, so
+      // search still reads this base during the publish await. repoint below
+      // reopens the published path and drops the hold. POSIX keeps the
+      // handles valid across the rename.
       if (process.platform === 'win32') {
-        for (const [, tb] of textBuilds) tb.ti.close();
-        for (const [, { ti }] of workerTargets) ti.close();
+        for (const [, tb] of textBuilds) tb.ti.relocatePostingsOutside(tmpDir);
+        for (const [, { ti }] of workerTargets) ti.relocatePostingsOutside(tmpDir);
       }
       await publishGeneration(this.deps.dir(), tmpName, id, { stats: this.deps.stats });
       // Repoint EVERY live base this build (re)published into the CURRENT

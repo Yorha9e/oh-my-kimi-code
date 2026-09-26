@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fsyncDir } from './compaction.js';
 import { SNAPSHOT_FILE, WAL_FILE } from './generation.js';
+import { renameReplace } from './rename-replace.js';
 import type { RangeOptions } from './skiplist.js';
 import type { ValueMode } from './recovery.js';
 import type { ValueCodec, ValueCodecName, ValueModeSetting } from './types.js';
@@ -105,7 +106,10 @@ export async function writeFileAtomic(
   const tmp = `${file}.tmp-${process.pid}-${++sidecarTmpSeq}`;
   try {
     await fs.writeFile(tmp, data, 'utf8');
-    await fs.rename(tmp, file);
+    // Windows cannot rename over a destination any handle still holds open
+    // (transient EPERM from co-process readers / AV): use the shared
+    // bounded-retry helper. POSIX stays a direct rename (renameReplace passthrough).
+    await renameReplace(tmp, file);
   } finally {
     // A successful rename already moved the tmp away (this rm is a no-op); a
     // failed write/rename must not strand it.

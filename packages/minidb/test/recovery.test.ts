@@ -352,6 +352,10 @@ function mockFsSyncForWal(
     onOpenSync?: (call: number, real: FsSyncModule) => void;
   },
 ): void {
+  // The static `MiniDb` import above has already evaluated `node:fs`. Drop that
+  // cache or the dynamic import below keeps the real module — the first test in
+  // this file (and any test run in isolation) never sees the hook.
+  vi.resetModules();
   let statCalls = 0;
   let openCalls = 0;
   vi.doMock('node:fs', async () => {
@@ -381,6 +385,7 @@ test('generation pairing: a rotation-like WAL inode swap at the post-scan forens
   try {
     const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });
     for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
+    await writer.close();
 
     // The injection fires when recover takes its post-scan path stat of
     // db.wal (forensics round 2): the WAL is swapped for a new inode between

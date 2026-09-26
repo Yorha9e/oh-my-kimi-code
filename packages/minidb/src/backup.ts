@@ -98,6 +98,17 @@ export async function backup(deps: BackupDeps, destDir: string, opts: { compact?
   }
 }
 
+/** Fsync a file's data. Windows requires a WRITABLE handle to fsync, so the
+ *  read-only handle that suffices on POSIX gets EPERM there. */
+export async function fsyncFileData(p: string): Promise<void> {
+  const h = await fs.open(p, process.platform === 'win32' ? 'r+' : 'r');
+  try {
+    await h.sync();
+  } finally {
+    await h.close();
+  }
+}
+
 /** The atomic-copy core of backup(): temp dir → per-file fsync → manifest
  *  (commit marker) → dir fsync → rename swap → parent fsync. Runs with the
  *  write gate paused. */
@@ -120,22 +131,10 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
     for (const name of files) if (await copyIfExists(deps.dir(), name, tmp)) copied.push(name);
     // Fsync every copied file BEFORE the manifest: the manifest is the
     // commit marker, so a durable manifest must imply durable payloads.
-    for (const name of copied) {
-      const h = await fs.open(path.join(tmp, name), 'r');
-      try {
-        await h.sync();
-      } finally {
-        await h.close();
-      }
-    }
+    for (const name of copied) await fsyncFileData(path.join(tmp, name));
     const manifest = path.join(tmp, 'backup.manifest.json');
     await fs.writeFile(manifest, JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2), 'utf8');
-    const mh = await fs.open(manifest, 'r');
-    try {
-      await mh.sync();
-    } finally {
-      await mh.close();
-    }
+    await fsyncFileData(manifest);
     await fsyncDir(tmp, { strict: true, stats: deps.stats });
     // Swap into place: move an existing previous backup aside, rename the
     // temp dir over the destination, restore the aside on failure.

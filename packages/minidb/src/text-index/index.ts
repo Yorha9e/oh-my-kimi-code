@@ -36,6 +36,9 @@
 // ./image.ts the stage-5 image export/attach + postings repointing. This
 // file keeps the TextIndex core: live writes, the delta, rebase, and search.
 
+import fsSync from 'node:fs';
+import path from 'node:path';
+
 import { PostingsFile } from '../text-postings.js';
 import type { PostingEntry } from '../text-postings.js';
 import { extractText, MAX_TERM_BYTES, tokenize, yieldToLoop } from './tokenize.js';
@@ -137,6 +140,12 @@ export class TextIndex {
 
   // Disk-base mode.
   pf: PostingsFile | null = null;
+
+  /** Windows publish hold: a hardlink (or copy) of the live postings file that
+   *  sits OUTSIDE the directory about to be renamed, so search keeps a real
+   *  handle across the publish await. Unlinked once repoint reopens the
+   *  published path. */
+  relocatedPostingsPath: string | null = null;
 
   /** Set while the base is known-unavailable because its build was DEFERRED
    *  (from the deferred open-time build's arm until a base commits) or
@@ -641,8 +650,14 @@ export class TextIndex {
 
     let arr = this.cacheGet(term);
     if (!arr) {
-      arr = entry && this.pf ? this.pf.read(entry) : [];
-      this.cachePut(term, arr);
+      if (entry && !this.pf) {
+        // Handle is down across a publish rename. Do not cache the hole —
+        // an empty list is truthy and would stick after the file returns.
+        arr = [];
+      } else {
+        arr = entry && this.pf ? this.pf.read(entry) : [];
+        this.cachePut(term, arr);
+      }
     }
     const m = new Map<number, number>();
     for (const [id, f] of arr) m.set(id, f);
@@ -682,8 +697,17 @@ export class TextIndex {
         } else {
           let arr = this.cacheGet(term);
           if (!arr) {
-            arr = entry && this.pf ? await this.pf.readAsync(entry) : [];
-            cacheable = arr;
+            if (entry && this.pf) {
+              arr = await this.pf.readAsync(entry);
+              cacheable = arr;
+            } else if (!entry) {
+              arr = [];
+              cacheable = arr;
+            } else {
+              // Handle is down across a publish rename: serve the hole without
+              // caching it, so it cannot outlive the rename.
+              arr = [];
+            }
           }
           const m = new Map<number, number>();
           for (const [id, f] of arr) m.set(id, f);
@@ -943,21 +967,62 @@ export class TextIndex {
 
   /** Stage-5 generation build: after the atomic publish rename, repoint the
    *  live base handle from the build's tmp directory to the published
-   *  generation directory (same file, final name). On Windows an open handle
-   *  would have blocked the directory rename, so the caller closes before the
-   *  rename and reopens here; POSIX just updates the path (the fd stays valid
-   *  across the rename). A reopen failure degrades reads to delta-only until
-   *  the next build, exactly like commitBuild's reopen failure. */
+   *  generation directory (same file, final name). The hold dropped here was
+   *  taken by relocatePostingsOutside before the rename; a reopen failure
+   *  degrades reads to delta-only until the next build, exactly like
+   *  commitBuild's reopen failure. */
   repointPostings(newPath: string): void {
     repointPostingsImpl(this, newPath);
   }
 
-  /** Close the underlying postings file. */
+  /** Windows cannot rename a directory that still has an open file in it.
+   *  Move the live postings handle onto a hardlink beside `dir` so searches
+   *  during the publish await still read this base. No epoch bump: the bytes
+   *  are the same inode or a just-taken copy. */
+  relocatePostingsOutside(dir: string): void {
+    const pf = this.pf;
+    if (!pf) return;
+    if (path.resolve(path.dirname(pf.path)) !== path.resolve(dir)) return;
+    const hold = path.join(
+      path.dirname(dir),
+      `.postings-hold-${process.pid}-${Date.now()}-${path.basename(pf.path)}`,
+    );
+    try {
+      fsSync.linkSync(pf.path, hold);
+    } catch {
+      fsSync.copyFileSync(pf.path, hold);
+    }
+    const next = PostingsFile.open(hold);
+    pf.close();
+    this.pf = next;
+    this.dropRelocatedPostings();
+    this.relocatedPostingsPath = hold;
+  }
+
+  private dropRelocatedPostings(): void {
+    const hold = this.relocatedPostingsPath;
+    if (!hold) return;
+    this.relocatedPostingsPath = null;
+    try {
+      fsSync.unlinkSync(hold);
+    } catch {
+      // The published path is the one search uses; a leftover hold is reclaimable.
+    }
+  }
+
+  /** Close the underlying postings file. The handle going away is a base
+   *  change for in-flight async reads ('postings file is closed' must
+   *  re-read under the new epoch rather than escape) — hence the epoch
+   *  bump. The decoded cache is left alone: a caller that reopens (the
+   *  win32 publish hold → repoint pair) clears it at the reopen, and a
+   *  terminal close never serves again. */
   close(): void {
     if (this.pf) {
       this.pf.close();
       this.pf = null;
+      this.baseEpoch++;
     }
+    this.dropRelocatedPostings();
   }
 }
 

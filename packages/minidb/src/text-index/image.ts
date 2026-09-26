@@ -5,6 +5,8 @@
 // of the owning TextIndex instead of importing the class itself — TextIndex
 // satisfies the view structurally and delegates its same-named methods here.
 
+import { unlinkSync } from 'node:fs';
+
 import { PostingsFile } from '../text-postings.js';
 import type { PostingEntry } from '../text-postings.js';
 import { yieldToLoop } from './tokenize.js';
@@ -27,6 +29,7 @@ export interface TextIndexImageState {
   postings: Map<string, PostingEntry>;
   memBase: Map<string, Map<number, number>> | null;
   pf: PostingsFile | null;
+  relocatedPostingsPath: string | null;
   docLen: Map<number, number>;
   keys: (string | undefined)[];
   keyToId: Map<string, number>;
@@ -238,12 +241,26 @@ export async function attachImageAsync(
 
 /** Stage-5 generation build: after the atomic publish rename, repoint the
  *  live base handle from the build's tmp directory to the published
- *  generation directory (same file, final name). On Windows an open handle
- *  would have blocked the directory rename, so the caller closes before the
- *  rename and reopens here; POSIX just updates the path (the fd stays valid
- *  across the rename). A reopen failure degrades reads to delta-only until
- *  the next build, exactly like commitBuild's reopen failure. */
-export function repointPostings(s: Pick<TextIndexImageState, 'pf'>, newPath: string): void {
+ *  generation directory (same file, final name). On Windows the caller moves
+ *  the handle onto a hardlink OUTSIDE the tmp dir before the rename (see
+ *  relocatePostingsOutside) so search keeps reading this base across the
+ *  publish await, and the hold is dropped here. POSIX just updates the path
+ *  (the fd stays valid across the rename). A reopen failure degrades reads to
+ *  delta-only until the next build, exactly like commitBuild's reopen
+ *  failure. */
+export function repointPostings(
+  s: Pick<TextIndexImageState, 'pf' | 'relocatedPostingsPath'>,
+  newPath: string,
+): void {
+  const hold = s.relocatedPostingsPath;
+  if (hold !== null) {
+    s.relocatedPostingsPath = null;
+    try {
+      unlinkSync(hold);
+    } catch {
+      // The published path is the one search uses; a leftover hold is reclaimable.
+    }
+  }
   if (!s.pf) return;
   if (process.platform === 'win32') {
     s.pf.close();

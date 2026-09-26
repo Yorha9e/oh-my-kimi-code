@@ -448,7 +448,10 @@ describe('build core (segmented external merge)', () => {
     await seedTextDb(db, 100);
     const tmp = await openTmp('anchor-tmp');
     const spec = await specForLiveDb(db, dir, tmp);
-    spec.walIno += 1;
+    // Point the anchor at a different inode. Not `+= 1`: Node's emulated
+    // Windows inodes exceed 2^53, where adding 1 is a no-op in float64 and the
+    // build would never see the mismatch it is supposed to reject.
+    spec.walIno = spec.walIno === 0 ? 1 : -1;
     await expect(buildTextArtifacts(spec)).rejects.toThrow('anchor mismatch');
     await db.close();
   });
