@@ -330,7 +330,11 @@ function mapStatusUpdate(
   sdkEvent: Extract<Event, { type: 'agent.status.updated' }>,
 ): MappedLegacyWireEvent {
   const payload: StatusUpdate = {};
-  if (sdkEvent.contextUsage !== undefined) payload.context_usage = sdkEvent.contextUsage;
+  if (sdkEvent.contextTokens !== undefined && sdkEvent.maxContextTokens !== undefined) {
+    payload.context_usage = sdkEvent.maxContextTokens > 0
+      ? sdkEvent.contextTokens / sdkEvent.maxContextTokens
+      : 0;
+  }
   if (sdkEvent.planMode !== undefined) payload.plan_mode = sdkEvent.planMode;
   if (sdkEvent.model !== undefined) payload.model = sdkEvent.model;
   if (sdkEvent.thinkingEffort !== undefined) payload.thinking_effort = sdkEvent.thinkingEffort;

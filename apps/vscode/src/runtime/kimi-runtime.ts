@@ -1,6 +1,5 @@
 import {
   createKimiHarness,
-  createKimiHarnessV2,
   type KimiHarness,
   type Session,
   type SessionSummary,
@@ -62,10 +61,9 @@ export class KimiRuntime {
     this.broadcast = options.broadcast;
     this.captureBaseline = options.captureBaseline;
     this.log = options.log;
-    const createHarness = options.useAgentCoreV1 ? createKimiHarness : createKimiHarnessV2;
     this.harness =
       options.harness ??
-      createHarness({
+      createKimiHarness({
         homeDir: options.homeDir,
         identity: {
           productName: "kimi-code-vscode",
