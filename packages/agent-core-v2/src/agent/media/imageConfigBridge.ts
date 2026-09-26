@@ -1,45 +1,43 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IConfigService } from '#/app/config/config';
-import {
-  setConfiguredMaxImageEdgePx,
-  setConfiguredReadImageByteBudget,
-} from '#/agent/media/image-compress';
+import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '#/agent/media/image-compress';
 
 import { IMAGE_SECTION, type ImageConfig } from './configSection';
 
 export interface IImageConfigBridge {
   readonly _serviceBrand: undefined;
+  maxEdgePx(): number;
+  readByteBudget(): number;
 }
 
 export const IImageConfigBridge: ServiceIdentifier<IImageConfigBridge> =
   createDecorator<IImageConfigBridge>('imageConfigBridge');
 
-export class ImageConfigBridge extends Disposable implements IImageConfigBridge {
+export class ImageConfigBridge implements IImageConfigBridge {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IConfigService private readonly config: IConfigService) {
-    super();
-    this.push(this.config.get<ImageConfig>(IMAGE_SECTION));
-    this._register(
-      this.config.onDidSectionChange((e) => {
-        if (e.domain === IMAGE_SECTION) {
-          this.push(e.value as ImageConfig);
-        }
-      }),
-    );
+  constructor(@IConfigService private readonly config: IConfigService) {}
+
+  maxEdgePx(): number {
+    return positiveIntOr(this.config.get<ImageConfig>(IMAGE_SECTION)?.maxEdgePx, MAX_IMAGE_EDGE_PX);
   }
 
-  private push(image: ImageConfig | undefined): void {
-    setConfiguredMaxImageEdgePx(image?.maxEdgePx);
-    setConfiguredReadImageByteBudget(image?.readByteBudget);
+  readByteBudget(): number {
+    return positiveIntOr(
+      this.config.get<ImageConfig>(IMAGE_SECTION)?.readByteBudget,
+      READ_IMAGE_BYTE_BUDGET,
+    );
   }
 }
 
+function positiveIntOr(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 registerScopedService(
-  LifecycleScope.Agent,
+  LifecycleScope.App,
   IImageConfigBridge,
   ImageConfigBridge,
   ScopeActivation.OnScopeCreated,

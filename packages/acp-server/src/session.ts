@@ -256,6 +256,14 @@ export class AcpSession {
      * shared temp-dir fallback applies.
      */
     private readonly resolveOriginalsDir?: (sessionId: string) => string | undefined,
+    /**
+     * Resolve this App's longest-edge ceiling (px) for prompt-image
+     * compression. Called once per prompt (not cached) so a config reload
+     * takes effect on the next turn. Absent → `compressPromptImageParts`
+     * keeps its ownerless env/constant fallback — the path unit tests that
+     * construct a server without options exercise.
+     */
+    private readonly resolveMaxImageEdgePx?: () => number | undefined,
     private readonly hostCommands:
       | ReadonlyArray<AvailableCommand>
       | HostSlashCommandsSnapshot = [],
@@ -525,6 +533,7 @@ export class AcpSession {
     try {
       content = await compressPromptImageParts(acpBlocksToContentParts(blocks), {
         originalsDir: this.resolveOriginalsDir?.(this.sessionId),
+        maxImageEdgePx: this.resolveMaxImageEdgePx?.(),
       });
     } finally {
       this.pendingPromptAborts.delete(pending);

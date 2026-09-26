@@ -155,6 +155,7 @@ import { join } from 'node:path';
 
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { MCP_SECTION, type McpSection } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
+import { IMAGE_SECTION } from '@moonshot-ai/agent-core-v2/agent/media/configSection';
 import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';
 import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import {
@@ -260,10 +261,11 @@ import { createKlient } from '@moonshot-ai/klient/memory';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { KimiAuthFacade } from '#/auth';
-import { ensureConfigFile, HookDefSchema } from '#/config/index';
+import { ensureConfigFile, HookDefSchema, type ImageConfig } from '#/config/index';
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, isKimiErrorCode, KimiError, type KimiErrorCode } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
+import { ImageLimits } from '#/image';
 import { KimiHarness } from '#/kimi-harness';
 import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
 import { limitAgentReplayByTurns } from '#/replay';
@@ -430,6 +432,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   readonly telemetry: TelemetryClient;
   readonly auth: KimiAuthFacade;
   readonly klient: Klient;
+  /**
+   * Owner-scoped [image] limits for prompt-ingestion compression in the
+   * client process (paste-time, ACP prompt conversion). Fed from this App's
+   * `IConfigService` (`ready` + `onDidSectionChange` on the `image` domain),
+   * so each in-process client compresses with its own config and hot reloads
+   * apply without a restart.
+   */
+  readonly imageLimits: ImageLimits;
 
   private readonly app: Scope;
   /**
@@ -534,7 +544,18 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     this.app = app;
     this.klient = createKlient({ scope: app });
     this.globalMcpConfig = new GlobalMcpConfigStore(this.homeDir);
-    this.configReady = app.accessor.get(IConfigService).ready;
+    const configService = app.accessor.get(IConfigService);
+    this.configReady = configService.ready;
+    this.imageLimits = new ImageLimits(process.env);
+    const pushImageLimits = (): void => {
+      this.imageLimits.setConfig(configService.get<ImageConfig>(IMAGE_SECTION));
+    };
+    void this.configReady.then(pushImageLimits);
+    this.appSubscriptions.push(
+      configService.onDidSectionChange((event) => {
+        if (event.domain === IMAGE_SECTION) pushImageLimits();
+      }),
+    );
     this.installEngineTelemetry(options.telemetry);
     this.modelReady = Promise.all([
       this.configReady,
@@ -3160,9 +3181,7 @@ export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    // v1-core-owned ingestion limits; the v2 engine has no equivalent yet, so
-    // ingestion falls back to env / built-in defaults like daemon-client hosts.
-    imageLimits: undefined,
+    imageLimits: rpc.imageLimits,
     sessionStartedProperties: options.sessionStartedProperties,
   });
 }

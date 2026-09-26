@@ -9,6 +9,7 @@ import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
 import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
+import type { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 
 export interface RegisterMediaToolsDeps {
   readonly runtime: IAgentRuntimeService;
@@ -17,6 +18,7 @@ export interface RegisterMediaToolsDeps {
   readonly videoUploader?: VideoUploader;
   readonly telemetry?: ITelemetryService;
   readonly inlineVideoSupported?: boolean;
+  readonly imageConfigBridge?: IImageConfigBridge;
 }
 
 export function registerMediaTools(
@@ -37,6 +39,7 @@ export function registerMediaTools(
       deps.videoUploader,
       deps.telemetry,
       deps.inlineVideoSupported,
+      deps.imageConfigBridge,
     ),
   );
 }

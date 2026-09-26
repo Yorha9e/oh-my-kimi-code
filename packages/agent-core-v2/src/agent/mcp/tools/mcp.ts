@@ -18,6 +18,7 @@ interface McpToolOptions {
   readonly telemetry?: ITelemetryService;
   readonly reconnect?: (signal?: AbortSignal) => Promise<MCPClient | undefined>;
   readonly isRemoved?: () => boolean;
+  readonly resolveMaxEdge?: () => number;
 }
 
 export function createMcpTool(
@@ -53,6 +54,7 @@ export function createMcpTool(
           await mcpResultToExecutableOutput(result, qualifiedName, {
             originalsDir: options.originalsDir,
             telemetry: options.telemetry,
+            maxEdge: options.resolveMaxEdge?.(),
           }),
         );
       },

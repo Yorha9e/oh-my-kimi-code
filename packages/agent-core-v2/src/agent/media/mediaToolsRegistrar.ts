@@ -17,6 +17,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { extendWorkspaceWithSkillRoots } from '#/tool/path-access';
 
 import { IAgentMediaToolsRegistrar } from './mediaTools';
+import { IImageConfigBridge } from './imageConfigBridge';
 import { createVideoUploader, registerMediaTools } from './registerMediaTools';
 
 export const mediaRegisteredKeyKey = defineState<string | undefined>(
@@ -38,6 +39,7 @@ export class AgentMediaToolsRegistrar extends Service implements IAgentMediaTool
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IImageConfigBridge private readonly imageConfig: IImageConfigBridge,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
   ) {
     super();
@@ -130,6 +132,7 @@ export class AgentMediaToolsRegistrar extends Service implements IAgentMediaTool
       }),
       inlineVideoSupported: model?.protocol !== 'openai' && model?.protocol !== 'openai_responses',
       telemetry: this.telemetry,
+      imageConfigBridge: this.imageConfig,
     });
   }
 }

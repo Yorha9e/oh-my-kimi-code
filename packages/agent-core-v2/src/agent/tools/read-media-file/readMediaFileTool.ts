@@ -31,6 +31,7 @@ import {
   type ImageCompressionTelemetry,
   type ImageCropRegion,
 } from '#/agent/media/image-compress';
+import type { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import {
   buildImageConversionGuidance,
   isModelAcceptedImageMime,
@@ -186,11 +187,20 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
     private readonly videoUploader?: VideoUploader,
     telemetry?: ITelemetryService,
     inlineVideoSupported?: boolean,
+    private readonly imageConfig?: IImageConfigBridge,
   ) {
     this.description = buildDescription(capabilities);
     this.compressTelemetry =
       telemetry === undefined ? undefined : { client: telemetry, source: 'read_media' };
     this.inlineVideoSupported = inlineVideoSupported ?? false;
+  }
+
+  private imageDeliveryLimits(): { readByteBudget: number; maxEdge: number } {
+    const config = this.imageConfig;
+    return {
+      readByteBudget: config?.readByteBudget() ?? resolveReadImageByteBudget(),
+      maxEdge: config?.maxEdgePx() ?? resolveMaxImageEdgePx(),
+    };
   }
 
   private async videoContentPart(
@@ -348,10 +358,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
         };
       }
 
-      const imageDeliveryLimits = {
-        readByteBudget: resolveReadImageByteBudget(),
-        maxEdge: resolveMaxImageEdgePx(),
-      };
+      const imageDeliveryLimits = this.imageDeliveryLimits();
       if (
         fileType.kind === 'image' &&
         args.region === undefined &&

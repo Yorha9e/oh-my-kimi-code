@@ -12,6 +12,7 @@ import {
   IEventBus,
   IEventService,
   IFileService,
+  IImageConfigBridge,
   ISessionMediaStore,
   ISessionMetadata,
   ISessionSkillCatalog,
@@ -242,6 +243,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           core.accessor.get(IBootstrapService).cacheDir,
           {
             telemetry,
+            maxEdge: core.accessor.get(IImageConfigBridge).maxEdgePx(),
             resolveOriginalsDir: async () => {
               const session = await resumeSessionById(core.accessor, session_id);
               if (session === undefined) return undefined;

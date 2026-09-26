@@ -93,6 +93,8 @@ import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolC
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
 import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
+import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '#/agent/media/image-compress';
+import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import {
@@ -296,6 +298,11 @@ describe('AgentLifecycleService', () => {
     ix.stub(IAgentMediaToolsRegistrar, {
       _serviceBrand: undefined,
     } as IAgentMediaToolsRegistrar);
+    ix.stub(IImageConfigBridge, {
+      _serviceBrand: undefined,
+      maxEdgePx: () => MAX_IMAGE_EDGE_PX,
+      readByteBudget: () => READ_IMAGE_BYTE_BUDGET,
+    });
     beforeExecuteListeners = 0;
     didExecuteHookIds = [];
     ix.stub(IAgentToolExecutorService, {

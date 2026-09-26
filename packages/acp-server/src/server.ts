@@ -135,6 +135,14 @@ export interface AcpServerOptions {
    * scope. Absent → `persistOriginalImage`'s shared temp-dir fallback.
    */
   readonly resolveOriginalsDir?: (sessionId: string) => string | undefined;
+  /**
+   * Resolve the App's longest-edge ceiling (px) for prompt-image compression.
+   * Composition-root concern like `resolveOriginalsDir` — `start.ts` builds a
+   * per-call read of the App-scope `IImageConfigBridge` so config reloads are
+   * observed on every prompt (never a value captured once at boot). Absent →
+   * `compressPromptImageParts`' ownerless env/constant fallback.
+   */
+  readonly resolveMaxImageEdgePx?: () => number | undefined;
   readonly bindSessionRuntime?: (sessionId: string) => Promise<void>;
   readonly unbindSessionRuntime?: (sessionId: string) => Promise<void>;
   /** Static or per-session host command palette, compatible with acp-adapter. */
@@ -148,6 +156,7 @@ export class AcpServer {
   private readonly terminalAuthEnv: Readonly<Record<string, string>> | undefined;
   private readonly terminalAuthLegacyCommand: string | undefined;
   private readonly resolveOriginalsDir: ((sessionId: string) => string | undefined) | undefined;
+  private readonly resolveMaxImageEdgePx: (() => number | undefined) | undefined;
   private readonly bindSessionRuntime: ((sessionId: string) => Promise<void>) | undefined;
   private readonly unbindSessionRuntime: ((sessionId: string) => Promise<void>) | undefined;
   private readonly resolveSlashCommands: (
@@ -171,6 +180,7 @@ export class AcpServer {
     this.terminalAuthEnv = opts.terminalAuthEnv;
     this.terminalAuthLegacyCommand = opts.terminalAuthLegacyCommand;
     this.resolveOriginalsDir = opts.resolveOriginalsDir;
+    this.resolveMaxImageEdgePx = opts.resolveMaxImageEdgePx;
     this.bindSessionRuntime = opts.bindSessionRuntime;
     this.unbindSessionRuntime = opts.unbindSessionRuntime;
     const slashCommands = opts.slashCommands;
@@ -564,6 +574,7 @@ export class AcpServer {
       this.acpConnection,
       Boolean(this.clientCapabilities?.elicitation?.form),
       this.resolveOriginalsDir,
+      this.resolveMaxImageEdgePx,
       hostCommands,
     );
     await acpSession.init();

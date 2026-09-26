@@ -16,33 +16,68 @@ import { decodeWebp, isAnimatedWebp } from './webp-decode';
 
 export const MAX_IMAGE_EDGE_PX = 2000;
 
-let configuredMaxImageEdgePx: number | undefined;
+/**
+ * Env var overriding the longest-edge ceiling (px). Read live on every
+ * resolution so it applies in any process without wiring; a value that is
+ * not a positive integer is ignored.
+ */
+export const IMAGE_MAX_EDGE_ENV = 'KIMI_IMAGE_MAX_EDGE_PX';
 
-export function setConfiguredMaxImageEdgePx(value: number | undefined): void {
-  configuredMaxImageEdgePx = value !== undefined && isPositiveInt(value) ? value : undefined;
+/** The env override for the longest-edge ceiling, or undefined when unset/invalid. */
+export function maxImageEdgeFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, IMAGE_MAX_EDGE_ENV);
 }
 
-export function resolveMaxImageEdgePx(): number {
-  return configuredMaxImageEdgePx ?? MAX_IMAGE_EDGE_PX;
+/**
+ * Longest-edge ceiling for callers that pass no explicit `maxEdge` and own no
+ * App config: env var > built-in {@link MAX_IMAGE_EDGE_PX}. Owned call sites
+ * (ReadMediaFile, MCP tool output) resolve through `IImageConfigBridge`
+ * instead, which reads the owning App's effective `[image]` section — that
+ * section's own env binding already folds this override in there.
+ */
+export function resolveMaxImageEdgePx(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return maxImageEdgeFromEnv(env) ?? MAX_IMAGE_EDGE_PX;
 }
 
 export const IMAGE_BYTE_BUDGET = 3.75 * 1024 * 1024;
 
 export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
 
-let configuredReadImageByteBudget: number | undefined;
+/**
+ * Env var overriding the read-image byte budget. Read live on every
+ * resolution; a value that is not a positive integer is ignored.
+ */
+export const IMAGE_READ_BYTE_BUDGET_ENV = 'KIMI_IMAGE_READ_BYTE_BUDGET';
 
-export function setConfiguredReadImageByteBudget(value: number | undefined): void {
-  configuredReadImageByteBudget =
-    value !== undefined && isPositiveInt(value) ? value : undefined;
+/** The env override for the read-image byte budget, or undefined when unset/invalid. */
+export function readImageByteBudgetFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, IMAGE_READ_BYTE_BUDGET_ENV);
 }
 
-export function resolveReadImageByteBudget(): number {
-  return configuredReadImageByteBudget ?? READ_IMAGE_BYTE_BUDGET;
+/**
+ * Read-image byte budget for callers with no App config owner; see
+ * {@link resolveMaxImageEdgePx} for the ownership model.
+ */
+export function resolveReadImageByteBudget(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return readImageByteBudgetFromEnv(env) ?? READ_IMAGE_BYTE_BUDGET;
 }
 
-function isPositiveInt(value: number): boolean {
-  return Number.isInteger(value) && value > 0;
+function positiveIntFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): number | undefined {
+  const raw = env[name]?.trim();
+  if (raw === undefined || raw.length === 0 || !/^\d+$/.test(raw)) return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 const JPEG_QUALITY_STEPS = [80, 60, 40, 20] as const;
 

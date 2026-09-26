@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 
 import { Jimp, ResizeStrategy } from 'jimp';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   buildImageCompressionCaption,
@@ -12,12 +12,12 @@ import {
   extractImageCompressionCaptions,
   gateImageFormatParts,
   IMAGE_BYTE_BUDGET,
+  IMAGE_MAX_EDGE_ENV,
+  IMAGE_READ_BYTE_BUDGET_ENV,
   MAX_IMAGE_EDGE_PX,
   READ_IMAGE_BYTE_BUDGET,
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
-  setConfiguredMaxImageEdgePx,
-  setConfiguredReadImageByteBudget,
   type ImageCompressionTelemetryClient,
 } from '#/agent/media/image-compress';
 import { sniffImageDimensions } from '#/agent/media/file-type';
@@ -1466,33 +1466,23 @@ describe('cropImageForModel — telemetry', () => {
 });
 
 describe('image-compress config resolver seam', () => {
-  afterEach(() => {
-    setConfiguredMaxImageEdgePx(undefined);
-    setConfiguredReadImageByteBudget(undefined);
-  });
-
-  it('resolves the longest-edge ceiling from config, falling back to the built-in', () => {
-    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
-    setConfiguredMaxImageEdgePx(1500);
-    expect(resolveMaxImageEdgePx()).toBe(1500);
-    setConfiguredMaxImageEdgePx(undefined);
+  it('resolves the longest-edge ceiling from env, falling back to the built-in', () => {
+    expect(resolveMaxImageEdgePx({})).toBe(MAX_IMAGE_EDGE_PX);
+    expect(resolveMaxImageEdgePx({ [IMAGE_MAX_EDGE_ENV]: '1500' })).toBe(1500);
     expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
   });
 
-  it('ignores non-positive-int configured ceilings', () => {
-    setConfiguredMaxImageEdgePx(0);
-    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
-    setConfiguredMaxImageEdgePx(-5);
-    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
-    setConfiguredMaxImageEdgePx(1.5);
-    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
+  it('ignores non-positive-int env ceilings', () => {
+    expect(resolveMaxImageEdgePx({ [IMAGE_MAX_EDGE_ENV]: '0' })).toBe(MAX_IMAGE_EDGE_PX);
+    expect(resolveMaxImageEdgePx({ [IMAGE_MAX_EDGE_ENV]: '-5' })).toBe(MAX_IMAGE_EDGE_PX);
+    expect(resolveMaxImageEdgePx({ [IMAGE_MAX_EDGE_ENV]: '1.5' })).toBe(MAX_IMAGE_EDGE_PX);
   });
 
-  it('resolves the read-image byte budget from config, falling back to the built-in', () => {
-    expect(resolveReadImageByteBudget()).toBe(READ_IMAGE_BYTE_BUDGET);
-    setConfiguredReadImageByteBudget(128 * 1024);
-    expect(resolveReadImageByteBudget()).toBe(128 * 1024);
-    setConfiguredReadImageByteBudget(undefined);
+  it('resolves the read-image byte budget from env, falling back to the built-in', () => {
+    expect(resolveReadImageByteBudget({})).toBe(READ_IMAGE_BYTE_BUDGET);
+    expect(resolveReadImageByteBudget({ [IMAGE_READ_BYTE_BUDGET_ENV]: '131072' })).toBe(
+      128 * 1024,
+    );
     expect(resolveReadImageByteBudget()).toBe(READ_IMAGE_BYTE_BUDGET);
   });
 });

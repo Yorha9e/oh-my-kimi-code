@@ -99,6 +99,14 @@ export interface ResolvePromptMediaOptions {
   readonly resolveAttachmentsDir?: () => Promise<string | undefined>;
   /** Report an `image_compress` event per compressed prompt image. */
   readonly telemetry?: ITelemetryService;
+  /**
+   * Longest-edge ceiling (px) for prompt-image compression. Production routes
+   * read it per request from the App-scope `IImageConfigBridge`, so an ops
+   * change to `[image] maxEdgePx` takes effect on the next prompt — never
+   * frozen at the boot value. Omit to fall through to the ownerless fallback
+   * (env → built-in).
+   */
+  readonly maxEdge?: number;
 }
 
 export interface PromptMediaPreparation {
@@ -182,6 +190,7 @@ export async function resolvePromptMediaFiles(
         }
         const canonicalMime = normalizeImageMime(effectiveMime);
         const compressed = await compressBase64ForModel(part.source.data, canonicalMime, {
+          maxEdge: options.maxEdge,
           telemetry: telemetryFor('prompt_inline'),
         });
         if (compressed.changed) {
@@ -270,6 +279,7 @@ export async function resolvePromptMediaFiles(
         }
         mediaType = normalizeImageMime(mediaType);
         const compressed = await compressImageForModel(data, mediaType, {
+          maxEdge: options.maxEdge,
           telemetry: telemetryFor('prompt_file'),
         });
         if (compressed.changed) {

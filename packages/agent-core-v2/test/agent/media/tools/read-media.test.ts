@@ -4,7 +4,7 @@ import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/kosong/contract/capa
 import type { ContentPart } from '#/kosong/contract/message';
 import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import { Jimp } from 'jimp';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { Emitter } from '#/_base/event';
 import {
@@ -22,10 +22,7 @@ import {
   type VideoUploader,
 } from '#/agent/tools/read-media-file/read-media-file';
 import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
-import {
-  MAX_IMAGE_DECODE_BYTES,
-  setConfiguredReadImageByteBudget,
-} from '#/agent/media/image-compress';
+import { MAX_IMAGE_DECODE_BYTES } from '#/agent/media/image-compress';
 import { createVideoUploader, registerMediaTools } from '#/agent/media/registerMediaTools';
 import { AgentMediaToolsRegistrar } from '#/agent/media/mediaToolsRegistrar';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -50,10 +47,6 @@ const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs:
 
 const PNG_WIDTH = 1920;
 const PNG_HEIGHT = 1080;
-
-afterEach(() => {
-  setConfiguredReadImageByteBudget(undefined);
-});
 
 function pngBuffer(width = PNG_WIDTH, height = PNG_HEIGHT): Buffer {
   const buf = Buffer.alloc(24);
@@ -424,11 +417,22 @@ describe('ReadMediaFileTool', () => {
   });
 
   it('does not treat the decode allocation cap as a hard limit when the configured delivery budget accepts the file', async () => {
-    setConfiguredReadImageByteBudget(70 * 1024 * 1024);
     const fs = createTestFs({
       '/workspace/large.png': { data: pngBuffer(), size: MAX_IMAGE_DECODE_BYTES + 1 },
     });
-    const tool = new ReadMediaFileTool(runtimeFor(fs), WORKSPACE, capabilities());
+    const tool = new ReadMediaFileTool(
+      runtimeFor(fs),
+      WORKSPACE,
+      capabilities(),
+      undefined,
+      undefined,
+      undefined,
+      {
+        _serviceBrand: undefined,
+        maxEdgePx: () => 2000,
+        readByteBudget: () => 70 * 1024 * 1024,
+      },
+    );
 
     const result = await execute(tool, { path: '/workspace/large.png' });
 
@@ -903,6 +907,11 @@ describe('AgentMediaToolsRegistrar', () => {
       workspaceCtx,
       recordingTelemetry([]),
       new AgentStateService(),
+      {
+        _serviceBrand: undefined,
+        maxEdgePx: () => 2000,
+        readByteBudget: () => 256 * 1024,
+      },
     );
     const bindModel = (alias: string, caps: ModelCapability): void => {
       state.alias = alias;

@@ -25,6 +25,7 @@ import {
   IAgentRuntimeBindingService,
   IAppendLogStore,
   IHostEnvironment,
+  IImageConfigBridge,
   ISessionContext,
   ISessionIndexMirror,
   IWorkspaceInstanceManager,
@@ -175,6 +176,7 @@ export async function runAcpServerWithStream(
         ? undefined
         : sessionMediaOriginalsDir(handle.accessor.get(ISessionContext).sessionDir);
     },
+    resolveMaxImageEdgePx: () => core.accessor.get(IImageConfigBridge).maxEdgePx(),
   });
 
   let closePromise: Promise<void> | undefined;

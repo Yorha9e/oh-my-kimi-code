@@ -15,6 +15,8 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { McpConnectionManager, McpServerEntry } from '#/mcpCore/connection-manager';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { AgentMcpService } from '#/agent/mcp/mcpService';
+import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '#/agent/media/image-compress';
+import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
@@ -222,6 +224,11 @@ describe('AgentMcpService', () => {
       subscribe: () => toDisposable(() => {}),
     });
     ix.stub(ITelemetryService, recordingTelemetry(telemetryEvents));
+    ix.stub(IImageConfigBridge, {
+      _serviceBrand: undefined,
+      maxEdgePx: () => MAX_IMAGE_EDGE_PX,
+      readByteBudget: () => READ_IMAGE_BYTE_BUDGET,
+    });
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.set(IAgentToolExecutorService, new SyncDescriptor(AgentToolExecutorService));
     ix.stub(IAgentToolResultTruncationService, stubToolResultTruncationService());

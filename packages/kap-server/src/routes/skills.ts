@@ -9,6 +9,7 @@ import {
   IConfigService,
   IFileService,
   IFlagService,
+  IImageConfigBridge,
   IPluginService,
   ISessionContext,
   ISessionIndex,
@@ -247,6 +248,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
             core.accessor.get(IBootstrapService).cacheDir,
             {
               telemetry,
+              maxEdge: core.accessor.get(IImageConfigBridge).maxEdgePx(),
               resolveOriginalsDir: async () => sessionMediaOriginalsDir(sessionDir),
               resolveAttachmentsDir: async () => join(sessionDir, 'attachments'),
             },

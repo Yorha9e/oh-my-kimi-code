@@ -12,6 +12,7 @@ import type { MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 export interface McpOutputOptions {
   readonly originalsDir?: string;
   readonly telemetry?: ITelemetryService;
+  readonly maxEdge?: number;
 }
 
 export const MCP_MAX_OUTPUT_CHARS = 100_000;
@@ -140,6 +141,7 @@ export async function mcpResultToExecutableOutput(
 
   const budgeted = applyTextBudget(wrapped);
   const compressed = await compressImageContentParts(budgeted.parts, {
+    maxEdge: options.maxEdge,
     telemetry:
       options.telemetry === undefined
         ? undefined

@@ -109,10 +109,11 @@ export async function compressPromptImageParts(
     readonly originalsDir?: string | undefined;
     /**
      * Longest-edge ceiling (px) override. The ACP server runs the engine
-     * in-process, so the Agent-scope `ImageConfigBridge` has already pushed
-     * the env-resolved `[image]` config section into the compression module's
-     * global seam — leave this `undefined` (the default) and the configured /
-     * built-in cap applies. The override exists for tests.
+     * in-process, so the production path resolves the App-scope
+     * `IImageConfigBridge` per prompt (see `start.ts`) — a config reload
+     * takes effect on the next prompt rather than freezing at the boot
+     * value. Leave this `undefined` (the default) and the ownerless
+     * fallback (env → built-in) applies. The override exists for tests.
      */
     readonly maxImageEdgePx?: number | undefined;
   } = {},

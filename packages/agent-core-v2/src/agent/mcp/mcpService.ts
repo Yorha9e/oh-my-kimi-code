@@ -11,6 +11,7 @@ import { abortable } from '#/_base/utils/abort';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { sessionMediaOriginalsDir } from '#/agent/media/image-originals';
+import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -60,6 +61,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IImageConfigBridge private readonly imageConfig: IImageConfigBridge,
   ) {
     super();
     this.states.contributeState(mcpDiscoveryKey);
@@ -286,6 +288,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
           createMcpTool(qualified, tool, client, {
             originalsDir: sessionMediaOriginalsDir(this.sessionContext.sessionDir),
             telemetry: this.telemetry,
+            resolveMaxEdge: () => this.imageConfig.maxEdgePx(),
             reconnect: (signal) => this.reconnectForToolCall(serverName, client, signal),
             isRemoved: () =>
               this.mcpHandle.connectionManager.get(serverName)?.status === 'removed',
