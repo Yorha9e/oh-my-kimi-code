@@ -1,5 +1,4 @@
 ---
-"@moonshot-ai/migration-legacy": patch
 "oh-my-kimi-code": patch
 ---
 
