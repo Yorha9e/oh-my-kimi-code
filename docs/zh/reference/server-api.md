@@ -1,6 +1,6 @@
 # 服务 API
 
-`kimi web` 启动的本地服务暴露两组程序化接口：REST API（`/api/v1`，另有 `/api/v2/sessions`）和 WebSocket 事件流（`/api/v1/ws`）。本页是这两组接口的协议参考；服务的启动方式与命令行选项见 [kimi 命令](./kimi-command.md#kimi-web)，端到端的上手流程见[本地服务与 API](../guides/server.md)。
+`omkc web` 启动的本地服务暴露两组程序化接口：REST API（`/api/v1`，另有 `/api/v2/sessions`）和 WebSocket 事件流（`/api/v1/ws`）。本页是这两组接口的协议参考；服务的启动方式与命令行选项见 [omkc 命令](./kimi-command.md#kimi-web)，端到端的上手流程见[本地服务与 API](../guides/server.md)。
 
 每个端点的完整请求 / 响应 schema 以服务自描述的规范文档为准：`GET /openapi.json`（OpenAPI）与 `GET /asyncapi.json`（AsyncAPI），两者都需要鉴权。
 
@@ -12,7 +12,7 @@
 
 ### 地址
 
-默认地址 `http://127.0.0.1:58627`；端口被占用时自动 +1 重试（至多 100 次），可用 `--port` / `--host` 修改。同一 home 目录可并存多个实例，运行中的实例登记在 `~/.kimi-code/server/instances/`。
+默认地址 `http://127.0.0.1:58627`；端口被占用时自动 +1 重试（至多 100 次），可用 `--port` / `--host` 修改。同一 home 目录可并存多个实例，运行中的实例登记在 `~/.omkc/server/instances/`。
 
 ### 鉴权
 
@@ -397,4 +397,4 @@ PTY 终端接口，仅 loopback 绑定时挂载。
 ## 下一步
 
 - [本地服务与 API](../guides/server.md) — 启动、鉴权与端到端调用流程
-- [kimi 命令](./kimi-command.md#kimi-web) — `kimi web` 的全部命令行选项
+- [omkc 命令](./kimi-command.md#kimi-web) — `omkc web` 的全部命令行选项

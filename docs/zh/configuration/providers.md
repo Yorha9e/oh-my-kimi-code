@@ -8,7 +8,7 @@ Kimi Code CLI 支持同时接入多家 LLM 平台——用 Kimi Code 托管服�
 
 | 类型 | 协议 | 典型用途 |
 | --- | --- | --- |
-| `kimi` | OpenAI 兼容 | Kimi Code 托管服务、Kimi Platform API 密钥 |
+| `omkc` | OpenAI 兼容 | Kimi Code 托管服务、Kimi Platform API 密钥 |
 | `anthropic` | Anthropic Messages | Claude 系列模型 |
 | `openai` | OpenAI Chat Completions | OpenAI 及兼容服务、DeepSeek、Qwen 等 |
 | `openai_responses` | OpenAI Responses API | OpenAI 较新的 Responses 接口 |
@@ -38,9 +38,9 @@ Kimi Code CLI 支持同时接入多家 LLM 平台——用 Kimi Code 托管服�
 通过 `/login` 登录的 Kimi Code OAuth 托管账号不会在 `/provider` 里显示，请用 `/login` 和 `/logout` 管理。
 :::
 
-非交互环境下也可以用 shell 命令完成同样操作：[`kimi provider`](../reference/kimi-command.md#kimi-provider)。
+非交互环境下也可以用 shell 命令完成同样操作：[`omkc provider`](../reference/kimi-command.md#kimi-provider)。
 
-## `kimi`
+## `omkc`
 
 用于对接 Moonshot AI 的 OpenAI 兼容接口，包括 Kimi Code 托管服务和 Kimi Platform API 密钥。
 
@@ -50,7 +50,7 @@ Kimi Code CLI 支持同时接入多家 LLM 平台——用 Kimi Code 托管服�
 
 ```toml
 [providers.kimi]
-type = "kimi"
+type = "omkc"
 base_url = "https://api.moonshot.ai/v1"
 api_key = "sk-xxxxx"
 ```

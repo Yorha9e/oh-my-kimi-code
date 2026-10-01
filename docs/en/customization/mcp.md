@@ -14,7 +14,7 @@ Kimi Code CLI supports three MCP server connection methods:
 
 MCP server configuration is written in `mcp.json`, at two levels:
 
-- **User level**: `~/.kimi-code/mcp.json` (or `$KIMI_CODE_HOME/mcp.json`), shared across projects
+- **User level**: `~/.omkc/mcp.json` (or `$OMKC_HOME/mcp.json`), shared across projects
 - **Project level**: `.kimi-code/mcp.json` in the working directory, effective only for the current repository
 
 Entries with the same name: the project-level entry takes precedence and overrides the user-level entry.

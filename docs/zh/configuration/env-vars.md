@@ -12,15 +12,17 @@ Kimi Code CLI 通过环境变量控制少数运行时行为——迁移数据目
 
 ## 核心路径
 
-### `KIMI_CODE_HOME`
+### `OMKC_HOME`
 
-覆盖数据根目录，默认 `~/.kimi-code`。设置后，配置文件、会话、日志、OAuth 凭据等全部数据都落到新路径下：
+覆盖数据根目录，默认 `~/.omkc`。设置后，配置文件、会话、日志、OAuth 凭据等全部数据都落到新路径下：
 
 ```sh
-export KIMI_CODE_HOME="/path/to/custom/kimi-code"
+export OMKC_HOME="/path/to/custom/omkc"
 ```
 
-> 确保目录可写。多个 `kimi` 实例共用同一个 `KIMI_CODE_HOME` 会共享配置和凭证。
+未设置 `OMKC_HOME` 时仍接受 `KIMI_CODE_HOME`，用于兼容旧环境。
+
+> 确保目录可写。多个 `omkc` 实例共用同一个数据主目录会共享配置和凭证。
 
 数据目录的完整结构见[数据路径](./data-locations.md)。
 
@@ -50,7 +52,7 @@ export KIMI_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: d
 新增于 0.20.2。
 :::
 
-> 优先级：Kimi 身份头（`User-Agent`、`X-Msh-*`）和 `config.toml` 里供应商的 `custom_headers`（见 [配置文件](./config-files.md#providers)）会覆盖这里的同名条目。认证头的行为因协议而异：在 `kimi`、`openai`、`openai_responses` 协议上，`Authorization` 条目会替换生成的 bearer token；`/models` 列表请求始终使用自己的认证头。`authorization` 这类大小写变体不会被当作同名头——它会与真正的头合并，可能导致请求失败。不要用它设置认证等保留头。需要按供应商区分请求头时，请改用 `custom_headers`。
+> 优先级：Kimi 身份头（`User-Agent`、`X-Msh-*`）和 `config.toml` 里供应商的 `custom_headers`（见 [配置文件](./config-files.md#providers)）会覆盖这里的同名条目。认证头的行为因协议而异：在 `omkc`、`openai`、`openai_responses` 协议上，`Authorization` 条目会替换生成的 bearer token；`/models` 列表请求始终使用自己的认证头。`authorization` 这类大小写变体不会被当作同名头——它会与真正的头合并，可能导致请求失败。不要用它设置认证等保留头。需要按供应商区分请求头时，请改用 `custom_headers`。
 
 ## 供应商凭证键（写在 config.toml 里）
 
@@ -118,7 +120,7 @@ kimi
 | --- | --- | --- | --- |
 | `KIMI_MODEL_NAME` | 是（同时是启用开关） | 发送给 API 的模型 ID | — |
 | `KIMI_MODEL_API_KEY` | 是 | API 密钥 | — |
-| `KIMI_MODEL_PROVIDER_TYPE` | 否 | 供应商类型：`kimi`、`anthropic`、`openai` | `kimi` |
+| `KIMI_MODEL_PROVIDER_TYPE` | 否 | 供应商类型：`omkc`、`anthropic`、`openai` | `omkc` |
 | `KIMI_MODEL_BASE_URL` | 否 | API 基础 URL | 各类型有各自默认值 |
 | `KIMI_MODEL_MAX_CONTEXT_SIZE` | 否 | 最大上下文长度（token 数） | `262144`（256K） |
 | `KIMI_MODEL_CAPABILITIES` | 否 | 逗号分隔的能力标签，与自动探测的能力取并集 | `image_in,thinking` |
@@ -137,7 +139,7 @@ kimi
 | 环境变量 | 用途 | 合法值 |
 | --- | --- | --- |
 | `KIMI_DISABLE_TELEMETRY` | 关闭匿名遥测上报 | `1`、`true`、`yes`、`y`（不区分大小写） |
-| `KIMI_CODE_PASSWORD` | 为 `kimi web` 本地服务设置并列鉴权密码，与 bearer token 同时有效；把服务绑定到非本机地址时建议设置，见[本地服务与 API](../guides/server.md#鉴权) | 任意非空字符串；未设置时仅 token 有效 |
+| `KIMI_CODE_PASSWORD` | 为 `omkc web` 本地服务设置并列鉴权密码，与 bearer token 同时有效；把服务绑定到非本机地址时建议设置，见[本地服务与 API](../guides/server.md#鉴权) | 任意非空字符串；未设置时仅 token 有效 |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | 会话关闭时是否保留后台任务，优先级高于 `config.toml`。默认会在退出时停止后台任务 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[background] max_running_tasks`（不设置表示无上限） | 正整数；非法值被忽略 |
 | `KIMI_IMAGE_MAX_EDGE_PX` | 图片压缩的最长边上限（像素），优先级高于 `config.toml` 的 `[image] max_edge_px`（默认 `2000`） | 正整数；非法值被忽略 |
@@ -166,11 +168,11 @@ kimi
 | `KIMI_WEB_FETCH_API_KEY` | 网页抓取（`FetchURL`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
 | `KIMI_CODE_EXPERIMENTAL_FLAG` | 在当前进程启用所有已注册的实验功能 | `1`、`true`、`yes`、`on` |
 | `KIMI_SHELL_PATH` | Windows 上覆盖 Git Bash 路径（自动探测失败时使用） | 绝对路径 |
-| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `kimi` 供应商生效 | 正整数；`0` 或负数禁用 clamp |
-| `KIMI_MODEL_TEMPERATURE` | 每次请求的采样温度，仅对 `kimi` 供应商生效（全局生效，不依赖 `KIMI_MODEL_NAME`） | 数字，如 `0.3` |
-| `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `kimi` 供应商生效（全局生效） | 数字，如 `0.95` |
-| `KIMI_MODEL_THINKING_EFFORT` | 在线上强制使用指定的思考强度（`thinking.effort`），绕过模型声明的 `support_efforts`；仅对 `kimi` 供应商生效，且仅在 Thinking 开启时注入 | 思考强度值，如 `max` |
-| `KIMI_MODEL_THINKING_KEEP` | 保留思考透传；在 `kimi` 上以 `thinking.keep` 发送，在 `anthropic`（Claude 以及 Kimi 的 Anthropic 兼容模式）上以 `context_management` 的 `clear_thinking_20251015` 编辑发送（开启 keep 会让 Anthropic 请求走 beta Messages API）；覆盖 `[thinking] keep`（其默认值为 `"all"`）；仅在 Thinking 开启时注入 | API 接受的值，如 `all`；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用 |
+| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `omkc` 供应商生效 | 正整数；`0` 或负数禁用 clamp |
+| `KIMI_MODEL_TEMPERATURE` | 每次请求的采样温度，仅对 `omkc` 供应商生效（全局生效，不依赖 `KIMI_MODEL_NAME`） | 数字，如 `0.3` |
+| `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `omkc` 供应商生效（全局生效） | 数字，如 `0.95` |
+| `KIMI_MODEL_THINKING_EFFORT` | 在线上强制使用指定的思考强度（`thinking.effort`），绕过模型声明的 `support_efforts`；仅对 `omkc` 供应商生效，且仅在 Thinking 开启时注入 | 思考强度值，如 `max` |
+| `KIMI_MODEL_THINKING_KEEP` | 保留思考透传；在 `omkc` 上以 `thinking.keep` 发送，在 `anthropic`（Claude 以及 Kimi 的 Anthropic 兼容模式）上以 `context_management` 的 `clear_thinking_20251015` 编辑发送（开启 keep 会让 Anthropic 请求走 beta Messages API）；覆盖 `[thinking] keep`（其默认值为 `"all"`）；仅在 Thinking 开启时注入 | API 接受的值，如 `all`；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用 |
 | `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检——不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发） | `1` 表示禁用 |
 
@@ -220,5 +222,5 @@ Kimi Code 会遵循标准代理环境变量，让所有出网流量——模型 
 ## 下一步
 
 - [配置覆盖](./overrides.md) — 环境变量、CLI 选项、配置文件的优先级关系
-- [数据路径](./data-locations.md) — `KIMI_CODE_HOME` 影响的完整目录结构
+- [数据路径](./data-locations.md) — `OMKC_HOME` 影响的完整目录结构
 - [平台与模型](./providers.md) — 各供应商类型的完整接入示例

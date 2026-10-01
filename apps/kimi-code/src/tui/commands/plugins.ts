@@ -10,7 +10,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { Markdown, Spacer } from '@moonshot-ai/pi-tui';
 
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import { NO_ACTIVE_SESSION_MESSAGE, PRODUCT_NAME } from '../constant/kimi-tui';
 import {
   PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
@@ -735,7 +735,7 @@ async function removePlugin(host: SlashCommandHost, id: string): Promise<void> {
   host.showStatus(`Removed ${id}.`);
   if (isCapabilityPluginId(host, id)) {
     host.showStatus(
-      'Note: the runtime binaries were left untouched, but Kimi Code plugin wiring is disabled for new sessions. Restart Kimi Code before reinstalling from the Official tab.',
+      `Note: the runtime binaries were left untouched, but ${PRODUCT_NAME} plugin wiring is disabled for new sessions. Restart ${PRODUCT_NAME} before reinstalling from the Official tab.`,
     );
     return;
   }

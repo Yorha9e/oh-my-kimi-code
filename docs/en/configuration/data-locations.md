@@ -1,32 +1,32 @@
 # Data locations
 
-Kimi Code CLI stores all runtime data — the config file, session history, login credentials, and diagnostic logs — under `~/.kimi-code/`. This page helps you understand where each type of data lives, what it is for, and how to clean up or relocate it when needed.
+Oh My Kimi Code stores all runtime data — the config file, session history, login credentials, and diagnostic logs — under `~/.omkc/`. This page helps you understand where each type of data lives, what it is for, and how to clean up or relocate it when needed. The official `kimi` CLI still uses `~/.kimi-code/`; the two homes do not share files.
 
 ## Data root directory
 
-The default data root is `~/.kimi-code/`. The actual path varies by platform:
+The default data root is `~/.omkc/`. The actual path varies by platform:
 
-- macOS: `/Users/<name>/.kimi-code`
-- Linux: `/home/<name>/.kimi-code`
-- Windows: `C:\Users\<name>\.kimi-code`
+- macOS: `/Users/<name>/.omkc`
+- Linux: `/home/<name>/.omkc`
+- Windows: `C:\Users\<name>\.omkc`
 
-If you need to move the data directory elsewhere (for example, to isolate configs for different projects with independent environments), set `KIMI_CODE_HOME`:
+If you need to move the data directory elsewhere (for example, to isolate configs for different projects with independent environments), set `OMKC_HOME` (or `KIMI_CODE_HOME` for compatibility):
 
 ```sh
-export KIMI_CODE_HOME="$HOME/.config/kimi-code"
+export OMKC_HOME="$HOME/.config/omkc"
 ```
 
-Once set, **all** Kimi Code data — config, sessions, logs, OAuth credentials, Kimi-specific user Skills, global `AGENTS.md`, and more — lands under the new path. For the full reference on `KIMI_CODE_HOME`, see [Environment variables](./env-vars.md).
+Once set, **all** Oh My Kimi Code data — config, sessions, logs, OAuth credentials, Kimi-specific user Skills, global `AGENTS.md`, and more — lands under the new path. For the full reference on `OMKC_HOME` and `KIMI_CODE_HOME`, see [Environment variables](./env-vars.md).
 
 ::: tip Note
 
-**Generic `.agents` resources** stay under the real OS home so they can be shared across tools. For example, user-level generic Skills remain at `~/.agents/skills/`, while Kimi-specific user Skills move with `KIMI_CODE_HOME` as `$KIMI_CODE_HOME/skills/`.
+**Generic `.agents` resources** stay under the real OS home so they can be shared across tools. For example, user-level generic Skills remain at `~/.agents/skills/`, while Kimi-specific user Skills move with the data home as `$OMKC_HOME/skills/`.
 :::
 
 ## Directory layout
 
 ```
-$KIMI_CODE_HOME  (default: ~/.kimi-code)
+$OMKC_HOME  (default: ~/.omkc)
 ├── config.toml             # User configuration
 ├── tui.toml                # Terminal UI preferences (including auto-update toggle)
 ├── AGENTS.md               # Global Kimi-specific agent instructions (optional)
@@ -82,7 +82,7 @@ Inside each session directory:
 - **`agents/agent-0/` etc.**: sub-Agent instance directories, each containing their own `wire.jsonl`.
 - **`logs/kimi-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
 - **`tasks/`**: background task persistence — `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
-- **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `kimi --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
+- **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `omkc --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
 
 ## Built-in tool cache
 
@@ -101,7 +101,7 @@ A missing binary, a failed launch, or a duplicate start never blocks or breaks t
 - **`logs/kimi-code.log`** (global): records startup, login, export, and other cross-session events.
 - **`<sessionDir>/logs/kimi-code.log`** (session-level): records diagnostic events within a single session.
 
-When reporting a bug, prefer exporting the relevant session with `kimi export` (see [kimi command](../reference/kimi-command.md)); the session log is included in the export by default. Add `--no-include-global-log` if you do not want to share the global log.
+When reporting a bug, prefer exporting the relevant session with `omkc export` (see [omkc command](../reference/kimi-command.md)); the session log is included in the export by default. Add `--no-include-global-log` if you do not want to share the global log.
 
 The files under `updates/` (`latest.json`, `install.json`, `install.lock`, `rollout.log`) are maintained automatically by the auto-update mechanism and normally do not need manual editing. `rollout.log` records which staged-rollout case each update check hit, which helps explain when a device will receive a new release.
 
@@ -111,23 +111,23 @@ Terminal input history is saved separately per working directory, at `user-histo
 
 ## Clearing data
 
-Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_HOME`) removes all runtime data. To clear only part of the data:
+Deleting the data root directory (`~/.omkc/` or the path set by `KIMI_CODE_HOME`) removes all runtime data. To clear only part of the data:
 
 | Goal | Action |
 | --- | --- |
-| Reset configuration | Delete `~/.kimi-code/config.toml` |
-| Reset terminal UI preferences | Delete `~/.kimi-code/tui.toml` |
-| Clear all sessions | Delete `~/.kimi-code/sessions/` and `session_index.jsonl` |
-| Clear diagnostic logs | Delete `~/.kimi-code/logs/` |
-| Clear input history | Delete `~/.kimi-code/user-history/` |
-| Reset update state | Delete `~/.kimi-code/updates/latest.json` |
-| Force re-download of managed `rg` and `fd` | Delete `~/.kimi-code/bin/` |
+| Reset configuration | Delete `~/.omkc/config.toml` |
+| Reset terminal UI preferences | Delete `~/.omkc/tui.toml` |
+| Clear all sessions | Delete `~/.omkc/sessions/` and `session_index.jsonl` |
+| Clear diagnostic logs | Delete `~/.omkc/logs/` |
+| Clear input history | Delete `~/.omkc/user-history/` |
+| Reset update state | Delete `~/.omkc/updates/latest.json` |
+| Force re-download of managed `rg` and `fd` | Delete `~/.omkc/bin/` |
 | Clear provider OAuth login state | Run `/logout`, or delete the corresponding `credentials/<name>.json` |
 | Clear MCP server OAuth login state | Delete `credentials/mcp/` (`/logout` does not clear MCP credentials) |
-| Remove user-level MCP declarations | Delete `$KIMI_CODE_HOME/mcp.json` (default `~/.kimi-code/mcp.json`) |
-| Clear global Kimi-specific agent instructions | Delete `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`) |
-| Clear plugin install records | Delete `$KIMI_CODE_HOME/plugins/` (local plugin source directories are not affected) |
-| Clear Kimi-specific user-level Skills | Delete `$KIMI_CODE_HOME/skills/` (default `~/.kimi-code/skills/`) |
+| Remove user-level MCP declarations | Delete `$OMKC_HOME/mcp.json` (default `~/.omkc/mcp.json`) |
+| Clear global Kimi-specific agent instructions | Delete `$OMKC_HOME/AGENTS.md` (default `~/.omkc/AGENTS.md`) |
+| Clear plugin install records | Delete `$OMKC_HOME/plugins/` (local plugin source directories are not affected) |
+| Clear Kimi-specific user-level Skills | Delete `$OMKC_HOME/skills/` (default `~/.omkc/skills/`) |
 
 ## Next steps
 

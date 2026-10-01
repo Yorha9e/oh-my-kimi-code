@@ -9,6 +9,7 @@ import chalk from 'chalk';
 
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
+import { PRODUCT_NAME } from '#/constant/app';
 import { isRainbowDancing, renderDanceWelcomeHeader } from '#/tui/easter-eggs/dance';
 import type { AppState } from '#/tui/types';
 import { currentTheme } from '#/tui/theme';
@@ -30,7 +31,7 @@ export class WelcomeComponent implements Component {
     const effectiveActiveModel = activeModel === undefined ? undefined : effectiveModelAlias(activeModel);
 
     if (safeWidth < 24) {
-      const title = chalk.bold.hex(currentTheme.palette.primary)('Welcome to Kimi Code!');
+      const title = chalk.bold.hex(currentTheme.palette.primary)(`Welcome to ${PRODUCT_NAME}!`);
       const prompt = isLoggedOut
         ? chalk.hex(currentTheme.palette.warning)('Run /login or /provider to get started.')
         : chalk.hex(currentTheme.palette.textDim)('Send /help for help information.');
@@ -52,7 +53,7 @@ export class WelcomeComponent implements Component {
     const textWidth = Math.max(4, innerWidth - logoWidth - gap.length);
 
     const rightRow0 = truncateToWidth(
-      chalk.bold.hex(currentTheme.palette.primary)('Welcome to Kimi Code!'),
+      chalk.bold.hex(currentTheme.palette.primary)(`Welcome to ${PRODUCT_NAME}!`),
       textWidth,
       '…',
     );

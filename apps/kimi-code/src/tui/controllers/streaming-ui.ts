@@ -7,6 +7,7 @@ import { CompactionComponent } from '../components/dialogs/compaction';
 import { ReadGroupComponent } from '../components/messages/read-group';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
+import { PRODUCT_NAME } from '../constant/kimi-tui';
 import { STREAMING_UI_FLUSH_MS } from '../constant/streaming';
 import { hasDispose } from '../utils/component-capabilities';
 import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
@@ -581,7 +582,7 @@ export class StreamingUIController {
     this.host.setAppState({ streamingPhase: 'idle' });
     this.host.resetLivePane();
     notifyTerminalOnce(state, `turn-complete:${completedTurnKey}`, {
-      title: 'Kimi Code task complete',
+      title: `${PRODUCT_NAME} task complete`,
       body: state.appState.sessionTitle ?? undefined,
     });
   }

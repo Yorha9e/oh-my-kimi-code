@@ -1,15 +1,15 @@
-# `kimi` Command
+# `omkc` Command
 
-`kimi` is the main command for Kimi Code CLI, used to start an interactive session in the terminal. Running it without any arguments opens a new session in the current working directory; combined with different flags, you can resume a previous session, skip approvals, start in Plan mode, or load Skills from a custom directory.
+`omkc` is the main command for Kimi Code CLI, used to start an interactive session in the terminal. Running it without any arguments opens a new session in the current working directory; combined with different flags, you can resume a previous session, skip approvals, start in Plan mode, or load Skills from a custom directory.
 
 ```sh
-kimi [options]
-kimi <subcommand> [options]
+omkc [options]
+omkc <subcommand> [options]
 ```
 
 ## Main Command Options
 
-All flags are optional — run `kimi` directly to enter an interactive session:
+All flags are optional — run `omkc` directly to enter an interactive session:
 
 | Option | Short | Description |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ The following combinations are rejected at startup:
 - `--prompt` cannot be used with `--yolo`, `--auto`, or `--plan` — non-interactive mode uses `auto` permission by default
 - `--output-format` can only be used together with `--prompt`
 
-When resuming a session, you can override its saved permission or plan mode by adding `--auto`, `--yolo`, or `--plan`. For example, `kimi --continue --auto` resumes the latest session and switches it to auto permission mode.
+When resuming a session, you can override its saved permission or plan mode by adding `--auto`, `--yolo`, or `--plan`. For example, `omkc --continue --auto` resumes the latest session and switches it to auto permission mode.
 
 ## Common Usage
 
@@ -98,7 +98,7 @@ There are two ways to specify Skills directories, with different semantics:
 
 ### Custom Agents
 
-`--agent` and `--agent-file` select which agent drives a new session, in both print mode (`kimi -p`) and the interactive TUI:
+`--agent` and `--agent-file` select which agent drives a new session, in both print mode (`omkc -p`) and the interactive TUI:
 
 ```sh
 kimi --agent reviewer
@@ -133,39 +133,39 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`omkc` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
 
-### `kimi login`
+### `omkc login`
 
-Log in to Kimi Code OAuth via the RFC 8628 device-code flow, without entering the TUI. The command issues a device authorization request, prints the verification URL and user code to stderr, then polls until the browser-side authorization is complete. The generated token is written to the same local location as TUI `/login` and is loaded automatically the next time `kimi` starts.
+Log in to Kimi Code OAuth via the RFC 8628 device-code flow, without entering the TUI. The command issues a device authorization request, prints the verification URL and user code to stderr, then polls until the browser-side authorization is complete. The generated token is written to the same local location as TUI `/login` and is loaded automatically the next time `omkc` starts.
 
 ```sh
-kimi login
+omkc login
 ```
 
 This subcommand has no flags. Press `Ctrl-C` at any time during polling to cancel; the exit code is `1` on cancellation or failure, and `0` on success.
 
-### `kimi acp`
+### `omkc acp`
 
 Switch Kimi Code CLI to ACP (Agent Client Protocol) mode, communicating with an IDE via JSON-RPC over stdin/stdout so the editor can directly drive kimi's sessions and tool calls. You typically do not need to run this manually — the IDE starts it as a subprocess entry point. For configuration, see [Using in IDEs](../guides/ides.md); for technical details, see the [kimi acp reference](./kimi-acp.md).
 
 ```sh
-kimi acp
+omkc acp
 ```
 
-### `kimi web`
+### `omkc web`
 
 Run the local Kimi server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
 
 When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For an end-to-end walkthrough of driving sessions over the API, see [Local server and API](../guides/server.md); for the protocol details, see the [Server API](./server-api.md) reference.
 
 ```sh
-kimi web                 # run the server in the foreground and open the browser
-kimi web --no-open       # don't open the browser
-kimi web --port 58628    # pick a specific bind port
+omkc web                 # run the server in the foreground and open the browser
+omkc web --no-open       # don't open the browser
+omkc web --port 58628    # pick a specific bind port
 ```
 
-Multiple instances can share one home directory: each registers itself under `~/.kimi-code/server/instances/`, and a busy port is retried with `port + 1` (58628, 58629, …).
+Multiple instances can share one home directory: each registers itself under `~/.omkc/server/instances/`, and a busy port is retried with `port + 1` (58628, 58629, …).
 
 | Option | Description |
 | --- | --- |
@@ -177,57 +177,57 @@ Multiple instances can share one home directory: each registers itself under `~/
 | `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
 | `--no-open` | Do not open the browser once the server is ready |
 
-`kimi web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
+`omkc web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
 
 ::: info
-The `kimi server` command tree is deprecated: any `kimi server …` invocation (including all legacy subcommands) only prints a deprecation notice and exits with code 1 — use `kimi web` instead. The one exception is `kimi server kill`, which stays functional for stopping servers started by a version before 0.28.0. The notice will be removed in the next major version of Kimi Code.
+The `omkc server` command tree is deprecated: any `omkc server …` invocation (including all legacy subcommands) only prints a deprecation notice and exits with code 1 — use `omkc web` instead. The one exception is `omkc server kill`, which stays functional for stopping servers started by a version before 0.28.0. The notice will be removed in the next major version of Kimi Code.
 :::
 
 ::: danger
 `--dangerous-bypass-auth` disables authentication entirely. Anyone who can reach the port gets full access to your sessions, filesystem, and shell. Only use it on a trusted network or behind your own authenticating reverse proxy, and stop the server with `Ctrl+C` when you are done.
 :::
 
-#### `kimi server kill`
+#### `omkc server kill`
 
-Deprecated — only stops a server started by a version before 0.28.0. Those versions could leave a background server behind, recorded in the legacy single-instance lock at `~/.kimi-code/server/lock`; the command first tries `POST /api/v1/shutdown` for a graceful exit, then signals the recorded pid with SIGTERM, escalating to SIGKILL when needed, and removes the lock file once the process is confirmed dead. Servers started by `kimi web` run in the foreground — stop them with `Ctrl+C` instead.
+Deprecated — only stops a server started by a version before 0.28.0. Those versions could leave a background server behind, recorded in the legacy single-instance lock at `~/.omkc/server/lock`; the command first tries `POST /api/v1/shutdown` for a graceful exit, then signals the recorded pid with SIGTERM, escalating to SIGKILL when needed, and removes the lock file once the process is confirmed dead. Servers started by `omkc web` run in the foreground — stop them with `Ctrl+C` instead.
 
-#### `kimi web rotate-token`
+#### `omkc web rotate-token`
 
-Generate a new persistent bearer token (written to `~/.kimi-code/server.token`); the previous token stops working immediately. The token is shared by the whole home directory, so every running instance picks the new one up on its next auth check — no restart needed.
+Generate a new persistent bearer token (written to `~/.omkc/server.token`); the previous token stops working immediately. The token is shared by the whole home directory, so every running instance picks the new one up on its next auth check — no restart needed.
 
-### `kimi doctor`
+### `omkc doctor`
 
-Validate `config.toml` and `tui.toml` without starting the TUI or modifying either file. By default, the command checks the files under `KIMI_CODE_HOME` (or `~/.kimi-code` when the environment variable is unset). Missing default files are reported as skipped because built-in defaults can apply.
+Validate `config.toml` and `tui.toml` without starting the TUI or modifying either file. By default, the command checks the files under `KIMI_CODE_HOME` (or `~/.omkc` when the environment variable is unset). Missing default files are reported as skipped because built-in defaults can apply.
 
 ```sh
-kimi doctor
+omkc doctor
 ```
 
 | Command | Description |
 | --- | --- |
-| `kimi doctor` | Validate the default `config.toml` and `tui.toml` |
-| `kimi doctor config [path]` | Validate only `config.toml`, using `path` instead of the default file when provided |
-| `kimi doctor tui [path]` | Validate only `tui.toml`, using `path` instead of the default file when provided |
+| `omkc doctor` | Validate the default `config.toml` and `tui.toml` |
+| `omkc doctor config [path]` | Validate only `config.toml`, using `path` instead of the default file when provided |
+| `omkc doctor tui [path]` | Validate only `tui.toml`, using `path` instead of the default file when provided |
 
 When an explicit path is passed, the file must exist. The command exits with `0` when all checked files are valid or skipped, and `1` when any requested file is missing or invalid.
 
 ```sh
 # Check the default config files
-kimi doctor
+omkc doctor
 
 # Check only the default runtime config
-kimi doctor config
+omkc doctor config
 
 # Check a candidate TUI config before replacing the live config
-kimi doctor tui ./tui.toml
+omkc doctor tui ./tui.toml
 ```
 
-### `kimi export`
+### `omkc export`
 
 Package a session into a ZIP file for sharing, archiving, or submitting bug reports.
 
 ```sh
-kimi export [sessionId] [options]
+omkc export [sessionId] [options]
 ```
 
 | Parameter / Option | Short | Description |
@@ -237,45 +237,45 @@ kimi export [sessionId] [options]
 | `--yes` | `-y` | Skip the confirmation prompt for the default session and export directly |
 | `--no-include-global-log` | | Do not include the global diagnostic log. Included by default |
 
-The export contains all files in the target session directory. The global diagnostic log (`~/.kimi-code/logs/kimi-code.log`) is included by default because it may contain events from other sessions or projects; add `--no-include-global-log` if you do not want to share it.
+The export contains all files in the target session directory. The global diagnostic log (`~/.omkc/logs/kimi-code.log`) is included by default because it may contain events from other sessions or projects; add `--no-include-global-log` if you do not want to share it.
 
 ```sh
 # Export the most recent session in the current directory, skipping confirmation
-kimi export -y
+omkc export -y
 
 # Export a specific session to a custom path
-kimi export 01HZ...XYZ -o ./bug-report.zip
+omkc export 01HZ...XYZ -o ./bug-report.zip
 
 # Exclude the global diagnostic log
-kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
+omkc export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
 
-### `kimi migrate`
+### `omkc migrate`
 
 Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
 
 ```sh
-kimi migrate
+omkc migrate
 ```
 
 For full migration instructions, see [Migrating from kimi-cli](../guides/migration.md).
 
-### `kimi upgrade`
+### `omkc upgrade`
 
-Immediately check for the latest version and display an update prompt; exits after you make a selection. `kimi update` is an alias for this command.
+Immediately check for the latest version and display an update prompt; exits after you make a selection. `omkc update` is an alias for this command.
 
 ```sh
-kimi upgrade
+omkc upgrade
 ```
 
-For global npm, pnpm, yarn, and bun installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead.
+For global npm, pnpm, yarn, and bun installations, `omkc upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead.
 
-### `kimi vis`
+### `omkc vis`
 
 Launch the session visualizer in your browser to inspect a session as it unfolds. The command starts an in-process server pointed at your local sessions, prints the URL, opens your browser, and keeps running until you press `Ctrl-C`.
 
 ```sh
-kimi vis [sessionId] [options]
+omkc vis [sessionId] [options]
 ```
 
 | Parameter / Option | Description |
@@ -287,26 +287,26 @@ kimi vis [sessionId] [options]
 
 ```sh
 # Start the visualizer and open the browser at the home view
-kimi vis
+omkc vis
 
 # Open directly to a specific session
-kimi vis 01HZ...XYZ
+omkc vis 01HZ...XYZ
 
 # Bind a fixed port and host without opening a browser (e.g. on a remote host)
-kimi vis --host 0.0.0.0 --port 8123 --no-open
+omkc vis --host 0.0.0.0 --port 8123 --no-open
 ```
 
-### `kimi provider`
+### `omkc provider`
 
 Manage providers in the shell — the non-interactive equivalent of `/provider` in the TUI. Suitable for scripted deployments, CI initialization, and one-line setup on a new machine.
 
 ```sh
-kimi provider <action> [options]
+omkc provider <action> [options]
 ```
 
 Five actions are available:
 
-#### `kimi provider add <url>`
+#### `omkc provider add <url>`
 
 Bulk-import all providers from a custom registry (`api.json`). The command fetches the registry, creates a `[providers.<id>]` and `[models.<alias>]` entry for each item, and writes `source` metadata so the TUI refreshes providers and models from the same registry URL automatically on next startup.
 
@@ -316,7 +316,7 @@ Bulk-import all providers from a custom registry (`api.json`). The command fetch
 | `--api-key <key>` | Bearer token for accessing the registry. Falls back to the `KIMI_REGISTRY_API_KEY` environment variable if not provided; required |
 
 ```sh
-kimi provider add https://registry.example.com/v1/models/api.json --api-key YOUR_KEY
+omkc provider add https://registry.example.com/v1/models/api.json --api-key YOUR_KEY
 
 # Or via environment variable (suitable for CI / .envrc)
 KIMI_REGISTRY_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
@@ -324,24 +324,24 @@ KIMI_REGISTRY_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1
 
 If a provider ID already exists, it is removed and re-created. The default model is not set automatically; you can select one later with `-m` or `/model` in the TUI.
 
-#### `kimi provider remove <providerId>`
+#### `omkc provider remove <providerId>`
 
 Remove the specified provider and all its model aliases. If the removed provider is the one referenced by `default_model`, `default_model` is also cleared.
 
 ```sh
-kimi provider remove kohub
+omkc provider remove kohub
 ```
 
-#### `kimi provider list`
+#### `omkc provider list`
 
 Print each configured provider on a separate line, including type, model count, and source. Add `--json` to output the raw `providers` and `models` tables for programmatic processing.
 
 ```sh
-kimi provider list
-kimi provider list --json | jq '.providers | keys'
+omkc provider list
+omkc provider list --json | jq '.providers | keys'
 ```
 
-#### `kimi provider catalog list [providerId]`
+#### `omkc provider catalog list [providerId]`
 
 Browse the public [models.dev](https://models.dev/) model catalog without modifying any configuration. Without an argument, lists all providers along with their protocol type and model count; with a `providerId`, lists all models under that provider along with their context window and capabilities. If the catalog URL cannot be reached, a built-in snapshot of the catalog is used instead.
 
@@ -353,12 +353,12 @@ Browse the public [models.dev](https://models.dev/) model catalog without modify
 | `--json` | Output matching entries as JSON |
 
 ```sh
-kimi provider catalog list
-kimi provider catalog list --filter anthropic
-kimi provider catalog list anthropic
+omkc provider catalog list
+omkc provider catalog list --filter anthropic
+omkc provider catalog list anthropic
 ```
 
-#### `kimi provider catalog add <providerId>`
+#### `omkc provider catalog add <providerId>`
 
 Import a known provider directly from the catalog by ID. The protocol type, base URL, and model information are all supplied by the catalog — only an API key is required. Vendors whose protocol the catalog does not declare (e.g. xai, openrouter, and other vendor-specific SDKs) are imported as OpenAI-compatible and the output notes the guess; when the catalog provides no usable endpoint, `--base-url` is required. Proprietary protocols (e.g. Amazon Bedrock) cannot be imported. When the public catalog is unreachable, the import uses the built-in snapshot, so it still works offline or in blocked networks.
 
@@ -371,8 +371,8 @@ Import a known provider directly from the catalog by ID. The protocol type, base
 | `--url <url>` | Override the catalog URL; defaults to `https://models.dev/api.json` |
 
 ```sh
-kimi provider catalog list anthropic          # Browse available models first
-kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-opus-4-7
+omkc provider catalog list anthropic          # Browse available models first
+omkc provider catalog add anthropic --api-key sk-ant-... --default-model claude-opus-4-7
 ```
 
 ## Next steps

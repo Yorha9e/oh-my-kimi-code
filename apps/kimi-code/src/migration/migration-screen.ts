@@ -14,6 +14,7 @@
 import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
+import { CLI_COMMAND_NAME, PRODUCT_NAME } from '#/constant/app';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { currentTheme } from '#/tui/theme';
 import {
@@ -288,9 +289,9 @@ export class MigrationScreenComponent extends Container implements Focusable {
         lines.push(chalk.hex(colors.text)(` Reason: ${this.migrationFailureReason}`));
       }
       lines.push('');
-      lines.push(chalk.hex(colors.text)(' You can retry later by running "kimi migrate".'));
+      lines.push(chalk.hex(colors.text)(` You can retry later by running "${CLI_COMMAND_NAME} migrate".`));
       lines.push('');
-      lines.push(chalk.hex(colors.textMuted)(' ⏎ continue to kimi-code'));
+      lines.push(chalk.hex(colors.textMuted)(` ⏎ continue to ${CLI_COMMAND_NAME}`));
       lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
       return lines.map((l) => truncateToWidth(l, width));
     }
@@ -423,7 +424,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       );
     }
     lines.push('');
-    lines.push(chalk.hex(colors.textMuted)(' ⏎ continue to kimi-code'));
+    lines.push(chalk.hex(colors.textMuted)(` ⏎ continue to ${CLI_COMMAND_NAME}`));
     lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
     return lines.map((l) => truncateToWidth(l, width));
   }
@@ -545,7 +546,7 @@ function summarizePlan(plan: MigrationPlan): string {
 function stepFor(phase: Phase, plan: MigrationPlan): StepDef {
   if (phase === 'ask1') {
     return {
-      title: 'Migrate this data to kimi-code?',
+      title: `Migrate this data to ${PRODUCT_NAME}?`,
       options: [
         { label: 'Migrate now', value: 'now' satisfies Prompt1Choice },
         { label: 'Ask me later', value: 'later' satisfies Prompt1Choice },

@@ -10,47 +10,44 @@ It fits scenarios such as:
 - **Understanding a project**: exploring an unfamiliar codebase and answering questions about architecture and implementation
 - **Automating tasks**: batch-processing files, running builds and tests, chaining multiple scripts together
 
-The CLI is written in TypeScript, distributed via npm, and runs on Node.js.
+This community edition (`oh-my-kimi-code`) is invoked as `omkc`. It keeps its own data home (`~/.omkc`) and can sit alongside an official `kimi` install.
 
 ## Installation
 
-Two installation options are available: the official install script (recommended, no pre-installed Node.js required) and a global npm install.
+Download a native executable from GitHub Releases (recommended, no Node.js required), or build from source.
 
 ::: tip Before you install
-Kimi Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
+Oh My Kimi Code is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
 :::
 
-### Install script (recommended)
+### Native executables (recommended)
 
-- **macOS / Linux**:
+Download the archive for your platform from [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) and extract it:
 
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
+- Windows: `omkc-win32-x64.zip` / `omkc-win32-arm64.zip`
+- macOS: `omkc-darwin-x64.zip` / `omkc-darwin-arm64.zip`
+- Linux: `omkc-linux-x64.zip` / `omkc-linux-arm64.zip`
 
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch. Kimi Code CLI uses the bundled Git Bash as its shell environment; if Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-The script automatically downloads the latest release, verifies the checksum, and places the `kimi` executable on your `PATH`.
-
-### npm installation
-
-Requires Node.js 22.19.0 or later:
+Put the extracted directory on your `PATH`, then in a new terminal:
 
 ```sh
-node --version
-npm install -g @moonshot-ai/kimi-code
+omkc --version
 ```
 
-Or with pnpm:
+> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch. The CLI uses the bundled Git Bash as its shell environment; if Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
+
+The community fork is **not published to npm**. `npm install -g @moonshot-ai/kimi-code` installs the official `kimi` CLI, not this fork.
+
+### Build from source
+
+Requires Node.js `>=24.15.0` and pnpm:
 
 ```sh
-pnpm add -g @moonshot-ai/kimi-code
+git clone https://github.com/Yorha9e/oh-my-kimi-code.git
+cd oh-my-kimi-code
+pnpm install
+pnpm -C apps/kimi-code run build
+node apps/kimi-code/dist/main.mjs
 ```
 
 ## Upgrade and uninstall
@@ -58,49 +55,42 @@ pnpm add -g @moonshot-ai/kimi-code
 After installation, verify that the executable is ready:
 
 ```sh
-kimi --version
+omkc --version
 ```
 
-**Upgrade**: run `kimi upgrade` — the CLI checks for the latest version and presents update options. Choose `Install update now` to upgrade based on your current install source. You can also upgrade directly via the package manager:
+**Upgrade**: run `omkc upgrade` — the CLI checks GitHub Releases and presents update options. Native installs can apply the new binary on the next start.
 
-```sh
-npm install -g @moonshot-ai/kimi-code@latest
-```
-
-**Uninstall**: if you installed via the script, delete the `kimi` executable. If you installed via npm:
-
-```sh
-npm uninstall -g @moonshot-ai/kimi-code
-```
+**Uninstall**: delete the `omkc` executable (and the extracted release directory if you kept one).
 
 ## First launch
 
-Move into your project directory and run `kimi` to start the interactive UI:
+Move into your project directory and run `omkc` to start the interactive UI:
 
 ```sh
 cd your-project
-kimi
+omkc
 ```
 
 To run a single instruction without entering the interactive UI, use `-p`:
 
 ```sh
-kimi -p "Take a look at this project's directory structure"
+omkc -p "Take a look at this project's directory structure"
 ```
 
 To resume the previous session, add `-c`:
 
 ```sh
-kimi -c
+omkc -c
 ```
 
-On first launch you need to configure an API source. In the interactive UI, enter `/login` to begin the login flow:
+On first launch you need a model. In the interactive UI, enter `/login` for Kimi Code OAuth, or `/provider` to add another provider from a catalog:
 
 ```
 /login
+/provider
 ```
 
-`/login` opens a platform selector supporting two options:
+`/login` opens a platform selector supporting two official options:
 
 - **Kimi Code (OAuth)** — device-code flow; open the link on any device, sign in, and enter the code to authorize
 - **Kimi Platform API key** — enter an API key from `platform.kimi.com` or `platform.kimi.ai`
@@ -108,12 +98,12 @@ On first launch you need to configure an API source. In the interactive UI, ente
 To sign out, enter `/logout` to clear the current credentials.
 
 ::: tip Using other AI providers
-If you want to connect Anthropic, OpenAI, Google, or other providers, edit `~/.kimi-code/config.toml` directly to configure the API key. See [Providers and models](../configuration/providers.md) for details. For the full reference of all config options, see [Configuration files](../configuration/config-files.md), [Environment variables](../configuration/env-vars.md), and [Configuration overrides](../configuration/overrides.md).
+If you want to connect Anthropic, OpenAI, Google, or other providers, use `/provider` or edit `~/.omkc/config.toml` to configure the API key. See [Providers and models](../configuration/providers.md) for details. For the full reference of all config options, see [Configuration files](../configuration/config-files.md), [Environment variables](../configuration/env-vars.md), and [Configuration overrides](../configuration/overrides.md).
 :::
 
 ## Your first conversation
 
-Once logged in, describe a task in natural language. A good starting point is to let Kimi Code CLI familiarize itself with the project:
+Once a model is configured, describe a task in natural language. A good starting point is to let the CLI familiarize itself with the project:
 
 ```
 Take a look at this project's directory structure and briefly describe what each directory is for.
@@ -161,7 +151,7 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 
 ## Where data is stored
 
-Kimi Code CLI stores its local data under `~/.kimi-code/` by default — config files, session records, logs, and the update cache. To move it elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
+Oh My Kimi Code stores its local data under `~/.omkc/` by default — config files, session records, logs, and the update cache. To move it elsewhere, set `OMKC_HOME` (or `KIMI_CODE_HOME` for compatibility). For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
 
 ## Next steps
 

@@ -1,6 +1,6 @@
 # Server API
 
-The local server started by `kimi web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions`) and a WebSocket event stream (`/api/v1/ws`). This page is the protocol reference for both. For how to start the server and its command-line options, see the [kimi command](./kimi-command.md#kimi-web) reference; for an end-to-end walkthrough, see [Local server and API](../guides/server.md).
+The local server started by `omkc web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions`) and a WebSocket event stream (`/api/v1/ws`). This page is the protocol reference for both. For how to start the server and its command-line options, see the [omkc command](./kimi-command.md#kimi-web) reference; for an end-to-end walkthrough, see [Local server and API](../guides/server.md).
 
 The complete request/response schema of every endpoint is owned by the server's live specification documents: `GET /openapi.json` (OpenAPI) and `GET /asyncapi.json` (AsyncAPI). Both require authentication.
 
@@ -12,7 +12,7 @@ The REST and WebSocket APIs described on this page are experimental: interface s
 
 ### Address
 
-The default address is `http://127.0.0.1:58627`. When the port is taken, the server retries with the next port (up to 100 times); use `--port` / `--host` to change the bind. Multiple instances can coexist under the same home directory; running instances register under `~/.kimi-code/server/instances/`.
+The default address is `http://127.0.0.1:58627`. When the port is taken, the server retries with the next port (up to 100 times); use `--port` / `--host` to change the bind. Multiple instances can coexist under the same home directory; running instances register under `~/.omkc/server/instances/`.
 
 ### Authentication
 
@@ -397,4 +397,4 @@ Error semantics differ as well: `GET /api/v1/files/{file_id}` answers lookup and
 ## Next steps
 
 - [Local server and API](../guides/server.md) — startup, authentication, and the end-to-end calling flow
-- [kimi command](./kimi-command.md#kimi-web) — all `kimi web` command-line options
+- [omkc command](./kimi-command.md#kimi-web) — all `omkc web` command-line options

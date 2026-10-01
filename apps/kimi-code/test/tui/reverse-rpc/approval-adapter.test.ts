@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { PRODUCT_NAME } from '#/constant/app';
 import { adaptApprovalRequest, adaptPanelResponse } from '#/tui/reverse-rpc/approval/adapter';
 
 describe('approval adapter', () => {
@@ -240,21 +241,21 @@ describe('approval adapter', () => {
         response: 'approved',
         selected_label: 'auto',
         description:
-          'Best if you want Kimi Code to keep working while you are away. Tools are approved automatically, and questions are skipped.',
+          `Best if you want ${PRODUCT_NAME} to keep working while you are away. Tools are approved automatically, and questions are skipped.`,
       },
       {
         label: 'Switch to YOLO and start',
         response: 'approved',
         selected_label: 'yolo',
         description:
-          'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
+          `Tools and plan changes are approved automatically. ${PRODUCT_NAME} may still ask you questions.`,
       },
       {
         label: 'Start in Manual',
         response: 'approved',
         selected_label: 'manual',
         description:
-          'Keep approvals on. Kimi Code will ask before risky actions, so the goal may stop and wait for you.',
+          `Keep approvals on. ${PRODUCT_NAME} will ask before risky actions, so the goal may stop and wait for you.`,
       },
       {
         label: 'Do not start',
@@ -284,14 +285,14 @@ describe('approval adapter', () => {
         response: 'approved',
         selected_label: 'auto',
         description:
-          'Best if you want Kimi Code to keep working while you are away. Tools are approved automatically, and questions are skipped.',
+          `Best if you want ${PRODUCT_NAME} to keep working while you are away. Tools are approved automatically, and questions are skipped.`,
       },
       {
         label: 'Keep YOLO and start',
         response: 'approved',
         selected_label: 'yolo',
         description:
-          'Tools and plan changes stay approved automatically. Kimi Code may still ask you questions.',
+          `Tools and plan changes stay approved automatically. ${PRODUCT_NAME} may still ask you questions.`,
       },
       {
         label: 'Do not start',

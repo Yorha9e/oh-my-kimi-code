@@ -78,7 +78,7 @@ thinking_effort = "high"
 
 The first time an unbound sub-agent type is spawned in a workspace, you are asked once whether to bind a model (answering "keep inheriting" is remembered too). Afterwards the binding is applied mechanically to every new sub-agent of that type spawned through the `Agent` tool — the calling Agent cannot see or override it. (`AgentSwarm` batches do not read bindings yet; swarm-wide model routing is future work.) Manage bindings anytime with the `/subagent-model` command (`list` / `set <type>` / `clear <type>`). Precedence: workspace binding > profile binding (for profiles shipped with the app) > inherit the calling Agent's current model and effort.
 
-Bound values are fixed at spawn: resuming a sub-agent always keeps the model and effort it was configured with, mid-conversation switches are not possible, and both are restored after a session restart. Resume validates the sub-agent's frozen alias strictly and fails with a configuration error when it no longer resolves. The workspace binding's alias is likewise validated against your models configuration before each spawn — if it no longer resolves (for example after being removed from `config.toml`), interactive environments re-ask the binding question with the reason stated and persist your new choice as the repair; non-interactive environments (such as `kimi -p`) inherit the main agent's model with an explicit warning in the tool result, until you update or clear the binding.
+Bound values are fixed at spawn: resuming a sub-agent always keeps the model and effort it was configured with, mid-conversation switches are not possible, and both are restored after a session restart. Resume validates the sub-agent's frozen alias strictly and fails with a configuration error when it no longer resolves. The workspace binding's alias is likewise validated against your models configuration before each spawn — if it no longer resolves (for example after being removed from `config.toml`), interactive environments re-ask the binding question with the reason stated and persist your new choice as the repair; non-interactive environments (such as `omkc -p`) inherit the main agent's model with an explicit warning in the tool result, until you update or clear the binding.
 
 ## Context Isolation and Resource Cost
 
@@ -177,7 +177,7 @@ Custom agents delegated as sub-agents run without the built-in sub-agent framing
 
 ### Selecting the Main Agent
 
-Two CLI flags select which agent drives a new session, in both print mode (`kimi -p`) and the interactive TUI:
+Two CLI flags select which agent drives a new session, in both print mode (`omkc -p`) and the interactive TUI:
 
 - **`--agent <name>`**: Start the session with the named agent as the main Agent. The name can refer to a built-in agent or to any discovered file; an unknown name fails with an error listing the available agents.
 - **`--agent-file <path>`**: Load one agent file at the highest priority for this launch and start with it. The flag accepts exactly one file: it cannot be repeated, and it cannot be combined with `--agent`.

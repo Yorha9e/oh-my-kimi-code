@@ -18,6 +18,7 @@ vi.mock('@moonshot-ai/acp-server', () => ({
 import { runAcpServer } from '@moonshot-ai/acp-server';
 
 import { registerAcpCommand } from '#/cli/sub/acp';
+import { PRODUCT_NAME } from '#/constant/app';
 import { getDataDir } from '#/utils/paths';
 
 class ExitCalled extends Error {
@@ -64,7 +65,7 @@ describe('kimi acp', () => {
     expect(optsArg).toEqual(
       expect.objectContaining({
         homeDir: getDataDir(),
-        agentInfo: { name: 'Kimi Code CLI', version: expect.any(String) },
+        agentInfo: { name: `${PRODUCT_NAME} CLI`, version: expect.any(String) },
       }),
     );
     expect(exitSpy).toHaveBeenCalledWith(0);

@@ -83,6 +83,7 @@ export const MANAGED_PROVIDER_DISPLAY_NAME = 'Kimi Code';
 export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
 export const FEEDBACK_ISSUE_URL = 'https://github.com/Yorha9e/oh-my-kimi-code/issues';
+export const DOCS_URL = 'https://github.com/Yorha9e/oh-my-kimi-code';
 // Sign-up / sign-in page offered to signed-out users so they can create an
 // account and submit feedback through the authenticated channel next time.
 export function kimiCodeSignupUrl(): string {

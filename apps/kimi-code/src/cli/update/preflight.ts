@@ -78,7 +78,7 @@ export function installCommandFor(
     case 'bun-global':
       return `bun add -g ${NPM_PACKAGE_NAME}@${version}`;
     case 'homebrew':
-      return 'brew upgrade kimi-code';
+      return 'The community edition is not distributed through Homebrew.';
     case 'native':
       return platform === 'win32' ? nativeInstallCommandWin() : nativeInstallCommandUnix();
     case 'unsupported':
@@ -131,7 +131,7 @@ export function spawnForSource(
     case 'bun-global':
       return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'homebrew':
-      return { cmd: 'brew', args: ['upgrade', 'kimi-code'] };
+      throw new Error('homebrew cannot be auto-installed by the community updater');
     case 'native':
       // Native installs self-spawn the hidden downloader sub-command, which
       // stages the binary next to the exe (verified against the release

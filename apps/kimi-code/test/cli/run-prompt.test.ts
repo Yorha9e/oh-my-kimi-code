@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => ({
         );
         return;
       }
-      stderr.write(`kimi version ${version}\n`);
+      stderr.write(`omkc version ${version}\n`);
       stdout.write('• hello world\n\n');
       stderr.write('To resume this session: omkc -r ses_prompt\n');
     },
@@ -84,8 +84,8 @@ describe('runPrompt', () => {
     await runPrompt(opts(), '1.2.3-test', { stdout, stderr });
 
     expect(mocks.runV2Print).toHaveBeenCalled();
-    expect(stderr.write).toHaveBeenNthCalledWith(1, 'kimi version 1.2.3-test\n');
-    expect(stderr.text().startsWith('kimi version 1.2.3-test\n')).toBe(true);
+    expect(stderr.write).toHaveBeenNthCalledWith(1, 'omkc version 1.2.3-test\n');
+    expect(stderr.text().startsWith('omkc version 1.2.3-test\n')).toBe(true);
     expect(stdout.text()).toBe('• hello world\n\n');
   });
 

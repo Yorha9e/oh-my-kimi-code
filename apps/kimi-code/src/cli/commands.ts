@@ -1,4 +1,4 @@
-import { CLI_COMMAND_NAME } from '#/constant/app';
+import { CLI_COMMAND_NAME, DOCS_URL } from '#/constant/app';
 import { registerMigrateCommand } from '#/migration/index';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
@@ -32,7 +32,7 @@ export function createProgram(
     .configureHelp({ helpWidth: 100 })
     .helpOption('-h, --help', 'Show help.')
     .usage('[options] [command]')
-    .addHelpText('after', '\nDocumentation:        https://moonshotai.github.io/kimi-code/\n');
+    .addHelpText('after', `\nDocumentation:        ${DOCS_URL}\n`);
 
   program
     .addOption(

@@ -9,6 +9,7 @@ import {
 
 import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 
+import { PRODUCT_NAME } from '#/constant/app';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 
@@ -37,7 +38,7 @@ const OPTIONS: readonly TrustPromptOption[] = [
   {
     value: 'distrust',
     label: "Don't trust",
-    description: 'Exit Kimi Code. Asked again next launch.',
+    description: `Exit ${PRODUCT_NAME}. Asked again next launch.`,
   },
 ];
 

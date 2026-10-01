@@ -283,7 +283,7 @@ Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以�
 }
 ```
 
-系统提示词贡献在交互式 TUI、`kimi -p` 和 `kimi web` 使用的 Agent 引擎上生效。
+系统提示词贡献在交互式 TUI、`omkc -p` 和 `omkc web` 使用的 Agent 引擎上生效。
 
 `systemPrompt` 字段与 `systemPromptPath` 文件各限制为 32 KB（UTF-8 字节）：超限内容会被忽略，并显示在 plugin 的 diagnostics 中。一次提示词构建最多注入所有已启用 plugin 合计 64 KB 的指令；超出预算的贡献会被跳过并给出警告——单个 plugin 的内联文本与文件合计超过该预算时同样整体跳过。
 
