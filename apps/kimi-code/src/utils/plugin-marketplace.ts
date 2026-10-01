@@ -16,6 +16,7 @@ import {
   readPluginMarketplace,
   withBuiltInEntries,
   withLatestVersions,
+  withoutHiddenMarketplacePlugins,
   type MarketplaceLocation,
   type PluginMarketplace,
   type PluginMarketplaceEntry,
@@ -66,7 +67,9 @@ export async function loadPluginMarketplace(
     if (options.builtInEntries !== undefined) {
       // The built-in entries do not come from the catalog — keep them
       // visible when the catalog itself is unreachable.
-      return withBuiltInEntries({ source, plugins: [] }, options.builtInEntries);
+      return withoutHiddenMarketplacePlugins(
+        withBuiltInEntries({ source, plugins: [] }, options.builtInEntries),
+      );
     }
     throw error;
   }
@@ -74,9 +77,11 @@ export async function loadPluginMarketplace(
     parsePluginMarketplace(read.raw, read.location),
     fetchImpl,
   );
-  return options.builtInEntries !== undefined
-    ? withBuiltInEntries(marketplace, options.builtInEntries)
-    : marketplace;
+  const visible =
+    options.builtInEntries !== undefined
+      ? withBuiltInEntries(marketplace, options.builtInEntries)
+      : marketplace;
+  return withoutHiddenMarketplacePlugins(visible);
 }
 
 async function getSourceCheckoutMarketplaceLocation(): Promise<MarketplaceLocation | undefined> {

@@ -77,9 +77,13 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元——可以
 
 ## 官方插件
 
-官方插件是 Kimi 官方维护的 plugin 和内置产品能力，目前有以下三种：
+官方插件是 Kimi 官方维护的 plugin 和内置产品能力。本社区版把它们当成**可选的官方软件**，不会重新实现：
 
-- **[Kimi Datasource](#kimi-datasource)**：用自然语言查询金融行情、宏观经济、企业工商、学术文献和法律法规
+- **Kimi Datasource** 已从默认 marketplace 隐藏。MCP 接口仍留在仓库（`plugins/official/kimi-datasource`），调用仍要官方 `/login`；以后可能删掉。
+- **[Kimi WebBridge](#kimi-webbridge)** 通过本机 daemon 和浏览器扩展驱动你正在用的浏览器。运行时**不需要** Kimi OAuth；安装和更新仍走官方 CDN 和扩展商店。没有能保住登录态的一对一替代（Playwright MCP 开的是隔离浏览器）。
+- **[Kimi Computer Use](#kimi-computer-use)** 在本机操作桌面应用。运行时**不需要** Kimi OAuth；首次安装会从官方 CDN 下 zip。
+
+- **[Kimi Datasource](#kimi-datasource)**：用自然语言查询金融行情、宏观经济、企业工商、学术文献和法律法规（marketplace 里不展示；仍需要的话从仓库安装）
 - **[Kimi WebBridge](#kimi-webbridge)**：让 AI 直接操控你自己的浏览器，完成各类网页操作
 - **[Kimi Computer Use](#kimi-computer-use)**：让 AI 操作你的桌面应用（macOS 和 Windows）
 
@@ -101,7 +105,7 @@ Kimi WebBridge 分两步安装：完成上述步骤后，还需要[安装浏览�
 
 Kimi Datasource 是 Kimi Code 官方数据插件，让你用自然语言直接查询金融行情、宏观经济、企业工商、学术文献和中国法律法规，无需手动调用接口或申请数据账号。
 
-使用前需先通过 `/login` 完成 Kimi Code 账号 OAuth 登录，数据查询会消耗你的 Kimi Code 套餐额度。
+使用前需先通过 `/login` 完成 Kimi Code 账号 OAuth 登录，数据查询会消耗你的 Kimi Code 套餐额度。本社区版已从 `/plugins` Official 隐藏该插件，仓库里的 MCP server 未改。
 
 #### 使用方式
 
@@ -146,7 +150,7 @@ Kimi Datasource 是 Kimi Code 官方数据插件，让你用自然语言直接�
 
 ### Kimi WebBridge <Badge type="tip" text="v1.11.3" />
 
-Kimi WebBridge 让 AI 直接操控你的浏览器，带着你的登录状态和 Cookie，AI 可以像你一样打开网页、阅读内容、点击按钮、填写表单、截图保存，把重复繁琐的网页操作交给它完成。产品介绍见 [Kimi WebBridge 官网](https://www.kimi.com/zh-cn/features/webbridge)。
+Kimi WebBridge 让 AI 直接操控你的浏览器，带着你的登录状态和 Cookie，AI 可以像你一样打开网页、阅读内容、点击按钮、填写表单、截图保存，把重复繁琐的网页操作交给它完成。daemon 只打本机 `127.0.0.1`，运行时不需要 Kimi OAuth；只有首次安装和更新会走官方 CDN 和扩展商店。产品介绍见 [Kimi WebBridge 官网](https://www.kimi.com/zh-cn/features/webbridge)。
 
 <a id="install-the-browser-extension"></a>
 
@@ -185,7 +189,7 @@ Kimi WebBridge 让 AI 直接操控你的浏览器，带着你的登录状态和 
 
 ### Kimi Computer Use <Badge type="tip" text="v0.5.4" />
 
-Kimi Computer Use 让 AI 直接操作你的桌面应用，可以完成点击、拖拽、滚动、输入等操作。macOS 版全程在后台静默运行，不抢占你的鼠标（少量弹窗操作仍会唤起前台 App）；Windows 版的差异见[下文注意事项](#windows-版注意事项)。
+Kimi Computer Use 让 AI 直接操作你的桌面应用，可以完成点击、拖拽、滚动、输入等操作。运行时不调用 Kimi OAuth；安装器只从官方 CDN 下载 zip。macOS 版全程在后台静默运行，不抢占你的鼠标（少量弹窗操作仍会唤起前台 App）；Windows 版的差异见[下文注意事项](#windows-版注意事项)。
 
 #### 授权（macOS）
 

@@ -13,6 +13,8 @@ export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;
 
 export type PluginMarketplaceTier = (typeof PLUGIN_MARKETPLACE_TIERS)[number];
 
+export const HIDDEN_MARKETPLACE_PLUGIN_IDS: readonly string[] = ['kimi-datasource'];
+
 export interface PluginMarketplaceEntry {
   readonly id: string;
   readonly displayName: string;
@@ -29,6 +31,13 @@ export interface PluginMarketplace {
   readonly source: string;
   readonly version?: string;
   readonly plugins: readonly PluginMarketplaceEntry[];
+}
+
+export function withoutHiddenMarketplacePlugins(marketplace: PluginMarketplace): PluginMarketplace {
+  const hidden = new Set(HIDDEN_MARKETPLACE_PLUGIN_IDS);
+  const plugins = marketplace.plugins.filter((entry) => !hidden.has(entry.id));
+  if (plugins.length === marketplace.plugins.length) return marketplace;
+  return { ...marketplace, plugins };
 }
 
 export type MarketplaceUpdateStatus =

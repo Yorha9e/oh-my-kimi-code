@@ -103,16 +103,6 @@ describe('loadPluginMarketplace', () => {
     expect(marketplace.version).toBe('1');
     expect(marketplace.plugins.slice(0, 2)).toEqual([
       {
-        id: 'kimi-datasource',
-        displayName: 'Kimi Datasource',
-        tier: 'official',
-        version: '1.0.0',
-        description: 'Datasource tools',
-        source: join(dir, 'kimi-datasource'),
-        keywords: ['data'],
-        homepage: undefined,
-      },
-      {
         id: 'superpowers',
         displayName: 'Superpowers',
         tier: 'curated',
@@ -221,11 +211,11 @@ describe('loadPluginMarketplace', () => {
         version: '6.0.3',
       }),
     );
+    expect(marketplace.plugins.find((plugin) => plugin.id === 'kimi-datasource')).toBeUndefined();
     expect(marketplace.plugins).toContainEqual(
       expect.objectContaining({
-        id: 'kimi-datasource',
+        id: 'kimi-webbridge',
         tier: 'official',
-        source: join(REPO_ROOT, 'plugins/official/kimi-datasource'),
       }),
     );
   });
@@ -238,9 +228,9 @@ describe('loadPluginMarketplace', () => {
         JSON.stringify({
           plugins: [
             {
-              id: 'kimi-datasource',
-              displayName: 'Kimi Datasource',
-              source: './official/kimi-datasource.zip',
+              id: 'demo-plugin',
+              displayName: 'Demo Plugin',
+              source: './official/demo-plugin.zip',
             },
           ],
         }),
@@ -255,10 +245,10 @@ describe('loadPluginMarketplace', () => {
     expect(fetchImpl).toHaveBeenCalledWith(kimiCodePluginMarketplaceUrl());
     expect(marketplace.plugins[0]).toEqual(
       expect.objectContaining({
-        id: 'kimi-datasource',
-        displayName: 'Kimi Datasource',
+        id: 'demo-plugin',
+        displayName: 'Demo Plugin',
         source: new URL(
-          './official/kimi-datasource.zip',
+          './official/demo-plugin.zip',
           kimiCodePluginMarketplaceUrl(),
         ).toString(),
       }),
@@ -283,6 +273,7 @@ describe('loadPluginMarketplace', () => {
           source: 'https://github.com/obra/superpowers',
         }),
       );
+      expect(marketplace.plugins.find((plugin) => plugin.id === 'kimi-datasource')).toBeUndefined();
     } finally {
       if (previous === undefined) {
         delete process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV];

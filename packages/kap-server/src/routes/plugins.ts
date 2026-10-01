@@ -11,6 +11,7 @@ import {
   parsePluginMarketplace,
   readPluginMarketplace,
   withLatestVersions,
+  withoutHiddenMarketplacePlugins,
   type MarketplaceLocation,
   type PluginMarketplace,
   type Scope,
@@ -155,7 +156,9 @@ export function registerPluginsRoutes(
       }
       let marketplace: PluginMarketplace;
       try {
-        marketplace = parsePluginMarketplace(read.raw, read.location);
+        marketplace = withoutHiddenMarketplacePlugins(
+          parsePluginMarketplace(read.raw, read.location),
+        );
       } catch (error) {
         reply.send(
           errEnvelope(

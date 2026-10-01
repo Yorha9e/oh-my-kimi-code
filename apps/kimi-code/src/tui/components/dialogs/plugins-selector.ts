@@ -45,7 +45,8 @@ const WEB_BRIDGE_ENTRY: PluginMarketplaceEntry = {
   source: WEB_BRIDGE_URL,
   tier: 'official',
   homepage: WEB_BRIDGE_URL,
-  description: 'Control your real browser from Kimi Code — navigate, click, type, and screenshot',
+  description:
+    'Optional official local browser daemon. Runtime does not need Kimi OAuth; install uses the official CDN and extension.',
 };
 
 // Only the hardcoded pinned row should open the WebBridge install page. Match

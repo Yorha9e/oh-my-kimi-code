@@ -77,9 +77,13 @@ Pass a custom marketplace JSON path or URL to `/plugins marketplace <source>`, o
 
 ## Official Plugins
 
-Official plugins are plugins and built-in product capabilities maintained by Kimi. There are currently three:
+Official plugins are plugins and built-in product capabilities maintained by Kimi. This community fork treats them as **optional official software**, not as something we reimplement:
 
-- **[Kimi Datasource](#kimi-datasource)**: Query financial market data, macroeconomic indicators, corporate registration records, academic literature, and Chinese laws and regulations in natural language
+- **Kimi Datasource** is hidden from the default marketplace. The MCP interface stays in the repo (`plugins/official/kimi-datasource`) and still requires official `/login`; we may remove it later.
+- **[Kimi WebBridge](#kimi-webbridge)** drives your real browser through a local daemon and extension. Runtime does **not** need Kimi OAuth; install and updates still come from the official CDN and store listing. There is no drop-in replacement that keeps your login sessions (Playwright MCP opens an isolated browser).
+- **[Kimi Computer Use](#kimi-computer-use)** operates desktop apps locally. Runtime does **not** need Kimi OAuth; the first install downloads a zip from the official CDN.
+
+- **[Kimi Datasource](#kimi-datasource)**: Query financial market data, macroeconomic indicators, corporate registration records, academic literature, and Chinese laws and regulations in natural language (hidden from the marketplace; install from the repo if you still need it)
 - **[Kimi WebBridge](#kimi-webbridge)**: Let AI drive your own browser to get web tasks done
 - **[Kimi Computer Use](#kimi-computer-use)**: Let AI operate your desktop apps (macOS and Windows)
 
@@ -101,7 +105,7 @@ Official plugins do not update automatically — when an update is available, yo
 
 Kimi Datasource is the official Kimi Code data plugin, letting you query financial market data, macroeconomic indicators, corporate registration records, academic literature, and Chinese laws and regulations in natural language — no manual API calls or data accounts required.
 
-You must first complete OAuth login with a Kimi Code account via `/login`; data queries consume your Kimi Code plan quota.
+You must first complete OAuth login with a Kimi Code account via `/login`; data queries consume your Kimi Code plan quota. In this community edition the plugin is hidden from `/plugins` Official; the MCP server in the repo is unchanged.
 
 #### How to use
 
@@ -146,7 +150,7 @@ You must first complete OAuth login with a Kimi Code account via `/login`; data 
 
 ### Kimi WebBridge <Badge type="tip" text="v1.11.3" />
 
-Kimi WebBridge lets AI drive your browser directly — not an emulator, not a crawler, but the browser you use every day, with your login sessions and cookies. AI can open pages, read content, click buttons, fill in forms, and take screenshots just like you do, taking repetitive web operations off your hands. See the [Kimi WebBridge site](https://www.kimi.com/features/webbridge) for a product overview.
+Kimi WebBridge lets AI drive your browser directly — not an emulator, not a crawler, but the browser you use every day, with your login sessions and cookies. The daemon talks to `127.0.0.1` and does not need Kimi OAuth; only the first install (and updates) hits the official CDN and store. AI can open pages, read content, click buttons, fill in forms, and take screenshots just like you do, taking repetitive web operations off your hands. See the [Kimi WebBridge site](https://www.kimi.com/features/webbridge) for a product overview.
 
 #### Install the browser extension
 
@@ -183,7 +187,7 @@ Use this when you can't reach the stores:
 
 ### Kimi Computer Use <Badge type="tip" text="v0.5.4" />
 
-Kimi Computer Use lets AI operate your desktop apps directly, clicking, dragging, scrolling, and typing. The macOS version works silently in the background without taking over your mouse (a few popup actions may still bring an app to the foreground); see [the notes below](#notes-for-the-windows-version) for how the Windows version differs.
+Kimi Computer Use lets AI operate your desktop apps directly, clicking, dragging, scrolling, and typing. It does not call Kimi OAuth at runtime; the installer only downloads a zip from the official CDN. The macOS version works silently in the background without taking over your mouse (a few popup actions may still bring an app to the foreground); see [the notes below](#notes-for-the-windows-version) for how the Windows version differs.
 
 #### Authorization (macOS)
 

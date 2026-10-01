@@ -501,8 +501,7 @@ describe('server-v2 /api/v1 plugins', () => {
     }>('GET', '/api/v1/plugins/marketplace');
     expect(body.code).toBe(0);
     const datasource = body.data.entries.find((e) => e.id === 'kimi-datasource');
-    expect(datasource?.source.startsWith('http')).toBe(false);
-    expect(datasource?.source.endsWith(join('plugins', 'official', 'kimi-datasource'))).toBe(true);
+    expect(datasource).toBeUndefined();
     const webbridge = body.data.entries.find((e) => e.id === 'kimi-webbridge');
     expect(webbridge?.capabilityId).toBe('kimi-webbridge');
     const cuSupported = process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
@@ -514,7 +513,9 @@ describe('server-v2 /api/v1 plugins', () => {
     expect(cu?.tier).toBe('official');
     expect(cu?.capabilityId).toBe('kimi-cu');
     expect(cu?.source).toBe('capability:kimi-cu');
-    expect(cu?.displayName).toBe('Kimi Computer Use');
+    expect(cu?.displayName).toBe(
+      process.platform === 'win32' ? 'Kimi Computer Use for Windows' : 'Kimi Computer Use',
+    );
 
     const cuSource = await makePluginDir('kimi-cu', '0.5.8');
     await call('POST', '/api/v1/plugins', { source: cuSource });
