@@ -442,22 +442,47 @@ Like the `tools` / `disallowedTools` fields of an agent file, this section shape
 
 ## `services`
 
-`services` configures two built-in services: web search (`moonshot_search`) and web fetch (`moonshot_fetch`). Only these two fixed keys are recognized; other keys are ignored. Both entries share the same fields:
+`services` configures web search (`web_search`) and web fetch (`moonshot_fetch`). The WebSearch tool is listed only when a search provider is configured; otherwise it stays hidden.
+
+### `web_search`
+
+Preferred way to enable WebSearch. `type` selects the HTTP adapter; Moonshot is one option, not the default.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `base_url` | `string` | No | Service API URL |
-| `api_key` | `string` | No | API key |
-| `oauth` | `table` | No | OAuth credential reference, same structure as `providers.*.oauth` |
+| `type` | `string` | Yes | `moonshot`, `stepfun`, or `tavily` |
+| `base_url` | `string` | No | Override the adapter's default endpoint |
+| `api_key` | `string` | No | API key. Required for `stepfun` and `tavily` |
+| `oauth` | `table` | No | OAuth credential reference (`moonshot` only), same structure as `providers.*.oauth` |
 | `custom_headers` | `table<string, string>` | No | Custom HTTP headers attached to each request |
+| `n` | `integer` | No | Result count (`1`–`20`). Sent as `n` to StepFun and `max_results` to Tavily |
+| `category` | `string` | No | StepFun search category (`programming`, `research`, `gov`, `business`) |
 
-`base_url` and `api_key` can also come from environment variables, which take priority over the config file: `KIMI_WEB_SEARCH_BASE_URL` / `KIMI_WEB_SEARCH_API_KEY` for `moonshot_search`, and `KIMI_WEB_FETCH_BASE_URL` / `KIMI_WEB_FETCH_API_KEY` for `moonshot_fetch`. An env base URL defines a separate service endpoint, so the persisted API key, OAuth reference, and custom headers are not forwarded to it; set the matching env API key when that endpoint requires authentication. An env API key without an env base URL keeps the configured endpoint and custom headers but replaces both configured credential forms. Setting the base URL and API key through env without any config section also enables the service.
+Default endpoints: StepFun `https://api.stepfun.com/v1/search`, Tavily `https://api.tavily.com/search`, Moonshot `{kimi coding base}/search`.
 
 ```toml
-[services.moonshot_search]
-base_url = "https://api.moonshot.cn/v1/search"
-api_key = "sk-xxx"
+[services.web_search]
+type = "tavily"
+api_key = "tvly-xxx"
 
+[services.web_search]
+type = "stepfun"
+api_key = "sk-xxx"
+n = 10
+category = "programming"
+```
+
+`KIMI_WEB_SEARCH_TYPE` can set `type`. When `type` is `tavily`, `TAVILY_API_KEY` replaces `api_key` (and drops a persisted OAuth ref). When `type` is `stepfun`, `STEPFUN_API_KEY` does the same. `KIMI_WEB_SEARCH_API_KEY` is a generic fallback for any typed provider. `KIMI_WEB_SEARCH_BASE_URL` still only remaps the Moonshot endpoint (`web_search` with `type = "moonshot"`, or legacy `moonshot_search`); it is not forwarded to Tavily or StepFun.
+
+### `moonshot_search` (legacy)
+
+Still honored as a fallback after `web_search`. Same fields as before (`base_url`, `api_key`, `oauth`, `custom_headers`). `/login` continues to write this table for the official Kimi OAuth search endpoint. `KIMI_WEB_SEARCH_BASE_URL` / `KIMI_WEB_SEARCH_API_KEY` bind here when `web_search.type` is unset.
+
+### `moonshot_fetch`
+
+Web fetch (`FetchURL`). Fields: `base_url`, `api_key`, `oauth`, `custom_headers`. Env: `KIMI_WEB_FETCH_BASE_URL` / `KIMI_WEB_FETCH_API_KEY`. Without an endpoint, signed-in users try the managed Kimi OAuth fetch service before direct local requests.
+
+```toml
 [services.moonshot_fetch]
 base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"

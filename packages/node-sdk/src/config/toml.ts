@@ -19,6 +19,7 @@ import {
   type ModelAlias,
   type MoonshotServiceConfig,
   type OAuthRef,
+  type WebSearchConfig,
   type PermissionConfig,
   type ProviderConfig,
   type SecondaryModelConfig,
@@ -652,10 +653,15 @@ function servicesToToml(services: ServicesConfig, rawServices: unknown): Record<
   } else {
     delete out['moonshot_fetch'];
   }
+  if (services.webSearch !== undefined) {
+    out['web_search'] = serviceToToml(services.webSearch);
+  } else {
+    delete out['web_search'];
+  }
   return out;
 }
 
-function serviceToToml(service: MoonshotServiceConfig): Record<string, unknown> {
+function serviceToToml(service: MoonshotServiceConfig | WebSearchConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(service)) {
     if (key === 'oauth' && value !== undefined) {

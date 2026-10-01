@@ -11,8 +11,14 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 
-import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
+import {
+  SERVICES_SECTION,
+  type ServicesConfig,
+  type WebSearchConfig,
+} from '../configSection';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
+import { StepFunWebSearchProvider } from './providers/stepfun-web-search';
+import { TavilyWebSearchProvider } from './providers/tavily-web-search';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import { IWebSearchProviderService } from './webSearch';
 
@@ -28,11 +34,31 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
-    return this.fromServicesConfig() ?? this.fromManagedOAuth();
+    return this.fromWebSearchConfig() ?? this.fromServicesConfig() ?? this.fromManagedOAuth();
   }
 
   hasWebSearchProvider(): boolean {
-    return this.configuredSearch() !== undefined || this.managedTokenProvider() !== undefined;
+    return (
+      this.configuredTypedSearch() !== undefined ||
+      this.configuredSearch() !== undefined ||
+      this.managedTokenProvider() !== undefined
+    );
+  }
+
+  private configuredTypedSearch(): WebSearchConfig | undefined {
+    const search = this.config.get<ServicesConfig>(SERVICES_SECTION)?.webSearch;
+    if (search?.type === undefined) return undefined;
+    if (search.type === 'stepfun' || search.type === 'tavily') {
+      return nonEmptyString(search.apiKey) === undefined ? undefined : search;
+    }
+    if (
+      nonEmptyString(search.apiKey) === undefined &&
+      search.oauth === undefined &&
+      search.baseUrl === undefined
+    ) {
+      return undefined;
+    }
+    return search;
   }
 
   private configuredSearch(): (ServicesConfig['moonshotSearch'] & { baseUrl: string }) | undefined {
@@ -54,6 +80,45 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     );
     if (tokenProvider === undefined) return undefined;
     return { provider, tokenProvider };
+  }
+
+  private fromWebSearchConfig(): WebSearchProvider | undefined {
+    const search = this.configuredTypedSearch();
+    if (search === undefined) return undefined;
+    const defaultHeaders = { ...this.identity.current().requestHeaders };
+    const apiKey = nonEmptyString(search.apiKey);
+    const tokenProvider =
+      search.oauth === undefined
+        ? undefined
+        : this.oauth.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, search.oauth);
+
+    if (search.type === 'stepfun') {
+      return new StepFunWebSearchProvider({
+        baseUrl: search.baseUrl,
+        apiKey,
+        n: search.n,
+        category: search.category,
+        defaultHeaders,
+        customHeaders: search.customHeaders,
+      });
+    }
+    if (search.type === 'tavily') {
+      return new TavilyWebSearchProvider({
+        baseUrl: search.baseUrl,
+        apiKey,
+        n: search.n,
+        defaultHeaders,
+        customHeaders: search.customHeaders,
+      });
+    }
+    const baseUrl = search.baseUrl ?? `${kimiCodeBaseUrl().replace(/\/+$/, '')}/search`;
+    return new MoonshotWebSearchProvider({
+      baseUrl,
+      tokenProvider,
+      apiKey,
+      defaultHeaders,
+      customHeaders: search.customHeaders,
+    });
   }
 
   private fromServicesConfig(): WebSearchProvider | undefined {

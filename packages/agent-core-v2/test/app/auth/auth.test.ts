@@ -1184,6 +1184,109 @@ describe('WebSearchProviderService', () => {
     };
     expect(svc.hasWebSearchProvider()).toBe(true);
   });
+
+  it('prefers services.web_search over moonshot_search and managed oauth', async () => {
+    servicesConfig = {
+      webSearch: { type: 'tavily', apiKey: 'tvly-test' },
+      moonshotSearch: { baseUrl: 'https://config.example.com/search', apiKey: 'config-key' },
+    };
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'kimi',
+        baseUrl: 'https://managed.example.com/v1',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        results: [{ title: 'Tavily', url: 'https://example.com', content: 'Hit' }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    const results = await provider!.search('hello');
+    expect(results).toEqual([{ title: 'Tavily', url: 'https://example.com', snippet: 'Hit' }]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.tavily.com/search');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer tvly-test');
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'hello', include_answer: false });
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('searches StepFun with query, n, and category', async () => {
+    servicesConfig = {
+      webSearch: {
+        type: 'stepfun',
+        apiKey: 'step-key',
+        n: 5,
+        category: 'programming',
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        results: [
+          {
+            title: 'Step',
+            url: 'https://example.com',
+            snippet: 'Short',
+            content: 'Long',
+            time: '2026-01-02',
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    const results = await provider!.search('hello');
+    expect(results).toEqual([
+      { title: 'Step', url: 'https://example.com', snippet: 'Short', date: '2026-01-02' },
+    ]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.stepfun.com/v1/search');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer step-key');
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: 'hello',
+      n: 5,
+      category: 'programming',
+    });
+  });
+
+  it('hides the tool when web_search type needs a key that is missing', () => {
+    servicesConfig = { webSearch: { type: 'tavily' } };
+    expect(createService().hasWebSearchProvider()).toBe(false);
+    expect(createService().getWebSearchProvider()).toBeUndefined();
+  });
+
+  it('builds moonshot from web_search type without requiring moonshot_search', async () => {
+    servicesConfig = {
+      webSearch: {
+        type: 'moonshot',
+        baseUrl: 'https://search.example.com/search',
+        apiKey: 'search-key',
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    await provider!.search('hello');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://search.example.com/search');
+    expect(JSON.parse(init.body as string)).toEqual({ text_query: 'hello' });
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer search-key');
+  });
 });
 
 describe('services config section', () => {
@@ -1217,6 +1320,12 @@ describe('services config section', () => {
           oauth: { storage: 'file', key: 'oauth/kimi-code', oauth_host: 'https://auth.example.com' },
         },
         moonshot_fetch: { base_url: 'https://api.example.com/fetch', api_key: 'fetch-key' },
+        web_search: {
+          type: 'stepfun',
+          api_key: 'step-key',
+          n: 8,
+          category: 'programming',
+        },
       }),
     ).toEqual({
       moonshotSearch: {
@@ -1226,6 +1335,7 @@ describe('services config section', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code', oauthHost: 'https://auth.example.com' },
       },
       moonshotFetch: { baseUrl: 'https://api.example.com/fetch', apiKey: 'fetch-key' },
+      webSearch: { type: 'stepfun', apiKey: 'step-key', n: 8, category: 'programming' },
     });
   });
 
@@ -1243,6 +1353,7 @@ describe('services config section', () => {
               oauthHost: 'https://auth.example.com',
             },
           },
+          webSearch: { type: 'tavily', apiKey: 'tvly-test', n: 3 },
         },
         { custom_service: { base_url: 'https://service.example.com' } },
       ),
@@ -1253,6 +1364,7 @@ describe('services config section', () => {
         custom_headers: { 'X-Search': '1' },
         oauth: { storage: 'file', key: 'oauth/kimi-code', oauth_host: 'https://auth.example.com' },
       },
+      web_search: { type: 'tavily', api_key: 'tvly-test', n: 3 },
       custom_service: { base_url: 'https://service.example.com' },
     });
   });

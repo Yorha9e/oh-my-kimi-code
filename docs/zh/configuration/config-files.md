@@ -441,22 +441,47 @@ disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
 
 ## `services`
 
-`services` 配置网页搜索（`moonshot_search`）和网页抓取（`moonshot_fetch`）两项内置服务。只识别这两个固定 key，其他 key 会被忽略。两项字段相同：
+`services` 配置网页搜索（`web_search`）和网页抓取（`moonshot_fetch`）。只有配了搜索 provider，WebSearch 工具才会出现在工具列表里；没配则隐藏。
+
+### `web_search`
+
+启用 WebSearch 的首选方式。`type` 选择 HTTP adapter；Moonshot 只是其中一个实现，不是默认。
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `base_url` | `string` | 否 | 服务 API URL |
-| `api_key` | `string` | 否 | API 密钥 |
-| `oauth` | `table` | 否 | OAuth 凭据引用，结构同 `providers.*.oauth` |
+| `type` | `string` | 是 | `moonshot`、`stepfun` 或 `tavily` |
+| `base_url` | `string` | 否 | 覆盖 adapter 默认端点 |
+| `api_key` | `string` | 否 | API 密钥。`stepfun` 和 `tavily` 必填 |
+| `oauth` | `table` | 否 | OAuth 凭据引用（仅 `moonshot`），结构同 `providers.*.oauth` |
 | `custom_headers` | `table<string, string>` | 否 | 请求时附加的自定义 HTTP 头 |
+| `n` | `integer` | 否 | 结果条数（`1`–`20`）。StepFun 发 `n`，Tavily 发 `max_results` |
+| `category` | `string` | 否 | StepFun 检索场景（`programming`、`research`、`gov`、`business`） |
 
-`base_url` 和 `api_key` 也可由环境变量提供，环境变量优先于配置文件：`KIMI_WEB_SEARCH_BASE_URL` / `KIMI_WEB_SEARCH_API_KEY` 对应 `moonshot_search`，`KIMI_WEB_FETCH_BASE_URL` / `KIMI_WEB_FETCH_API_KEY` 对应 `moonshot_fetch`。`KIMI_WEB_SEARCH_BASE_URL` 和 `KIMI_WEB_FETCH_BASE_URL` 定义的是独立服务端点，因此文件中持久化的 API 密钥、OAuth 引用和自定义 header 都不会发送给它；该端点需要鉴权时，请同时设置对应的环境变量 API 密钥。只设置环境变量 API 密钥时，配置中的端点和自定义 header 保持不变，但两种配置凭据都会被替换。不写配置段、只通过环境变量设置 base URL 和 API 密钥，也可以启用对应服务。
+默认端点：StepFun `https://api.stepfun.com/v1/search`，Tavily `https://api.tavily.com/search`，Moonshot `{kimi coding base}/search`。
 
 ```toml
-[services.moonshot_search]
-base_url = "https://api.moonshot.cn/v1/search"
-api_key = "sk-xxx"
+[services.web_search]
+type = "tavily"
+api_key = "tvly-xxx"
 
+[services.web_search]
+type = "stepfun"
+api_key = "sk-xxx"
+n = 10
+category = "programming"
+```
+
+`KIMI_WEB_SEARCH_TYPE` 可用来设置 `type`。`type = "tavily"` 时 `TAVILY_API_KEY` 会替换 `api_key`（并丢掉持久化的 OAuth 引用）；`type = "stepfun"` 时 `STEPFUN_API_KEY` 同样处理。`KIMI_WEB_SEARCH_API_KEY` 是任意 typed provider 的通用后备。`KIMI_WEB_SEARCH_BASE_URL` 仍然只改 Moonshot 端点（`web_search` 且 `type = "moonshot"`，或旧的 `moonshot_search`），不会转发给 Tavily / StepFun。
+
+### `moonshot_search`（兼容）
+
+在 `web_search` 之后作为 fallback。字段与以前相同（`base_url`、`api_key`、`oauth`、`custom_headers`）。`/login` 仍会把官方 Kimi OAuth 搜索端点写进这张表。未设置 `web_search.type` 时，`KIMI_WEB_SEARCH_BASE_URL` / `KIMI_WEB_SEARCH_API_KEY` 仍绑定到这里。
+
+### `moonshot_fetch`
+
+网页抓取（`FetchURL`）。字段：`base_url`、`api_key`、`oauth`、`custom_headers`。环境变量：`KIMI_WEB_FETCH_BASE_URL` / `KIMI_WEB_FETCH_API_KEY`。没有端点时，已登录用户会先尝试 Kimi OAuth 托管抓取，再回退到本地直接请求。
+
+```toml
 [services.moonshot_fetch]
 base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"

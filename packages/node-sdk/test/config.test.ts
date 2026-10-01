@@ -167,6 +167,7 @@ max_context_size = "large"
     });
     expect(config.services?.moonshotSearch?.customHeaders).toEqual({ 'X-Search': '1' });
     expect(config.services?.moonshotFetch?.apiKey).toBe('sk-fetch');
+    expect(config.services?.webSearch).toBeUndefined();
 
     expect('theme' in config).toBe(false);
     expect(config.raw?.['theme']).toBe('dark');
@@ -257,6 +258,20 @@ maxRunningTasks = 2
     const rawModels = config.raw?.['models'] as Record<string, Record<string, unknown>>;
     expect(rawProviders['local']?.['unsupported_provider_field']).toBe('raw-only');
     expect(rawModels['camel-model']?.['custom_model_field']).toBe('raw-only');
+  });
+
+  it('parses [services.web_search] with a typed provider', () => {
+    const config = parseConfigString(`
+[services.web_search]
+type = "tavily"
+api_key = "tvly-test"
+n = 4
+`);
+    expect(config.services?.webSearch).toEqual({
+      type: 'tavily',
+      apiKey: 'tvly-test',
+      n: 4,
+    });
   });
 });
 

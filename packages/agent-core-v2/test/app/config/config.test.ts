@@ -94,10 +94,13 @@ import {
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   SERVICES_SECTION,
+  STEPFUN_API_KEY_ENV,
+  TAVILY_API_KEY_ENV,
   WEB_FETCH_API_KEY_ENV,
   WEB_FETCH_BASE_URL_ENV,
   WEB_SEARCH_API_KEY_ENV,
   WEB_SEARCH_BASE_URL_ENV,
+  WEB_SEARCH_TYPE_ENV,
   type ServicesConfig,
 } from '#/app/auth/configSection';
 import '#/app/mcpConfig/configSection';
@@ -724,6 +727,56 @@ describe('services config section env bindings', () => {
     expect(config.get<ServicesConfig>(SERVICES_SECTION)?.moonshotSearch?.baseUrl).toBe(
       'https://search-env.example/search',
     );
+
+    disposables.dispose();
+  });
+
+  it('does not treat leftover KIMI_WEB_SEARCH_* env as web_search without a type', async () => {
+    const { config, disposables } = createConfig({
+      [WEB_SEARCH_BASE_URL_ENV]: 'https://search-env.example/search',
+      [WEB_SEARCH_API_KEY_ENV]: 'env-search-key',
+      [TAVILY_API_KEY_ENV]: 'tvly-unused',
+    });
+    await config.ready;
+
+    const services = config.get<ServicesConfig>(SERVICES_SECTION);
+    expect(services?.webSearch).toBeUndefined();
+    expect(services?.moonshotSearch).toEqual({
+      baseUrl: 'https://search-env.example/search',
+      apiKey: 'env-search-key',
+    });
+
+    disposables.dispose();
+  });
+
+  it('overlays TAVILY_API_KEY onto [services.web_search] when type is tavily', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = createConfig(env);
+    await config.ready;
+    await config.set(SERVICES_SECTION, {
+      webSearch: { type: 'tavily', oauth: { storage: 'file', key: 'oauth/search' } },
+    });
+    env[TAVILY_API_KEY_ENV] = 'tvly-env';
+
+    expect(config.get<ServicesConfig>(SERVICES_SECTION)?.webSearch).toEqual({
+      type: 'tavily',
+      apiKey: 'tvly-env',
+    });
+
+    disposables.dispose();
+  });
+
+  it('creates web_search from KIMI_WEB_SEARCH_TYPE and STEPFUN_API_KEY', async () => {
+    const { config, disposables } = createConfig({
+      [WEB_SEARCH_TYPE_ENV]: 'stepfun',
+      [STEPFUN_API_KEY_ENV]: 'step-env-key',
+    });
+    await config.ready;
+
+    expect(config.get<ServicesConfig>(SERVICES_SECTION)?.webSearch).toEqual({
+      type: 'stepfun',
+      apiKey: 'step-env-key',
+    });
 
     disposables.dispose();
   });

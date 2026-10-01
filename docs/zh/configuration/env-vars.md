@@ -157,8 +157,11 @@ kimi
 | `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` | 单步失败后的最大总尝试次数（含首次尝试）；优先级高于 `config.toml` 的 `[loop_control] max_attempts_per_step`（默认 `10`）。旧的 `KIMI_LOOP_MAX_RETRIES_PER_STEP` 已废弃，但在本变量未设置时仍生效并给出警告 | 非负整数；非法值被忽略 |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_MODEL_SELECTION` | 为 [`Agent`](../customization/agents.md#调用方式) 子 Agent 类型启用按工作区的模型/思考强度绑定（`.kimi-code/local.toml`，用 `/subagent-model` 管理） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_TOKEN_COUNTING_STRATEGY` | 对外上报的上下文 token 计数（上下文大小显示）；优先级高于 `config.toml` 的 `[token_counting] strategy`（默认 `measured+estimated`） | `measured+estimated`、`measured`、`estimated`（不区分大小写）；非法值被忽略 |
-| `KIMI_WEB_SEARCH_BASE_URL` | 网页搜索（`WebSearch`）服务的 API URL；优先级高于 `config.toml` 的 `[services.moonshot_search] base_url`，未写配置段时也可启用服务。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点 | 非空字符串；空白值被忽略 |
-| `KIMI_WEB_SEARCH_API_KEY` | 网页搜索（`WebSearch`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
+| `KIMI_WEB_SEARCH_TYPE` | 选择 WebSearch adapter（`moonshot`、`stepfun` 或 `tavily`）；优先级高于 `[services.web_search] type`。未设 type 时，遗留的 `KIMI_WEB_SEARCH_*` 仍只绑定到旧的 `moonshot_search` | `moonshot` / `stepfun` / `tavily`；其他值忽略 |
+| `KIMI_WEB_SEARCH_BASE_URL` | Moonshot 搜索 API URL；优先级高于 `[services.moonshot_search] base_url`，以及 `type = "moonshot"` 时的 `[services.web_search]`。不会应用到 Tavily / StepFun。未写配置段时也可启用旧的 Moonshot 服务。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点 | 非空字符串；空白值被忽略 |
+| `KIMI_WEB_SEARCH_API_KEY` | 通用 WebSearch API 密钥。对 typed `web_search` 是 `TAVILY_API_KEY` / `STEPFUN_API_KEY` 之后的后备；对旧的 `moonshot_search` 会同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
+| `TAVILY_API_KEY` | Tavily Search API 密钥；在 `[services.web_search] type` 为 `tavily`（或 `KIMI_WEB_SEARCH_TYPE=tavily`）时使用。替换 `api_key` 并丢掉持久化的 OAuth 引用 | 非空字符串；空白值被忽略 |
+| `STEPFUN_API_KEY` | StepFun 搜索 API 密钥；在 `[services.web_search] type` 为 `stepfun`（或 `KIMI_WEB_SEARCH_TYPE=stepfun`）时使用。替换 `api_key` 并丢掉持久化的 OAuth 引用 | 非空字符串；空白值被忽略 |
 | `KIMI_WEB_FETCH_BASE_URL` | 网页抓取（`FetchURL`）服务的 API URL；优先级高于 `[services.moonshot_fetch] base_url`。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点。环境变量和配置都没有指定端点时，已登录用户会先尝试 Kimi OAuth 托管抓取服务，再回退到本地直接请求 | 非空字符串；空白值被忽略 |
 | `KIMI_WEB_FETCH_API_KEY` | 网页抓取（`FetchURL`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
 | `KIMI_CODE_EXPERIMENTAL_FLAG` | 在当前进程启用所有已注册的实验功能 | `1`、`true`、`yes`、`on` |
