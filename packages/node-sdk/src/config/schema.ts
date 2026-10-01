@@ -1,6 +1,27 @@
 import { parsePattern } from '@moonshot-ai/agent-core-v2/agent/permissionRules/matchesRule';
+import {
+  MoonshotServiceConfigSchema,
+  ServicesConfigSchema,
+  WEB_SEARCH_TYPES,
+  WebSearchConfigSchema,
+  type MoonshotServiceConfig,
+  type ServicesConfig,
+  type WebSearchConfig,
+  type WebSearchType,
+} from '@moonshot-ai/agent-core-v2/app/auth/configSection';
 import { ErrorCodes, KimiError } from '#/errors';
 import { z } from 'zod';
+
+export {
+  MoonshotServiceConfigSchema,
+  ServicesConfigSchema,
+  WEB_SEARCH_TYPES,
+  WebSearchConfigSchema,
+  type MoonshotServiceConfig,
+  type ServicesConfig,
+  type WebSearchConfig,
+  type WebSearchType,
+};
 
 const HOOK_EVENT_TYPES = [
   'PreToolUse',
@@ -275,39 +296,6 @@ export const HookDefSchema = z
   .strict();
 
 export type HookDefConfig = z.infer<typeof HookDefSchema>;
-
-export const MoonshotServiceConfigSchema = z.object({
-  baseUrl: z.string().optional(),
-  apiKey: z.string().optional(),
-  oauth: OAuthRefSchema.optional(),
-  customHeaders: StringRecordSchema.optional(),
-});
-
-export type MoonshotServiceConfig = z.infer<typeof MoonshotServiceConfigSchema>;
-
-export const WEB_SEARCH_TYPES = ['moonshot', 'stepfun', 'tavily'] as const;
-
-export type WebSearchType = (typeof WEB_SEARCH_TYPES)[number];
-
-export const WebSearchConfigSchema = z.object({
-  type: z.enum(WEB_SEARCH_TYPES),
-  baseUrl: z.string().optional(),
-  apiKey: z.string().optional(),
-  oauth: OAuthRefSchema.optional(),
-  customHeaders: StringRecordSchema.optional(),
-  n: z.number().int().min(1).max(20).optional(),
-  category: z.string().optional(),
-});
-
-export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
-
-export const ServicesConfigSchema = z.object({
-  moonshotSearch: MoonshotServiceConfigSchema.optional(),
-  moonshotFetch: MoonshotServiceConfigSchema.optional(),
-  webSearch: WebSearchConfigSchema.optional(),
-});
-
-export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
 const McpServerCommonFields = {
   enabled: z.boolean().optional(),

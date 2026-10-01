@@ -4,10 +4,14 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { WEB_SEARCH_TYPES as EngineWebSearchTypes } from '@moonshot-ai/agent-core-v2/app/auth/configSection';
+
 import { createKimiConfigRpc } from '#/index';
 import {
   parseConfigString,
   readConfigFile,
+  ServicesConfigSchema,
+  WEB_SEARCH_TYPES,
   writeConfigFile,
 } from '#/config/index';
 
@@ -91,6 +95,13 @@ effort = "high"
 `;
 
 describe('SDK config TOML', () => {
+  it('reuses the engine services schema', () => {
+    expect(WEB_SEARCH_TYPES).toBe(EngineWebSearchTypes);
+    expect(ServicesConfigSchema.parse({ webSearch: { type: 'tavily' } }).webSearch?.type).toBe(
+      'tavily',
+    );
+  });
+
   it('resolves config paths through the config RPC wrapper', async () => {
     const dir = await makeTempDir();
     const rpc = createKimiConfigRpc();

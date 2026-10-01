@@ -1,8 +1,7 @@
 /**
  * Native v2 `kimi -p` (print mode) runner.
  *
- * Unlike the v1 path (and the former `V2PromptHarness` / `V2Session` shim), this
- * runner talks to agent-core-v2's native DI services directly — no
+ * This runner talks to agent-core-v2's native DI services directly — no
  * `PromptHarness`, no SDK-shaped session, no v2→v1 event translation. It:
  *   - `bootstrap()`s the app scope,
  *   - creates / resumes a session and its main agent via native services,
@@ -12,8 +11,6 @@
  *     `Turn.result` for authoritative completion,
  *   - applies the print-mode background policy (config-driven, v1-aligned:
  *     `exit` / `drain` / `steer`) before exiting.
- *
- * Selected by `runPrompt` unless `KIMI_CODE_LEGACY_FLAG` is truthy.
  */
 
 import { readFile } from 'node:fs/promises';

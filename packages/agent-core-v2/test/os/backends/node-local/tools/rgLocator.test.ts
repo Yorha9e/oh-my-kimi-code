@@ -222,6 +222,33 @@ describe('ensureRgPath download branch', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('prefers a live probe over host PATH and never downloads', async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const probe = probeWith((args) => (args[0] === 'rg' ? 0 : -1));
+
+    await expect(ensureRgPath(probe, { shareDir: fakeShare, preferProbe: true })).resolves.toEqual({
+      path: 'rg',
+      source: 'system-path',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not download when preferProbe is set and download is false', async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      ensureRgPath(noRgProbe(), {
+        shareDir: fakeShare,
+        preferProbe: true,
+        allowCachedFallback: true,
+        download: false,
+      }),
+    ).rejects.toThrow(/on PATH/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('surfaces a network error when fetch rejects', async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
 

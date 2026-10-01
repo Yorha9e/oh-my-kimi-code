@@ -49,6 +49,8 @@ export interface EnsureRgPathOptions {
   readonly shareDir?: string | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly allowCachedFallback?: boolean;
+  readonly preferProbe?: boolean;
+  readonly download?: boolean;
 }
 
 function rgBinaryName(): string {
@@ -90,10 +92,30 @@ async function resolveRgPath(
   shareDir: string,
   options: EnsureRgPathOptions,
 ): Promise<RgResolution> {
+  if (options.preferProbe === true) {
+    const probed = await probe.exec(['rg', '--version']).catch(() => ({ exitCode: -1 }));
+    if (probed.exitCode === 0) {
+      return { path: 'rg', source: 'system-path' };
+    }
+    if (options.allowCachedFallback === true) {
+      throwIfAborted(options.signal);
+      const cached = join(shareDir, 'bin', rgBinaryName());
+      const cachedRun = await probe.exec([cached, '--version']).catch(() => ({ exitCode: -1 }));
+      if (cachedRun.exitCode === 0) {
+        return { path: cached, source: 'share-bin-cached' };
+      }
+    }
+    if (options.download === true && options.allowCachedFallback === true) {
+      throwIfAborted(options.signal);
+      return downloadRgWithLock(probe, shareDir);
+    }
+    throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, 'ripgrep (rg) is not available on PATH');
+  }
+
   const existing = await findExistingRg(probe, shareDir, options.allowCachedFallback === true);
   if (existing) return existing;
   throwIfAborted(options.signal);
-  if (options.allowCachedFallback === true) {
+  if (options.allowCachedFallback === true && options.download !== false) {
     return downloadRgWithLock(probe, shareDir);
   }
   throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, 'ripgrep (rg) is not available on PATH');
