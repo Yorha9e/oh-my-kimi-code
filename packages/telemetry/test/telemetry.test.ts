@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { flushTelemetrySync, initializeTelemetry, shutdownTelemetry, track } from '../src';
-import { isTelemetryDisabledByEnv } from '../src/bootstrap';
+import { isTelemetryDisabledByEnv, shouldEnableTelemetry } from '../src/bootstrap';
 import { TelemetryClient, resetDefaultTelemetryClientForTests } from '../src/client';
 import { installCrashHandlersForClient, setCrashPhase, uninstallCrashHandlers } from '../src/crash';
 import { EventSink } from '../src/sink';
@@ -824,6 +824,15 @@ describe('telemetry bootstrap', () => {
     expect(isTelemetryDisabledByEnv({ KIMI_DISABLE_TELEMETRY: 'false' })).toBe(false);
   });
 
+  it('is opt-in: unset and false stay off', () => {
+    expect(shouldEnableTelemetry({})).toBe(false);
+    expect(shouldEnableTelemetry({ enabled: false })).toBe(false);
+    expect(shouldEnableTelemetry({ enabled: true })).toBe(true);
+    expect(shouldEnableTelemetry({ enabled: true, env: { KIMI_DISABLE_TELEMETRY: '1' } })).toBe(
+      false,
+    );
+  });
+
   it('disables the singleton without attaching a sink when opted out', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchImpl);
@@ -835,6 +844,7 @@ describe('telemetry bootstrap', () => {
         deviceId: 'dev',
         appName: 'kimi-code-cli',
         version: '1.2.3',
+        enabled: true,
       });
       track('dropped');
       await shutdownTelemetry();
@@ -857,6 +867,7 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
     });
 
     await shutdownTelemetry();
@@ -881,6 +892,7 @@ describe('telemetry bootstrap', () => {
       deviceId: 'dev',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
       endpoint: 'https://mock.test/events',
     });
     track('custom_endpoint');
@@ -898,6 +910,7 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
     });
     track('sync_flush');
 
@@ -917,6 +930,7 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
     });
 
     vi.advanceTimersByTime(1_500);

@@ -200,8 +200,8 @@ export class AuthFlowController {
    * config.  Runs best-effort: individual provider failures are collected
    * and returned instead of thrown.
    */
-  async refreshProviderModels(): Promise<RefreshResult> {
-    return this.refreshProviderModelsWithScope('all');
+  async refreshProviderModels(scope: RefreshProviderScope = 'all'): Promise<RefreshResult> {
+    return this.refreshProviderModelsWithScope(scope);
   }
 
   async refreshOAuthProviderModels(): Promise<RefreshResult> {

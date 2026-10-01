@@ -35,7 +35,7 @@ export async function initializeServerTelemetry(
   const service = core.accessor.get(ITelemetryService);
   const config = core.accessor.get(IConfigService);
   await config.ready;
-  const enabled = config.get('telemetry') !== false;
+  const enabled = config.get('telemetry') === true;
   if (!enabled || isTelemetryDisabledByEnv(core)) return {};
 
   const auth = core.accessor.get(IOAuthToolkit);

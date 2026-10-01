@@ -31,7 +31,7 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import { DEFAULT_OAUTH_PROVIDER_NAME, NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { showUsage } from './info';
@@ -385,7 +385,19 @@ function showEditorPicker(host: SlashCommandHost): void {
   );
 }
 
+async function hasCachedManagedOAuthToken(host: SlashCommandHost): Promise<boolean> {
+  const getter = host.harness.auth?.getCachedAccessToken;
+  if (typeof getter !== 'function') return false;
+  try {
+    const token = await getter.call(host.harness.auth, DEFAULT_OAUTH_PROVIDER_NAME);
+    return typeof token === 'string' && token.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function refreshModelsForPicker(host: SlashCommandHost): Promise<void> {
+  if (!(await hasCachedManagedOAuthToken(host))) return;
   try {
     const result = await withTimeout(
       host.authFlow.refreshOAuthProviderModels(),

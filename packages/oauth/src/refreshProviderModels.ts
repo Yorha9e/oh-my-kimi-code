@@ -60,7 +60,7 @@ export interface RefreshResult {
   readonly failed: ReadonlyArray<{ readonly provider: string; readonly reason: string }>;
 }
 
-export type RefreshProviderScope = 'all' | 'oauth';
+export type RefreshProviderScope = 'all' | 'oauth' | 'non-oauth';
 
 export interface RefreshProviderOptions {
   readonly scope?: RefreshProviderScope;
@@ -372,7 +372,8 @@ function pickDefaultModel(
  * Each branch diffs old vs new and only writes when something actually changed
  * (`removeProvider` then `setConfig`). Failures are collected per-provider and
  * never abort the whole refresh. Pass `providerId` to scope the refresh to a
- * single provider; pass `scope: 'oauth'` to refresh only the managed provider.
+ * single provider; pass `scope: 'oauth'` to refresh only the managed provider;
+ * pass `scope: 'non-oauth'` to skip the managed OAuth branch.
  */
 export async function refreshProviderModels(
   host: RefreshProviderHost,
@@ -392,6 +393,7 @@ export async function refreshProviderModels(
   const managedProvider = readProvider(config, KIMI_CODE_PROVIDER_NAME);
   const managedWanted = targetId === undefined || targetId === KIMI_CODE_PROVIDER_NAME;
   if (
+    scope !== 'non-oauth' &&
     managedWanted &&
     managedProvider !== undefined &&
     managedProvider.type === 'kimi' &&

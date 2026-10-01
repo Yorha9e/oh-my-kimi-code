@@ -233,7 +233,6 @@ registerProviderDefinition({
   traits: [kimiOpenAITrait],
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
-  modelSource: 'oauth-catalog',
 });
 
 registerProviderDefinition({
@@ -242,5 +241,4 @@ registerProviderDefinition({
   traits: [kimiAnthropicTrait],
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
-  modelSource: 'oauth-catalog',
 });

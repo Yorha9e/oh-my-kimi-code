@@ -108,9 +108,11 @@ import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
 import {
+  DEFAULT_OAUTH_PROVIDER_NAME,
   LLM_NOT_SET_MESSAGE,
   MAIN_AGENT_ID,
   NO_ACTIVE_SESSION_MESSAGE,
+  OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
   PRODUCT_NAME,
   SESSION_LIST_PAGE_SIZE,
   SESSIONLESS_STARTUP_NOTICE,
@@ -769,7 +771,7 @@ export class KimiTUI {
 
   private async refreshProviderModelsInBackground(): Promise<void> {
     try {
-      const result = await this.authFlow.refreshProviderModels();
+      const result = await this.authFlow.refreshProviderModels('non-oauth');
       for (const c of result.changed) {
         if (c.added <= 0) continue;
         this.showStatus(`${c.providerName} · +${String(c.added)} model${c.added > 1 ? 's' : ''}.`);
@@ -936,8 +938,16 @@ export class KimiTUI {
       }
     } catch (error) {
       if (!isOAuthLoginRequiredError(error)) throw error;
-      this.authFlow.enterLoginRequiredStartupState();
-      return false;
+      const providers = this.state.appState.availableProviders ?? {};
+      const hasOtherProvider = Object.keys(providers).some((id) => id !== DEFAULT_OAUTH_PROVIDER_NAME);
+      if (this.engineV2 || hasOtherProvider) {
+        this.appendStartupNotice(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
+        session = undefined;
+        shouldReplayHistory = false;
+      } else {
+        this.authFlow.enterLoginRequiredStartupState();
+        return false;
+      }
     }
 
     if (!this.engineV2 && session === undefined) {

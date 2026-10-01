@@ -60,7 +60,7 @@ import {
   type ProviderConfig,
   type ProvidersChangedEvent,
 } from '#/kosong/provider/provider';
-import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
+
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import {
@@ -716,10 +716,9 @@ interface ManagedModel {
 function isOAuthCatalogProvider(
   provider: ProviderConfig | Record<string, unknown> | undefined,
 ): provider is ProviderConfig & { oauth: OAuthRef } {
-  const type = (provider as ProviderConfig | undefined)?.type;
   return (
     provider !== undefined &&
-    isOAuthCatalogVendor(type) &&
+    (provider as ProviderConfig).type === 'kimi' &&
     (provider as ProviderConfig).oauth !== undefined
   );
 }

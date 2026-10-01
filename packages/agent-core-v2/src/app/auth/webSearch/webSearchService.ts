@@ -10,7 +10,6 @@ import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
-import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
 
 import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
@@ -46,7 +45,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     | { provider: ProviderConfig; tokenProvider: BearerTokenProvider }
     | undefined {
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
+    if (provider === undefined || provider.oauth === undefined) {
       return undefined;
     }
     const tokenProvider = this.oauth.resolveTokenProvider(

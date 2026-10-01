@@ -330,6 +330,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       })),
       login: vi.fn(),
       logout: vi.fn(),
+      getCachedAccessToken: vi.fn(async (): Promise<string | undefined> => undefined),
       getManagedUsage: vi.fn(),
       submitFeedback: vi.fn(
         async (): Promise<
@@ -7625,8 +7626,43 @@ command = "vim"
     });
   });
 
-  it('refreshes only OAuth provider models before opening /model picker', async () => {
+  it('opens /model picker without OAuth refresh when no managed token is cached', async () => {
     const { driver } = await makeDriver(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: {
+            provider: 'openai',
+            model: 'gpt-test',
+            maxContextSize: 100,
+            displayName: 'Local GPT',
+            capabilities: ['thinking'],
+          },
+        },
+      })),
+    });
+    const tui = driver as unknown as KimiTUI;
+    const refreshOAuthProviderModels = vi.fn(async () => {
+      throw new Error('oauth catalog must not refresh without a cached token');
+    });
+    (
+      tui.authFlow as unknown as {
+        refreshOAuthProviderModels: typeof refreshOAuthProviderModels;
+      }
+    ).refreshOAuthProviderModels = refreshOAuthProviderModels;
+
+    driver.handleUserInput('/model');
+
+    await vi.waitFor(() => {
+      const picker = driver.state.editorContainer.children[0];
+      expect(picker).toBeInstanceOf(TabbedModelSelectorComponent);
+      const output = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
+      expect(output).toContain('Local GPT');
+    });
+    expect(refreshOAuthProviderModels).not.toHaveBeenCalled();
+  });
+
+  it('refreshes only OAuth provider models before opening /model picker', async () => {
+    const { driver, harness } = await makeDriver(makeSession(), {
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
@@ -7639,6 +7675,7 @@ command = "vim"
         },
       })),
     });
+    harness.auth.getCachedAccessToken = vi.fn(async () => 'tok');
     const tui = driver as unknown as KimiTUI;
     const refreshProviderModels = vi
       .spyOn(tui.authFlow, 'refreshProviderModels')
@@ -7678,7 +7715,7 @@ command = "vim"
   });
 
   it('opens /model picker after 2s when OAuth refresh is still pending', async () => {
-    const { driver } = await makeDriver(makeSession(), {
+    const { driver, harness } = await makeDriver(makeSession(), {
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
@@ -7691,6 +7728,7 @@ command = "vim"
         },
       })),
     });
+    harness.auth.getCachedAccessToken = vi.fn(async () => 'tok');
     const tui = driver as unknown as KimiTUI;
     const refreshOAuthProviderModels = vi.fn(() => new Promise<never>(() => {}));
     (
@@ -7702,7 +7740,7 @@ command = "vim"
     vi.useFakeTimers();
     try {
       driver.handleUserInput('/model');
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
 
       expect(refreshOAuthProviderModels).toHaveBeenCalledOnce();
       expect(driver.state.editorContainer.children[0]).not.toBeInstanceOf(TabbedModelSelectorComponent);

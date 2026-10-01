@@ -1274,6 +1274,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-tel-work-'));
     tempDirs.push(workDir);
+    await writeFile(join(homeDir, 'config.toml'), 'telemetry = true\n', 'utf-8');
     const records: TelemetryRecord[] = [];
     const harness = createKimiHarness({
       homeDir,

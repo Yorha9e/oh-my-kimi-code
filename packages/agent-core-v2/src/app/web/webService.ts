@@ -10,7 +10,6 @@ import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IProviderService } from '#/kosong/provider/provider';
-import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
 
 import { LocalFetchURLProvider } from './providers/local-fetch-url';
 import { MoonshotFetchURLProvider } from './providers/moonshot-fetch-url';
@@ -56,7 +55,7 @@ export class WebFetchService implements IWebFetchService {
 
   private fromManagedOAuth(): UrlFetcher | undefined {
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
+    if (provider === undefined || provider.oauth === undefined) {
       return undefined;
     }
     const tokenProvider = this.oauth.resolveTokenProvider(

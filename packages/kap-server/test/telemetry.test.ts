@@ -69,8 +69,15 @@ describe('server telemetry', () => {
     return app;
   }
 
-  it('attaches the cloud appender by default and persists the device id', async () => {
+  it('does not attach the cloud appender when telemetry is unset', async () => {
     const app = await bootCore();
+    const telemetry = await initializeServerTelemetry(app, home as string);
+    expect(telemetry.appender).toBeUndefined();
+    await shutdownServerTelemetry(telemetry);
+  });
+
+  it('attaches the cloud appender when telemetry = true and persists the device id', async () => {
+    const app = await bootCore('telemetry = true\n');
     const telemetry = await initializeServerTelemetry(app, home as string);
     expect(telemetry.appender).toBeDefined();
     expect(readKimiDeviceId(home as string)).not.toBeNull();
@@ -86,7 +93,7 @@ describe('server telemetry', () => {
     };
     const hostTelemetry = new TelemetryService();
     hostTelemetry.addAppender(hostAppender);
-    const app = await bootCore(undefined, undefined, [[ITelemetryService, hostTelemetry]]);
+    const app = await bootCore('telemetry = true\n', undefined, [[ITelemetryService, hostTelemetry]]);
     const telemetry = await initializeServerTelemetry(app, home as string);
     const service = app.accessor.get(ITelemetryService);
 
@@ -107,7 +114,7 @@ describe('server telemetry', () => {
       _serviceBrand: undefined,
       getCachedAccessToken: () => new Promise<undefined>(() => {}),
     } as unknown as IOAuthToolkit;
-    const app = await bootCore(undefined, undefined, [[IOAuthToolkit, auth]]);
+    const app = await bootCore('telemetry = true\n', undefined, [[IOAuthToolkit, auth]]);
     const telemetry = await initializeServerTelemetry(app, home as string);
     app.accessor.get(ITelemetryService).track('server_probe');
 

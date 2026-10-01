@@ -16,7 +16,7 @@ import { IEventService } from '#/app/event/event';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
 import { IProviderService } from '#/kosong/provider/provider';
-import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
+
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
@@ -98,11 +98,7 @@ export class SessionTitleService implements ISessionTitleService {
     const current = await this.metadata.read();
     if (!force && current.titleKind === 'custom') return undefined;
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (
-      provider === undefined ||
-      !isOAuthCatalogVendor(provider.type) ||
-      provider.oauth === undefined
-    ) {
+    if (provider === undefined || provider.oauth === undefined) {
       return undefined;
     }
     const runtimeAuth = resolveKimiCodeRuntimeAuth({

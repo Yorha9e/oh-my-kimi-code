@@ -34,6 +34,7 @@ import {
   getProviderDefinition,
   getProviderDefinitions,
   hasProviderDefinition,
+  isOAuthCatalogVendor,
   registerProviderDefinition,
   resolveProviderEndpoint,
 } from '#/kosong/provider/providerDefinition';
@@ -423,8 +424,9 @@ describe('kimi provider definitions', () => {
         defaultBaseUrl: 'https://api.moonshot.ai/v1',
       });
       expect(definition?.hostHeaders).toBe('full');
-      expect(definition?.modelSource).toBe('oauth-catalog');
+      expect(definition?.modelSource).toBeUndefined();
     }
+    expect(isOAuthCatalogVendor('kimi')).toBe(false);
   });
 
   it('answers id-level queries and reports unregistered pairs', () => {
