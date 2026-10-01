@@ -7860,11 +7860,11 @@ command = "vim"
         );
       });
       expect(copyTextToClipboard).toHaveBeenCalledWith(
-        "cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        "cd '/tmp/proj-a' && omkc --resume 'ses-fork'",
       );
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
-        "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        "To enter the fork in a new process, run: cd '/tmp/proj-a' && omkc --resume 'ses-fork'",
       );
       expect(transcript).toContain('Command copied to clipboard');
       expect(driver.getCurrentSessionId()).toBe('ses-source');
@@ -7891,7 +7891,7 @@ command = "vim"
     await vi.waitFor(() => {
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
-        "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        "To enter the fork in a new process, run: cd '/tmp/proj-a' && omkc --resume 'ses-fork'",
       );
       expect(transcript).toContain('Failed to copy command to clipboard');
     });
@@ -7932,7 +7932,7 @@ command = "vim"
       // cmd.exe's `cd` does not switch drives; pushd works in cmd + PowerShell.
       await vi.waitFor(() => {
         expect(copyTextToClipboard).toHaveBeenCalledWith(
-          'pushd "D:\\proj" && kimi --resume "ses-fork"',
+          'pushd "D:\\proj" && omkc --resume "ses-fork"',
         );
       });
       expect(driver.getCurrentSessionId()).toBe('ses-source');

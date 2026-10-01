@@ -25,15 +25,15 @@ const mocks = vi.hoisted(() => ({
             role: 'meta',
             type: 'session.resume_hint',
             session_id: 'ses_prompt',
-            command: 'kimi -r ses_prompt',
-            content: 'To resume this session: kimi -r ses_prompt',
+            command: 'omkc -r ses_prompt',
+            content: 'To resume this session: omkc -r ses_prompt',
           })}\n`,
         );
         return;
       }
       stderr.write(`kimi version ${version}\n`);
       stdout.write('• hello world\n\n');
-      stderr.write('To resume this session: kimi -r ses_prompt\n');
+      stderr.write('To resume this session: omkc -r ses_prompt\n');
     },
   ),
 }));
