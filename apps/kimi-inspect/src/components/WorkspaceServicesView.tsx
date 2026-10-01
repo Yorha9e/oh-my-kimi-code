@@ -7,7 +7,7 @@
  * workspaces and registers a picked folder on demand. The proxies resolve on
  * the `/workspace/:id` route, so a workspace must be selected before any
  * Service is callable. Picking one materializes its handler on demand
- * server-side (`IWorkspaceLifecycleService.handlerFor` is create-or-get), no
+ * server-side (`IWorkspaceInstanceManager.getOrCreate` is create-or-get), no
  * manual join needed.
  */
 

@@ -1,8 +1,8 @@
 # 总架构图
 
-索引入口是 [index.md](index.md)。七张切片图接在这张图上。切片内部的模块不要再画进总图。箭头是 `package.json` 里的 workspace 依赖，方向是「谁依赖谁」。
+索引入口是 [index.md](index.md)。切片图接在这张图上。切片内部的模块不要再画进总图。箭头是 `package.json` 里的 workspace 依赖，方向是「谁依赖谁」。
 
-`agent-core`、`acp-adapter`、`protocol` 已删除，所以 03 与 06 两张是历史切片，只作考古参考；其余五张描述现状。
+`agent-core`、`acp-adapter`、`protocol` 已删除。03 与 06 两张切片只作考古；其余描述现状。包级依赖的文字版在 `docs/architecture-map.md`。
 
 切片正文：
 
@@ -13,8 +13,6 @@
 - [04 v2 外壳](slices/04-v2-shell.md)
 - [05 v2 外沿](slices/05-v2-edge.md)
 - [06 宿主层（原双引擎结，v1 已删除）](slices/06-knot.md)
-
-包级依赖的文字版在 `docs/architecture-map.md`。
 
 ```mermaid
 flowchart TB
@@ -36,8 +34,7 @@ flowchart TB
     core[核心 DI / agent / session / kosong]
   end
 
-  subgraph legacy [03 v1 遗留]
-    v1[agent-core]
+  subgraph legacy [03 旧数据面]
     mig[migration-legacy]
     vis[vis/server]
   end
@@ -50,7 +47,6 @@ flowchart TB
   subgraph leaves [01 地基]
     kaos[kaos]
     kosong[kosong]
-    protocol[protocol]
     oauth[oauth]
     telemetry[telemetry]
     tsb[tree-sitter-bash]
@@ -60,7 +56,6 @@ flowchart TB
   cli --> sdk
   cli --> acpNew
   cli --> kap
-  cli --> shell
   cli --> mig
   cli --> minidb
   cli --> oauth
@@ -70,8 +65,6 @@ flowchart TB
   vscode --> sdk
   vscode --> mig
 
-  acpOld --> sdk
-  acpOld --> kaos
   sdk --> core
   sdk --> klient
   sdk --> kaos
@@ -79,11 +72,9 @@ flowchart TB
   sdk --> oauth
 
   acpNew --> klient
-  acpNew --> protocol
   kap --> oauth
   kap --> minidb
   kap --> transcript
-  klient --> protocol
   inspect --> transcript
   kap --> shell
   acpNew --> shell
@@ -94,23 +85,18 @@ flowchart TB
   core --> minidb
   core --> kosong
   core --> oauth
-  core --> protocol
   core --> tsb
 
   mig --> core
   mig --> kaos
   vis --> core
   vis --> kosong
-  mig --> kaos
-  vis --> kosong
-  mig --> oauth
-  v1 --> protocol
 ```
 
 接线时定下来的几条：
 
 - v2 在总图里是一块。外壳和核心的分界只在 04 的两张切片里。外沿和 SDK 依赖的是整个 `agent-core-v2`，不是某几个服务。
-- v1 的包依赖一直在。`KIMI_CODE_LEGACY_FLAG` 只决定 CLI 运行时走哪台引擎，不能当成 SDK 已经不编译 v1。
-- `kimi web` 不进这张产品结。它只进 kap-server，见 05。
+- 只剩一台引擎。没有 `KIMI_CODE_LEGACY_FLAG`，也不要从官方树把 v1 抄回来。
+- `kimi web` 不进这张产品结。本仓没有可改的 web 源码；预构建包在 `apps/kimi-code/dist-web`，永远走 kap-server。
 - `minidb` 和 `transcript` 互不依赖。全文索引在 minidb 里，transcript 是另一套只读渲染契约。
-- 地基七个包之间没有边。kosong 的 provider 和 v2 `src/kosong` 是镜像，改地基时要同时看 04 核心，总图上不把镜像画成依赖。
+- 地基叶子包之间没有边。kosong 的 provider 和 v2 `src/kosong` 是镜像，改地基时要同时看 04 核心，总图上不把镜像画成依赖。

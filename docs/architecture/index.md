@@ -12,25 +12,19 @@
 
 | 块 | 切片 | 图数据 | 里面是什么 | 依赖谁 |
 |---|---|---|---|---|
-| 01 地基 | [01-leaves.md](slices/01-leaves.md) | `01-leaves` | `kaos`、`kosong`、`protocol`、`oauth`、`telemetry`、`tree-sitter-bash`、`pi-tui`。彼此没有边 | 无 |
+| 01 地基 | [01-leaves.md](slices/01-leaves.md) | `01-leaves` | `kaos`、`kosong`、`oauth`、`telemetry`、`tree-sitter-bash`、`pi-tui`。彼此没有边 | 无 |
 | 02 v2 存储 | [02-v2-store.md](slices/02-v2-store.md) | `02-v2-store` | `minidb`（MiniDb、WAL、TextIndex、代）和 `transcript`（契约、操作、store）。两包互不依赖 | 无 |
 | 03 旧数据面 | [03-v1.md](slices/03-v1.md) | `03-v1`（已删，仅考古） | 删除前是 `agent-core` 的 KimiCore / Session / Agent，加上 `migration-legacy`、`vis/server` | 当时：kaos、kosong、oauth、protocol |
-| 04 v2 核心 | [04-v2-core.md](slices/04-v2-core.md) | `04-v2-core` | DI 内核、agent 循环、session 域、kosong 镜像 | 地基的 kosong、oauth、protocol、tree-sitter-bash，以及 minidb |
-| 04 v2 外壳 | [04-v2-shell.md](slices/04-v2-shell.md) | `04-v2-shell` | App 级服务、Program、工作区实例、features。没有 Workspace 这一层 DI | 04 核心，外加 oauth、protocol、minidb |
-| 05 v2 外沿 | [05-v2-edge.md](slices/05-v2-edge.md) | `05-v2-edge` | `klient`、`kap-server`、`acp-server`、`kimi-inspect`。`kimi web` 只进 kap-server | 整个 agent-core-v2，再加 protocol、oauth、minidb、transcript |
+| 04 v2 核心 | [04-v2-core.md](slices/04-v2-core.md) | `04-v2-core` | DI 内核、agent 循环、session 域、kosong 镜像 | 地基的 kosong、oauth、tree-sitter-bash，以及 minidb |
+| 04 v2 外壳 | [04-v2-shell.md](slices/04-v2-shell.md) | `04-v2-shell` | App 级服务、Program、工作区实例、features。没有 Workspace 这一层 DI | 04 核心，外加 oauth、minidb |
+| 05 v2 外沿 | [05-v2-edge.md](slices/05-v2-edge.md) | `05-v2-edge` | `klient`、`kap-server`、`acp-server`、`kimi-inspect`。web 预构建包只进 kap-server | 整个 agent-core-v2，再加 oauth、minidb、transcript |
 | 06 宿主层 | [06-knot.md](slices/06-knot.md) | `06-knot`（已删 v1，仅考古） | CLI、VS Code 扩展、`kimi-code-sdk`、当时的 `acp-adapter` | 当时：两台引擎、外沿、地基、存储 |
 
 04 的两张切片合成总图里的一块「v2 引擎」。外沿和 SDK 依赖的是整包，不是其中某一个服务。
 
-## 谁拉着 v1
+## v1
 
-只看总图的话，v1 还留在三条边上：
-
-- `kimi-code-sdk` → `agent-core`
-- `acp-adapter` → `agent-core`
-- `migration-legacy` / `vis/server` → `agent-core`
-
-`KIMI_CODE_LEGACY_FLAG` 只选择 CLI 运行时走哪台引擎。SDK 的包依赖不受这个开关控制。
+引擎包 `agent-core`、`acp-adapter`、`protocol` 已删除。不要从官方树把它们抄回来。`migration-legacy` 和 `vis/server` 现在只依赖 v2。
 
 ## 重构时的阅读顺序
 

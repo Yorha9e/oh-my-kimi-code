@@ -226,24 +226,24 @@ Read it as:
 Worked example — `sessionLifecycle`:
 
 ```text
-domain: `sessionLifecycle`   (owning scope: Workspace)
+domain: `sessionLifecycle`   (owned by Program generation, not a DI scope)
 ├─ serves (who uses me)
 │   ├─ (inject)   — (none)
 │   └─ (accessor)
 │       ├─ sessionLegacy     @App(edge)  — v1-compatible create/fork/archive/…
 │       └─ gateway / rpc     @App(edge)  — native v2 session lifecycle actions
 ├─ exposes (interfaces I provide, by scope)
-│   ├─ Workspace : ISessionLifecycleService — owns this workspace's live session scope tree
+│   ├─ Program   : ISessionLifecycleService — owns this workspace's live session scope tree
 │   ├─ Session   : —                    — (per-session state lives in sessionMetadata / agentLifecycle / …)
 │   └─ Agent     : —                    — (per-agent state lives in agentLifecycle)
 └─ depends (what I inject)
-    ├─ workspaceContext  @Workspace  seed    — handler identity + persistence scope
+    ├─ workspaceContext  Program   seed    — instance identity + persistence scope
     ├─ bootstrap         @App        direct  — addresses session storage
     ├─ hostEnvironment   @App        direct  — gates scope creation on the probe
     ├─ sessionIndex      @App        direct  — persisted read model for cold resumes
     ├─ storage           @App        direct  — atomic docs + append logs
     ├─ workspaceDirs / workspaceSkillCatalog / workspaceMcp / …
-    │                    @Workspace  direct  — the handler's shared resource services
+    │                    Program   direct  — the generation's shared resource services
     └─ event             @App        direct  — broadcasts session-level facts (e.g. archived)
 ```
 
@@ -251,12 +251,11 @@ Cross-scope borrow for `sessionLifecycle`:
 
 ```text
 App scope
-  WorkspaceLifecycleService ──holds──► IScopeHandle(workspaceId)   (one per live handler)
+  IWorkspaceInstanceManager ──holds──► WorkspaceInstance(workspaceId)
                                             │
-                                            │  accessor.get(ISessionLifecycleService)
-                                            │   └── resolve runs inside the Workspace scope
+                                            │  Program.createSessionController()
                                             ▼
-                                      Workspace scope (workspaceId)
+                                      Program generation (not a DI scope)
                                         SessionLifecycleService ──holds──► IScopeHandle(sessionId)
                                                                               │
                                                                               │  accessor.get(ISessionMetadata) …

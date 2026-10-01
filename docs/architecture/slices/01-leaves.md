@@ -6,7 +6,6 @@
 flowchart TB
   cli[Kimi Code CLI]
   sdk[kimi-code-sdk]
-  v1["agent-core (v1)"]
   v2[agent-core-v2]
   vis[vis/server]
 
@@ -23,13 +22,8 @@ flowchart TB
   sdk --> kaos
   sdk --> oauth
   sdk --> kosong
-  v1 --> kaos
-  v1 --> kosong
-  v1 --> oauth
-  v1 --> protocol
   v2 --> kosong
   v2 --> oauth
-  v2 --> protocol
   v2 --> tsb
   vis --> kosong
 ```
@@ -38,8 +32,7 @@ flowchart TB
 
 这层对外只暴露下面这些出边，除此之外不声称任何依赖关系：
 
-- **agent-core（v1）**：`kaos`、`kosong`、`oauth`、`protocol`
-- **agent-core-v2**：`kosong`、`oauth`、`protocol`、`tree-sitter-bash`
+- **agent-core-v2**：`kosong`、`oauth`、`tree-sitter-bash`
 - **kimi-code-sdk**：`kaos`、`oauth`、`kosong`
 - **Kimi Code CLI**：`oauth`、`telemetry`、`pi-tui`
 - **vis/server**：`kosong`
