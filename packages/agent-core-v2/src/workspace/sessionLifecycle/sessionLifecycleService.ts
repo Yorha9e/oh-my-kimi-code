@@ -110,8 +110,60 @@ const SESSION_CREATE_RELOAD_SKILL_SOURCES: readonly string[] = [
   PLUGIN_SKILL_SOURCE_ID,
 ];
 
+export interface SessionLifecycleDeps {
+  readonly instantiation: IInstantiationService;
+  readonly workspaceContext: IWorkspaceContext;
+  readonly bootstrap: IBootstrapService;
+  readonly config: IConfigService;
+  readonly index: ISessionIndex;
+  readonly indexMirror: ISessionIndexMirror;
+  readonly appendLogStore: IAppendLogStore;
+  readonly docs: IAtomicDocumentStore;
+  readonly hostFs: IHostFileSystem;
+  readonly event: IEventService;
+  readonly telemetry: ITelemetryService;
+  readonly workspaceAgentProfileLoader: IWorkspaceAgentProfileLoader;
+  readonly extraAgentProfileLoader: IExtraAgentProfileLoader;
+  readonly explicitAgentProfileLoader: IExplicitAgentProfileLoader;
+  readonly userAgentProfileLoader: IUserAgentProfileLoader;
+  readonly pluginAgentProfileLoader: IPluginAgentProfileLoader;
+  readonly workspaceDirs: IWorkspaceDirs;
+  readonly workspaceSkillCatalog: IWorkspaceSkillCatalog;
+  readonly workspaceInstructions: IWorkspaceInstructionsService;
+  readonly workspaceMcp: IWorkspaceMcpService;
+  readonly modelCatalog: IModelCatalog;
+  readonly models: IModelService;
+  readonly providers: IProviderService;
+  readonly flags: IFlagService;
+  readonly onDispose?: () => void;
+}
+
 export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
+  private readonly instantiation: IInstantiationService;
+  private readonly workspaceContext: IWorkspaceContext;
+  private readonly bootstrap: IBootstrapService;
+  private readonly config: IConfigService;
+  private readonly index: ISessionIndex;
+  private readonly indexMirror: ISessionIndexMirror;
+  private readonly appendLogStore: IAppendLogStore;
+  private readonly docs: IAtomicDocumentStore;
+  private readonly hostFs: IHostFileSystem;
+  private readonly event: IEventService;
+  private readonly telemetry: ITelemetryService;
+  private readonly workspaceAgentProfileLoader: IWorkspaceAgentProfileLoader;
+  private readonly extraAgentProfileLoader: IExtraAgentProfileLoader;
+  private readonly explicitAgentProfileLoader: IExplicitAgentProfileLoader;
+  private readonly userAgentProfileLoader: IUserAgentProfileLoader;
+  private readonly pluginAgentProfileLoader: IPluginAgentProfileLoader;
+  private readonly workspaceDirs: IWorkspaceDirs;
+  private readonly workspaceSkillCatalog: IWorkspaceSkillCatalog;
+  private readonly workspaceInstructions: IWorkspaceInstructionsService;
+  private readonly workspaceMcp: IWorkspaceMcpService;
+  private readonly modelCatalog: IModelCatalog;
+  private readonly models: IModelService;
+  private readonly providers: IProviderService;
+  private readonly flags: IFlagService;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
   private readonly _onWillCreateSession = this._register(
     new Emitter<SessionWillCreateEvent>(),
@@ -137,40 +189,33 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   private readonly resuming = new Map<string, Promise<ISessionScopeHandle | undefined>>();
   private readonly resumeFailures = new Map<string, Error>();
 
-  constructor(
-    private readonly instantiation: IInstantiationService,
-    @IWorkspaceContext private readonly workspaceContext: IWorkspaceContext,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IConfigService private readonly config: IConfigService,
-    @ISessionIndex private readonly index: ISessionIndex,
-    @ISessionIndexMirror private readonly indexMirror: ISessionIndexMirror,
-    @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
-    @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
-    @IHostFileSystem private readonly hostFs: IHostFileSystem,
-    @IEventService private readonly event: IEventService,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IWorkspaceAgentProfileLoader
-    private readonly workspaceAgentProfileLoader: IWorkspaceAgentProfileLoader,
-    @IExtraAgentProfileLoader
-    private readonly extraAgentProfileLoader: IExtraAgentProfileLoader,
-    @IExplicitAgentProfileLoader
-    private readonly explicitAgentProfileLoader: IExplicitAgentProfileLoader,
-    @IUserAgentProfileLoader
-    private readonly userAgentProfileLoader: IUserAgentProfileLoader,
-    @IPluginAgentProfileLoader
-    private readonly pluginAgentProfileLoader: IPluginAgentProfileLoader,
-    @IWorkspaceDirs private readonly workspaceDirs: IWorkspaceDirs,
-    @IWorkspaceSkillCatalog private readonly workspaceSkillCatalog: IWorkspaceSkillCatalog,
-    @IWorkspaceInstructionsService private readonly workspaceInstructions: IWorkspaceInstructionsService,
-    @IWorkspaceMcpService private readonly workspaceMcp: IWorkspaceMcpService,
-    @IModelCatalog private readonly modelCatalog: IModelCatalog,
-    @IModelService private readonly models: IModelService,
-    @IProviderService private readonly providers: IProviderService,
-    @IFlagService private readonly flags: IFlagService,
-    onDispose?: () => void,
-  ) {
+  constructor(deps: SessionLifecycleDeps) {
     super();
-    if (onDispose !== undefined) this._register({ dispose: onDispose });
+    this.instantiation = deps.instantiation;
+    this.workspaceContext = deps.workspaceContext;
+    this.bootstrap = deps.bootstrap;
+    this.config = deps.config;
+    this.index = deps.index;
+    this.indexMirror = deps.indexMirror;
+    this.appendLogStore = deps.appendLogStore;
+    this.docs = deps.docs;
+    this.hostFs = deps.hostFs;
+    this.event = deps.event;
+    this.telemetry = deps.telemetry;
+    this.workspaceAgentProfileLoader = deps.workspaceAgentProfileLoader;
+    this.extraAgentProfileLoader = deps.extraAgentProfileLoader;
+    this.explicitAgentProfileLoader = deps.explicitAgentProfileLoader;
+    this.userAgentProfileLoader = deps.userAgentProfileLoader;
+    this.pluginAgentProfileLoader = deps.pluginAgentProfileLoader;
+    this.workspaceDirs = deps.workspaceDirs;
+    this.workspaceSkillCatalog = deps.workspaceSkillCatalog;
+    this.workspaceInstructions = deps.workspaceInstructions;
+    this.workspaceMcp = deps.workspaceMcp;
+    this.modelCatalog = deps.modelCatalog;
+    this.models = deps.models;
+    this.providers = deps.providers;
+    this.flags = deps.flags;
+    if (deps.onDispose !== undefined) this._register({ dispose: deps.onDispose });
   }
 
   private get workspaceId(): string {

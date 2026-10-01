@@ -53,6 +53,18 @@ export function watchScopeUnits(container: InstantiationService, kind: ScopeKind
     } catch (error) {
       void unitLedger.teardown('unload');
       onUnexpectedError(error);
+      let failedRetracted = false;
+      const retractFailed = (): void => {
+        if (failedRetracted) {
+          return;
+        }
+        failedRetracted = true;
+        materialized.delete(record.id);
+      };
+      materialized.set(record.id, retractFailed);
+      foldLedger.register(() => {
+        retractFailed();
+      }, `record:${name}:failed`);
       return;
     }
 

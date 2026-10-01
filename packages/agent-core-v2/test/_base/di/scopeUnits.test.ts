@@ -104,4 +104,39 @@ describe('ScopeUnits — kernel materialization fold (D11/G2)', () => {
     expect(log).toEqual([]);
     app.dispose();
   });
+
+  it('does not retry a recipe that threw during materialization', () => {
+    let constructs = 0;
+    class Boom extends Service {
+      constructor() {
+        super();
+        constructs += 1;
+        throw new Error('boom');
+      }
+    }
+    class BoomPack extends Service {
+      constructor() {
+        super();
+        this.provide(ScopeUnits('agent'), Boom);
+      }
+    }
+    class LatePack extends Service {
+      constructor() {
+        super();
+        this.provide(ScopeUnits('agent'), AgentFeature);
+      }
+    }
+    const IBoomPack = createDecorator<{ marker: string }>('scope-units-boom-pack');
+    const ILatePack = createDecorator<{ marker: string }>('scope-units-late-pack');
+    const app = Scope.createApp({ id: 'app' });
+    const agent = app.createChild('agent', 'a1');
+    app.instantiation.provide(IBoomPack, new SyncDescriptor(BoomPack));
+    app.accessor.get(IBoomPack);
+    expect(constructs).toBe(1);
+    app.instantiation.provide(ILatePack, new SyncDescriptor(LatePack));
+    app.accessor.get(ILatePack);
+    expect(constructs).toBe(1);
+    expect(agent.accessor.get(IFoo).tag).toBe('foo');
+    app.dispose();
+  });
 });

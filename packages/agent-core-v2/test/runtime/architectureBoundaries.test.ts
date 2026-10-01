@@ -29,6 +29,27 @@ function sourceFiles(path: string): string[] {
 }
 
 describe('runtime architecture boundaries', () => {
+  it('keeps LifecycleScope to App/Session/Agent and docs in sync', () => {
+    const scopes = source('app/scopes.ts');
+    expect(scopes).toContain("App = 'app'");
+    expect(scopes).toContain("Session = 'session'");
+    expect(scopes).toContain("Agent = 'agent'");
+    expect(scopes).not.toContain("Workspace = 'workspace'");
+
+    const repoRoot = join(sourceRoot, '../../..');
+    const packageAgents = readFileSync(join(sourceRoot, '../AGENTS.md'), 'utf8');
+    const rootAgents = readFileSync(join(repoRoot, 'AGENTS.md'), 'utf8');
+    const diDoc = readFileSync(join(sourceRoot, '../docs/di.md'), 'utf8');
+    const orient = readFileSync(join(repoRoot, '.agents/skills/agent-core-dev/orient.md'), 'utf8');
+    for (const text of [packageAgents, rootAgents, diDoc, orient]) {
+      expect(text).not.toMatch(/Four `LifecycleScope`/);
+      expect(text).not.toMatch(/four `LifecycleScope`/);
+      expect(text).not.toContain("Workspace = 'workspace'");
+      expect(text).not.toContain('IWorkspaceLifecycleService');
+      expect(text).not.toContain('sessionSeedAdapters.ts');
+    }
+  });
+
   it('keeps Program out of the scoped service registry', () => {
     const workspaceInstance = source('workspace/workspaceInstance/workspaceInstance.ts');
     const program = source('program/program.ts');

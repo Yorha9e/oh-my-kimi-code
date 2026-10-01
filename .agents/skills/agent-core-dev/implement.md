@@ -238,7 +238,7 @@ Key points:
 - `instantiation.createChild(collection)` builds a child container whose parent pointer is the current container — so the child resolves upward to `App` services (the visibility rule).
 - Expose the child to the outside by wrapping it in a `ServicesAccessor` via `invokeFunction` (§6).
 
-> Higher-level code usually calls `Scope.createChild(kind, id)` (it does the "filter descriptors + build child" for you, then submits the whole batch through `provideAll` as one cascade transaction — see §5). Drop to the manual `ServiceCollection` form only when you need explicit control; to change bindings on an already-created container, prefer `provide` / `unprovide` / `update` over rebuilding a collection. Before the static batch lands, the scope-creation point runs the kernel's `ScopeUnits` fold (`_base/di/scopeUnits.ts` — materializes the recipes contributed to `ScopeUnits(kind)` as per-scope units) and then the `ScopeOptions.assemble` hook — the session domain uses the hook to construct its seed-adapter units (`session/sessionSeed/sessionSeedAdapters.ts`) so their provided tokens exist before the session services activate.
+> Higher-level code usually calls `Scope.createChild(kind, id)` (it does the "filter descriptors + build child" for you, then submits the whole batch through `provideAll` as one cascade transaction — see §5). Drop to the manual `ServiceCollection` form only when you need explicit control; to change bindings on an already-created container, prefer `provide` / `unprovide` / `update` over rebuilding a collection. Before the static batch lands, the scope-creation point runs the kernel's `ScopeUnits` fold (`_base/di/scopeUnits.ts` — materializes the recipes contributed to `ScopeUnits(kind)` as per-scope units) and then the `ScopeOptions.configureContainer` hook — `SessionLifecycleService` uses the hook to fire `onWillCreateSession` so seed overlays exist before the session services activate.
 
 ## §9 Cyclic dependencies (forbidden — refactor)
 
@@ -250,7 +250,7 @@ If A needs B while being created and B needs A while being created, the containe
 
 ### Why cycles are disallowed
 
-- Scope layering makes normal dependencies a DAG (Agent → Session → Workspace → App, resolving upward); a cycle is almost always a design smell.
+- Scope layering makes normal dependencies a DAG (Agent → Session → App, resolving upward); a cycle is almost always a design smell.
 - "Making the cycle happen to work" turns construction order into an implicit contract — hard to debug.
 
 v2's stance: **the dependency graph must be acyclic.**

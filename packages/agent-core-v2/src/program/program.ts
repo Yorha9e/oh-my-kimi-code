@@ -42,6 +42,7 @@ import type { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/w
 import { WorkspaceSkillCatalogService } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalogService';
 import type { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
+import { applyProgramGenerationModules } from './programGenerationModule';
 import type { ProgramDependencies } from './programDependencies';
 
 export type ProgramStatus = 'preparing' | 'ready' | 'degraded';
@@ -101,6 +102,7 @@ interface ProgramGeneration {
   readonly pluginAgentProfiles: IPluginAgentProfileLoader;
   readonly explicitAgentProfiles: IExplicitAgentProfileLoader;
   readonly extraAgentProfiles: IExtraAgentProfileLoader;
+  readonly extras: ReadonlyMap<string, unknown>;
   readonly disposables: readonly { dispose(): void | Promise<void> }[];
   ready: boolean;
   failed: boolean;
@@ -153,6 +155,10 @@ export class Program {
   get agentProfiles(): IWorkspaceAgentProfileLoader { return this.requireGeneration().agentProfiles; }
   get userAgentProfiles(): IUserAgentProfileLoader { return this.requireGeneration().userAgentProfiles; }
   get sessionControllerGeneration(): string { return this.requireGeneration().id; }
+
+  getModule<T>(id: string): T | undefined {
+    return this.requireGeneration().extras.get(id) as T | undefined;
+  }
 
   createSessionController(): SessionLifecycleService {
     const generation = this.requireGeneration();
@@ -305,6 +311,30 @@ export class Program {
       const workspaceSkills = own(new WorkspaceRootSkillSource(skillDiscovery, this.context, this.dependencies.config, this.dependencies.bootstrap, runtime.watch!));
       const pluginSkills = new PluginSkillSource(skillDiscovery, this.dependencies.plugins);
       const skills = own(new WorkspaceSkillCatalogService(this.dependencies.builtinSkills, userSkills, explicitSkills, extraSkills, workspaceSkills, pluginSkills, state));
+      const extras = applyProgramGenerationModules({
+        workspaceId: this.workspaceId,
+        context: this.context,
+        dependencies: this.dependencies,
+        runtime,
+        builtins: {
+          state,
+          dirs,
+          fs,
+          watch,
+          git,
+          instructions,
+          mcpConfig,
+          mcp,
+          trust,
+          skills,
+          agentProfiles,
+          userAgentProfiles,
+          pluginAgentProfiles,
+          explicitAgentProfiles,
+          extraAgentProfiles,
+        },
+        own,
+      });
       return {
         id: runtime.identity.generation,
         lease,
@@ -323,6 +353,7 @@ export class Program {
         pluginAgentProfiles,
         explicitAgentProfiles,
         extraAgentProfiles,
+        extras,
         disposables,
         ready: false,
         failed: false,

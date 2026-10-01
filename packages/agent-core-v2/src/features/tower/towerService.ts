@@ -1,14 +1,12 @@
 import { join } from 'node:path';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { LifecycleScope } from '#/app/scopes';
 import { IFlagService } from '#/app/flag/flag';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { isWithinDirectory } from '#/tool/path-access';
@@ -106,11 +104,3 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     return this.agentState.get(towerKey);
   }
 }
-
-registerScopedService(
-  LifecycleScope.Agent,
-  IAgentTowerService,
-  AgentTowerService,
-  ScopeActivation.OnScopeCreated,
-  'tower',
-);

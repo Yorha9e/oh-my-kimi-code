@@ -9,7 +9,8 @@ import { LifecycleScope } from '#/app/scopes';
 import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
-import { TOWER_FLAG_ID } from './tower';
+import { IAgentTowerService, TOWER_FLAG_ID } from './tower';
+import { AgentTowerService } from './towerService';
 import { ITowerRateLimitService } from './towerRateLimit';
 import { TowerRateLimitService } from './towerRateLimitService';
 import { ITowerFindingTool } from './tools/finding/finding';
@@ -62,6 +63,9 @@ export class TowerFeature extends Feature {
   constructor(@IFlagService flags: IFlagService) {
     super();
     if (!flags.enabled(TOWER_FLAG_ID)) return;
+    this.contributeAgentService(IAgentTowerService, AgentTowerService, {
+      activation: ScopeActivation.OnScopeCreated,
+    });
     this.contributeService(LifecycleScope.App, ITowerRateLimitService, TowerRateLimitService, {
       activation: ScopeActivation.OnDemand,
     });

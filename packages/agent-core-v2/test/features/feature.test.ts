@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
+
 import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -335,5 +338,23 @@ describe('Feature — built-in capability assembly (src/features)', () => {
     const agent = host.child(LifecycleScope.Agent, 'agent-1');
     expect(agent.accessor.get(IGreeter).greet()).toBe('hi');
     host.dispose();
+  });
+
+  it('keeps built-in feature config sections on registerConfigSection', () => {
+    const root = join(import.meta.dirname, '../../src/features');
+    const files: string[] = [];
+    const visit = (directory: string): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const absolute = join(directory, entry.name);
+        if (entry.isDirectory()) visit(absolute);
+        else if (entry.name.endsWith('.ts')) files.push(absolute);
+      }
+    };
+    visit(root);
+    const offenders = files.filter((path) => {
+      if (path.endsWith(`${sep}feature.ts`)) return false;
+      return readFileSync(path, 'utf8').includes('this.contributeConfig(');
+    });
+    expect(offenders).toEqual([]);
   });
 });

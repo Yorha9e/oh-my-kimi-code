@@ -45,6 +45,10 @@ export abstract class Feature extends Service {
     return this.provide(token, value);
   }
 
+  /**
+   * Contributes a session-model definition. No production fold consumes
+   * `SessionModelContribution` yet — prefer Agent models or session-scoped services.
+   */
   contributeSessionModel<State>(definition: SessionModelDefinition<State>): FiberHandle {
     return this.provide(SessionModelContribution, definition as SessionModelDefinition);
   }
@@ -63,6 +67,10 @@ export abstract class Feature extends Service {
     return this.provide(AgentEffectContribution, definition);
   }
 
+  /**
+   * Runtime-only config contribution. Built-in sections must call `registerConfigSection`
+   * so `docs/config-manifest.toml` can see them. Retracting the feature withdraws this record.
+   */
   contributeConfig<T>(
     domain: string,
     schema: ConfigSchema<T>,

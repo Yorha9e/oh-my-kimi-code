@@ -12,23 +12,23 @@ When writing business code you declare three things; the container handles the r
 
 Classes talk only to interfaces and never care how an implementation is constructed.
 
-## The four `LifecycleScope` tiers
+## The three `LifecycleScope` tiers
 
 Lifetimes form a tree, from longest to shortest:
 
 ```text
 App                 process-wide, single global instance
- └── Workspace        one workspace handler (a materialized workspace root)
-      └── Session       one session
-           └── Agent      one agent
+ └── Session           one session
+      └── Agent          one agent
 ```
+
+Workspace is **not** a DI scope. App-scope `IWorkspaceInstanceManager` create-or-gets a `WorkspaceInstance`; that object owns a `Program` generation of workspace-shared services. New workspace-shared domains call `registerProgramGenerationModule` instead of editing `Program.createGeneration()`.
 
 ```ts
 // src/app/scopes.ts — the business layer declares the tiers and their order;
 // the DI kernel only knows opaque string kinds plus the declared topology.
 export enum LifecycleScope {
   App = 'app',
-  Workspace = 'workspace',
   Session = 'session',
   Agent = 'agent',
 }

@@ -20,9 +20,9 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 | Scope | State identity (keyed by) | Lifetime |
 |---|---|---|
 | `App` | none (single global instance) | the process |
-| `Workspace` | `workspaceId` | one workspace handler (materialized once per workspace, never closed — dies with the process) |
 | `Session` | `sessionId` | one session |
 | `Agent` | `agentId` | one agent |
+| Program generation (not a DI scope) | `workspaceId` | one workspace instance's current runtime generation |
 
 ### Decision tree
 
@@ -34,7 +34,7 @@ A Service = a bundle of **state** + a set of **behaviors**, bound to a **lifetim
 **Q2. What is the identity of that state?**
 
 - one global instance → **`App`**
-- one per workspace (shared by every session of that workspace) → **`Workspace`**
+- one per workspace (shared by every session of that workspace) → **Program generation** via `registerProgramGenerationModule` (not `LifecycleScope`)
 - one per session → **`Session`**
 - one per agent → **`Agent`**
 - a mix (a global registry *and* per-instance state) → **split it** (see §3).
@@ -72,7 +72,8 @@ The standard split is "global registry / factory" + "per-instance":
 | Tier | Role | Naming tends to |
 |---|---|---|
 | `App` | global registry / catalog / factory — knows "all of them" and how to create one | `XxxStore` / `XxxRegistry` / `XxxCatalog` |
-| `Workspace` / `Session` / `Agent` | one instance — only the state of "this one" | `XxxService` / `IWorkspaceXxx` / `ISessionXxx` / `IAgentXxx` |
+| `Session` / `Agent` | one instance — only the state of "this one" | `XxxService` / `ISessionXxx` / `IAgentXxx` |
+| Program generation | one workspace-shared instance | `IWorkspaceXxx` constructed by `Program` / a generation module |
 
 Canonical splits in the codebase:
 
@@ -267,7 +268,7 @@ App scope
 
 How the three lenses shaped it:
 
-- **Scope (§2)** → the live registry of one workspace's session scopes is per-handler, so it is Workspace-scoped; the process-wide handler registry lives in the App-scoped `workspaceLifecycle`; per-session data stays in Session-scoped services, reached through the handle's `accessor`.
+- **Scope (§2)** → the live registry of one workspace's session scopes is per-Program generation; the process-wide instance registry lives in App-scoped `IWorkspaceInstanceManager`; per-session data stays in Session-scoped services, reached through the handle's `accessor`.
 - **Dependency direction (§5)** → `sessionLifecycle` is consumed by the edge via `accessor` borrows; it never imports the edge. Every downward arrow lands on a peer or a more foundational Service.
 - **Extension points (§4)** → new per-session behavior plugs into the Session-scoped services (`sessionMetadata`, `agentLifecycle`, `sessionActivity`); new transports stay at the edge. Neither edits `sessionLifecycle`.
 

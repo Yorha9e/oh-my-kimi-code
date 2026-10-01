@@ -91,6 +91,7 @@ export * from '#/runtime/runtimeProvider';
 export * from '#/runtime/runtimeUnitHost';
 export * from '#/runtime/localRuntime';
 export * from '#/program/program';
+export * from '#/program/programGenerationModule';
 export * from '#/workspace/workspaceInstance/workspaceInstance';
 export * from '#/workspace/workspaceInstance/workspaceInstanceManager';
 export * from '#/workspace/workspaceInstance/workspaceInstanceManagerService';
