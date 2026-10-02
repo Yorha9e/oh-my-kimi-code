@@ -5,7 +5,7 @@ import { dirname, join } from 'pathe';
 
 import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IFlagService } from '#/app/flag/flag';
-import { SECONDARY_MODEL_SECTION } from '#/app/kosongConfig/configSection';
+import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
 import {
   AGENT_TYPES_SECTION,
   resolveSubagentBinding,
@@ -14,8 +14,11 @@ import {
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   readGlobalSlotBinding,
+  readGlobalTypeBinding,
   readWorkspaceSlotBinding,
   readWorkspaceThenGlobalSlotBinding,
+  readWorkspaceThenGlobalTypeBinding,
+  readWorkspaceTypeBinding,
 } from '#/session/subagent/slotBinding';
 
 import { stubFlag } from '../../app/flag/stubs';
@@ -104,7 +107,6 @@ describe('readWorkspaceSlotBinding / readGlobalSlotBinding (local.toml read path
       });
       const sub = join(root, 'sub');
       await mkdir(sub, { recursive: true });
-      // No .git anywhere: the work dir itself is the project root.
       expect(await readWorkspaceSlotBinding(sub, 'coder')).toBeUndefined();
       expect(await readWorkspaceSlotBinding(root, 'coder')).toEqual({
         model: 'provider/slot-coder',
@@ -161,7 +163,6 @@ describe('readWorkspaceSlotBinding / readGlobalSlotBinding (local.toml read path
       await writeFiles(root, {
         '.kimi-code/local.toml': '[subagent-slot.empty]\n',
       });
-      // v1 parity: the entry exists, so an all-undefined binding is returned.
       expect(await readWorkspaceSlotBinding(root, 'empty')).toEqual({});
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -318,6 +319,93 @@ describe('readWorkspaceSlotBinding / readGlobalSlotBinding (local.toml read path
   });
 });
 
+describe('readWorkspaceTypeBinding / readGlobalTypeBinding (local.toml read path)', () => {
+  it('reads a type binding from the workspace .kimi-code/local.toml', async () => {
+    const root = await makeTempDir('type-ws-');
+    try {
+      await writeFiles(root, {
+        '.kimi-code/local.toml': [
+          '[subagent.coder]',
+          'model = "provider/type-coder"',
+          'thinking_effort = "medium"',
+        ].join('\n'),
+      });
+      const binding = await readWorkspaceTypeBinding(root, 'coder');
+      expect(binding).toEqual({ model: 'provider/type-coder', thinkingEffort: 'medium' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('parses inherit: true as the inherit field', async () => {
+    const root = await makeTempDir('type-inherit-');
+    try {
+      await writeFiles(root, {
+        '.kimi-code/local.toml': '[subagent.keep]\ninherit = true\n',
+      });
+      expect(await readWorkspaceTypeBinding(root, 'keep')).toEqual({ inherit: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads the global layer from <OMKC_HOME>/local.toml', async () => {
+    const home = await makeTempDir('type-home-');
+    try {
+      setGlobalHome(home);
+      await writeFiles(home, {
+        'local.toml': '[subagent.coder]\nmodel = "provider/global-type"\nthinking_effort = "low"\n',
+      });
+      const binding = await readGlobalTypeBinding('coder');
+      expect(binding).toEqual({ model: 'provider/global-type', thinkingEffort: 'low' });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers the workspace layer over the global layer, inherit entry included', async () => {
+    const root = await makeTempDir('type-wsg-');
+    const home = await makeTempDir('type-wsg-home-');
+    try {
+      setGlobalHome(home);
+      await writeFiles(root, {
+        '.kimi-code/local.toml': '[subagent.coder]\nmodel = "provider/ws-type"\n',
+      });
+      await writeFiles(home, {
+        'local.toml': '[subagent.coder]\nmodel = "provider/global-type"\n',
+      });
+      expect(await readWorkspaceThenGlobalTypeBinding(root, 'coder')).toEqual({
+        model: 'provider/ws-type',
+      });
+      await writeFiles(root, { '.kimi-code/local.toml': '[subagent.coder]\ninherit = true\n' });
+      expect(await readWorkspaceThenGlobalTypeBinding(root, 'coder')).toEqual({ inherit: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to the global layer when the workspace layer has no entry', async () => {
+    const root = await makeTempDir('type-wsg2-');
+    const home = await makeTempDir('type-wsg2-home-');
+    try {
+      setGlobalHome(home);
+      await writeFiles(root, {
+        '.kimi-code/local.toml': '[subagent.other]\nmodel = "provider/other"\n',
+      });
+      await writeFiles(home, {
+        'local.toml': '[subagent.coder]\nmodel = "provider/global-type"\n',
+      });
+      expect(await readWorkspaceThenGlobalTypeBinding(root, 'coder')).toEqual({
+        model: 'provider/global-type',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('resolveSubagentBinding (slot layer)', () => {
   function setup(options: {
     agentTypes?: Record<string, { model?: string; thinking?: string }>;
@@ -344,7 +432,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/slot',
       thinking: 'medium',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: 'medium', source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: 'medium', source: 'slot', displayModel: 'provider/slot' });
   });
 
   it('passes thinking through as undefined when the slot has no thinking', () => {
@@ -352,7 +440,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       model: 'provider/slot',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
 
   it('prefers the per-type binding over the slot binding', () => {
@@ -364,6 +452,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/type',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/type',
     });
   });
 
@@ -373,7 +462,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/slot',
       thinking: 'high',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: 'high', source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: 'high', source: 'slot', displayModel: 'provider/slot' });
   });
 
   it('skips the slot binding for an explicit primary request', () => {
@@ -384,7 +473,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder', {
       model: 'provider/slot',
     });
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('skips the slot binding for an explicit secondary request', () => {
@@ -396,6 +485,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -404,11 +494,11 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       thinking: 'high',
     });
-    // Model resolves to the secondary layer; the slot's thinking wins.
     expect(binding).toEqual({
       model: 'provider/secondary',
       thinking: 'high',
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -417,8 +507,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       thinking: 'low',
     });
-    // Slot thinking ('low') differs from the caller's own level ('high').
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own', displayModel: 'caller-model' });
   });
 
   it('treats an empty slot binding as no binding at all', () => {
@@ -428,6 +517,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -437,6 +527,7 @@ describe('resolveSubagentBinding (slot layer)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -448,7 +539,205 @@ describe('resolveSubagentBinding (slot layer)', () => {
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
       model: 'provider/slot',
     });
-    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot' });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
+  });
+
+  it('applies the profile slot binding even when the subagent-model-selection flag is off', () => {
+    const { config } = setup({ secondary: { model: 'provider/secondary' } });
+    const flags = stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID);
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', {
+      model: 'provider/slot',
+    });
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
+  });
+});
+
+describe('resolveSubagentBinding (local type layer)', () => {
+  function setup(options: {
+    agentTypes?: Record<string, { model?: string; thinking?: string }>;
+    secondary?: { model?: string; defaultEffort?: string };
+    flagEnabled?: boolean;
+  }): { config: StubConfigService; flags: IFlagService } {
+    const config = new StubConfigService({
+      ...(options.agentTypes !== undefined
+        ? { [AGENT_TYPES_SECTION]: options.agentTypes }
+        : {}),
+      ...(options.secondary !== undefined
+        ? { [SECONDARY_MODEL_SECTION]: options.secondary }
+        : {}),
+    });
+    const flags = stubFlag(
+      (id) => (options.flagEnabled ?? true) && id === SECONDARY_MODEL_FLAG_ID,
+    );
+    return { config, flags };
+  }
+
+  it('uses the local type binding when no agent_types entry or slot applies', () => {
+    const { config, flags } = setup({});
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      model: 'provider/local-type',
+      thinking: 'medium',
+    });
+    expect(binding).toEqual({
+      model: 'provider/local-type',
+      thinking: 'medium',
+      source: 'local_type',
+      displayModel: 'provider/local-type',
+    });
+  });
+
+  it('prefers the slot binding over the local type binding (v1 slot > type order)', () => {
+    const { config, flags } = setup({});
+    const binding = resolveSubagentBinding(
+      config,
+      flags,
+      OWN,
+      undefined,
+      'coder',
+      { model: 'provider/slot' },
+      { model: 'provider/local-type', thinking: 'medium' },
+    );
+    expect(binding).toEqual({
+      model: 'provider/slot',
+      thinking: undefined,
+      source: 'slot',
+      displayModel: 'provider/slot',
+    });
+  });
+
+  it('prefers the agent_types binding over the local type binding', () => {
+    const { config, flags } = setup({ agentTypes: { coder: { model: 'provider/type' } } });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      model: 'provider/local-type',
+    });
+    expect(binding).toEqual({
+      model: 'provider/type',
+      thinking: undefined,
+      source: 'agent_types',
+      displayModel: 'provider/type',
+    });
+  });
+
+  it('prefers the local type binding over the secondary model', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      model: 'provider/local-type',
+      thinking: 'low',
+    });
+    expect(binding).toEqual({
+      model: 'provider/local-type',
+      thinking: 'low',
+      source: 'local_type',
+      displayModel: 'provider/local-type',
+    });
+  });
+
+  it('skips the local type binding for an explicit primary request', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder', undefined, {
+      model: 'provider/local-type',
+    });
+    expect(binding).toEqual({
+      model: 'caller-model',
+      thinking: 'high',
+      source: 'own',
+      displayModel: 'caller-model',
+    });
+  });
+
+  it('keeps the slot thinking while the model falls to the local type binding', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(
+      config,
+      flags,
+      OWN,
+      undefined,
+      'coder',
+      { thinking: 'max' },
+      { model: 'provider/local-type', thinking: 'low' },
+    );
+    expect(binding).toEqual({
+      model: 'provider/local-type',
+      thinking: 'max',
+      source: 'local_type',
+      displayModel: 'provider/local-type',
+    });
+  });
+
+  it('treats an empty local type binding as no binding at all', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {});
+    expect(binding).toEqual({
+      model: 'provider/secondary',
+      thinking: undefined,
+      source: 'secondary',
+      displayModel: 'provider/secondary',
+    });
+  });
+
+  it('applies the local type binding regardless of the secondary-model flag', () => {
+    const { config, flags } = setup({
+      secondary: { model: 'provider/secondary' },
+      flagEnabled: false,
+    });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      model: 'provider/local-type',
+    });
+    expect(binding).toEqual({
+      model: 'provider/local-type',
+      thinking: undefined,
+      source: 'local_type',
+      displayModel: 'provider/local-type',
+    });
+  });
+
+  it('applies the local type binding even when the subagent-model-selection flag is off', () => {
+    const { config } = setup({ secondary: { model: 'provider/secondary' } });
+    const flags = stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID);
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      model: 'provider/local-type',
+    });
+    expect(binding).toEqual({
+      model: 'provider/local-type',
+      thinking: undefined,
+      source: 'local_type',
+      displayModel: 'provider/local-type',
+    });
+  });
+
+  it('keeps the model on the chain below when the local type sets thinking but no model', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      thinking: 'high',
+    });
+    expect(binding).toEqual({
+      model: 'provider/secondary',
+      thinking: 'high',
+      source: 'secondary',
+      displayModel: 'provider/secondary',
+    });
+  });
+
+  it('falls back to the caller model with the local type thinking when no secondary is set', () => {
+    const { config, flags } = setup({});
+    const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder', undefined, {
+      thinking: 'low',
+    });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'low', source: 'own', displayModel: 'caller-model' });
+  });
+
+  it('keeps the slot model when the local type sets thinking but no model (slot > type order)', () => {
+    const { config, flags } = setup({ secondary: { model: 'provider/secondary' } });
+    const binding = resolveSubagentBinding(
+      config,
+      flags,
+      OWN,
+      undefined,
+      'coder',
+      { model: 'provider/slot' },
+      { thinking: 'high' },
+    );
+    expect(binding).toEqual({ model: 'provider/slot', thinking: undefined, source: 'slot', displayModel: 'provider/slot' });
   });
 });
 
@@ -476,6 +765,25 @@ describe('wrapSubagentModelError (slot attribution)', () => {
       model: 'provider/slot',
       boundModel: 'provider/slot',
       slotBindingConfig: { section: 'subagent-slot.coder.model', file: 'local.toml' },
+    });
+  });
+
+  it('attributes a missing bound alias to the local type binding', () => {
+    const result = wrapSubagentModelError(
+      CAUSE,
+      'provider/slot',
+      'caller-model',
+      'local_type',
+      'coder',
+    );
+    expect(isError2(result)).toBe(true);
+    expect((result as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
+    expect((result as Error2).message).toContain('[subagent.coder]');
+    expect((result as Error2).message).toContain('local.toml');
+    expect((result as Error2).details).toMatchObject({
+      model: 'provider/slot',
+      boundModel: 'provider/slot',
+      typeBindingConfig: { section: 'subagent.coder.model', file: 'local.toml' },
     });
   });
 

@@ -1,39 +1,3 @@
-/**
- * `media` domain — image compression for model ingestion.
- *
- * Shrink oversized images before they reach the model.
- *
- * A multimodal request carries each image as a base64 data URL; an unbounded
- * screenshot or photo wastes context tokens and can blow past the provider's
- * per-image byte ceiling. This module downsamples and re-encodes such images
- * so they fit a pixel + byte budget, while leaving already-small images
- * untouched — the common case is a fast, codec-free pass-through.
- *
- * Design notes:
- *  - Pure JS (jimp + a wasm WebP decoder), imported lazily so the codecs are
- *    only paid for when an image actually needs work; startup and the fast
- *    path stay cheap.
- *  - Best effort: any decode/encode failure returns the original bytes
- *    unchanged (`changed: false`). Callers must verify that this unchanged
- *    result satisfies their delivery limits before forwarding it.
- *  - Format gate first: content-part lists pass through
- *    {@link gateImageFormatParts} before any compression, so images outside
- *    the provider-accepted set are never decoded or forwarded — one
- *    unsupported image in the session history would make every subsequent
- *    request fail.
- *  - PNG, JPEG, and (non-animated) WebP are re-encoded; WebP re-encodes
- *    through the PNG/JPEG ladder after a wasm decode. GIF and animated WebP
- *    are passed through to preserve animation. Formats outside the
- *    provider-accepted set never reach this module from the content-part
- *    paths (the format gate drops them first); direct callers get a
- *    passthrough.
- *  - Compression must never be silent to the model: results carry the
- *    original dimensions, {@link buildImageCompressionCaption} renders the
- *    shared "what was compressed, where is the original" note every ingestion
- *    point can place next to the image, and {@link cropImageForModel} lets a
- *    caller read a region of the original back at full fidelity.
- */
-
 import type { ContentPart } from '#/kosong/contract/message';
 
 import { sniffImageDimensions } from './file-type';
@@ -52,33 +16,68 @@ import { decodeWebp, isAnimatedWebp } from './webp-decode';
 
 export const MAX_IMAGE_EDGE_PX = 2000;
 
-let configuredMaxImageEdgePx: number | undefined;
+/**
+ * Env var overriding the longest-edge ceiling (px). Read live on every
+ * resolution so it applies in any process without wiring; a value that is
+ * not a positive integer is ignored.
+ */
+export const IMAGE_MAX_EDGE_ENV = 'KIMI_IMAGE_MAX_EDGE_PX';
 
-export function setConfiguredMaxImageEdgePx(value: number | undefined): void {
-  configuredMaxImageEdgePx = value !== undefined && isPositiveInt(value) ? value : undefined;
+/** The env override for the longest-edge ceiling, or undefined when unset/invalid. */
+export function maxImageEdgeFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, IMAGE_MAX_EDGE_ENV);
 }
 
-export function resolveMaxImageEdgePx(): number {
-  return configuredMaxImageEdgePx ?? MAX_IMAGE_EDGE_PX;
+/**
+ * Longest-edge ceiling for callers that pass no explicit `maxEdge` and own no
+ * App config: env var > built-in {@link MAX_IMAGE_EDGE_PX}. Owned call sites
+ * (ReadMediaFile, MCP tool output) resolve through `IImageConfigBridge`
+ * instead, which reads the owning App's effective `[image]` section — that
+ * section's own env binding already folds this override in there.
+ */
+export function resolveMaxImageEdgePx(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return maxImageEdgeFromEnv(env) ?? MAX_IMAGE_EDGE_PX;
 }
 
 export const IMAGE_BYTE_BUDGET = 3.75 * 1024 * 1024;
 
 export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
 
-let configuredReadImageByteBudget: number | undefined;
+/**
+ * Env var overriding the read-image byte budget. Read live on every
+ * resolution; a value that is not a positive integer is ignored.
+ */
+export const IMAGE_READ_BYTE_BUDGET_ENV = 'KIMI_IMAGE_READ_BYTE_BUDGET';
 
-export function setConfiguredReadImageByteBudget(value: number | undefined): void {
-  configuredReadImageByteBudget =
-    value !== undefined && isPositiveInt(value) ? value : undefined;
+/** The env override for the read-image byte budget, or undefined when unset/invalid. */
+export function readImageByteBudgetFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, IMAGE_READ_BYTE_BUDGET_ENV);
 }
 
-export function resolveReadImageByteBudget(): number {
-  return configuredReadImageByteBudget ?? READ_IMAGE_BYTE_BUDGET;
+/**
+ * Read-image byte budget for callers with no App config owner; see
+ * {@link resolveMaxImageEdgePx} for the ownership model.
+ */
+export function resolveReadImageByteBudget(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return readImageByteBudgetFromEnv(env) ?? READ_IMAGE_BYTE_BUDGET;
 }
 
-function isPositiveInt(value: number): boolean {
-  return Number.isInteger(value) && value > 0;
+function positiveIntFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): number | undefined {
+  const raw = env[name]?.trim();
+  if (raw === undefined || raw.length === 0 || !/^\d+$/.test(raw)) return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 const JPEG_QUALITY_STEPS = [80, 60, 40, 20] as const;
 
@@ -416,7 +415,6 @@ export interface CompressAnnotateOptions {
   readonly persistOriginal?: (bytes: Uint8Array, mimeType: string) => Promise<string | null>;
 }
 
-
 export interface ImageCropRegion {
   readonly x: number;
   readonly y: number;
@@ -577,7 +575,6 @@ export async function cropImageForModel(
   }
 }
 
-
 export interface ImageVariantDescription {
   readonly width: number;
   readonly height: number;
@@ -641,7 +638,6 @@ export function formatByteSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${String(Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
 
 type JimpImage = Awaited<ReturnType<(typeof import('jimp'))['Jimp']['fromBuffer']>>;
 
@@ -737,7 +733,6 @@ function fitWithinEdge(image: JimpImage, edge: number): boolean {
   });
   return true;
 }
-
 
 type CropErrorKind =
   | 'empty'

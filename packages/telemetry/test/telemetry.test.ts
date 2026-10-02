@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { flushTelemetrySync, initializeTelemetry, shutdownTelemetry, track } from '../src';
-import { isTelemetryDisabledByEnv } from '../src/bootstrap';
+import { isTelemetryDisabledByEnv, shouldEnableTelemetry } from '../src/bootstrap';
 import { TelemetryClient, resetDefaultTelemetryClientForTests } from '../src/client';
 import { installCrashHandlersForClient, setCrashPhase, uninstallCrashHandlers } from '../src/crash';
 import { EventSink } from '../src/sink';
@@ -551,6 +551,27 @@ describe('AsyncTransport', () => {
     });
   });
 
+  it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
+      Promise.resolve(new Response('', { status: 200 })),
+    );
+    let endpoint = 'https://cn.test/events';
+    const transport = new AsyncTransport({
+      homeDir: await tempHome(),
+      deviceId: 'dev',
+      endpoint: () => endpoint,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      retryBackoffsMs: [],
+    });
+
+    await transport.send([sampleEvent()]);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://cn.test/events');
+
+    endpoint = 'https://global.test/events';
+    await transport.send([sampleEvent()]);
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe('https://global.test/events');
+  });
+
   it('retries anonymously on 401 with a token', async () => {
     const fetchImpl = vi
       .fn()
@@ -803,6 +824,15 @@ describe('telemetry bootstrap', () => {
     expect(isTelemetryDisabledByEnv({ KIMI_DISABLE_TELEMETRY: 'false' })).toBe(false);
   });
 
+  it('is opt-in: unset and false stay off', () => {
+    expect(shouldEnableTelemetry({})).toBe(false);
+    expect(shouldEnableTelemetry({ enabled: false })).toBe(false);
+    expect(shouldEnableTelemetry({ enabled: true })).toBe(true);
+    expect(shouldEnableTelemetry({ enabled: true, env: { KIMI_DISABLE_TELEMETRY: '1' } })).toBe(
+      false,
+    );
+  });
+
   it('disables the singleton without attaching a sink when opted out', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchImpl);
@@ -814,6 +844,7 @@ describe('telemetry bootstrap', () => {
         deviceId: 'dev',
         appName: 'kimi-code-cli',
         version: '1.2.3',
+        enabled: true,
       });
       track('dropped');
       await shutdownTelemetry();
@@ -836,6 +867,7 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
     });
 
     await shutdownTelemetry();
@@ -851,6 +883,25 @@ describe('telemetry bootstrap', () => {
     });
   });
 
+  it('forwards a caller-provided endpoint to the transport', async () => {
+    const fetchImpl = vi.fn(async (_input: unknown) => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    initializeTelemetry({
+      homeDir: await tempHome(),
+      deviceId: 'dev',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+      enabled: true,
+      endpoint: 'https://mock.test/events',
+    });
+    track('custom_endpoint');
+    await shutdownTelemetry();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://mock.test/events');
+  });
+
   it('flushes the singleton synchronously to disk fallback', async () => {
     const homeDir = await tempHome();
     initializeTelemetry({
@@ -859,6 +910,7 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
     });
     track('sync_flush');
 
@@ -878,6 +930,7 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      enabled: true,
     });
 
     vi.advanceTimersByTime(1_500);

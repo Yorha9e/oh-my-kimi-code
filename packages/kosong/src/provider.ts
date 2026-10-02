@@ -130,6 +130,26 @@ export interface ProviderRequestAuth {
   headers?: Record<string, string>;
 }
 
+/**
+ * Host-side result of one tool invocation, handed back to the model as the
+ * tool's output. `isError` marks the call as failed without throwing.
+ */
+export interface HostToolResult {
+  readonly content: ReadonlyArray<{ type: 'text'; text: string }>;
+  readonly isError?: boolean;
+}
+
+/**
+ * Protocol-agnostic host tool executor. Providers that run tool calls
+ * in-process (instead of streaming `tool_call` parts back to the host) use
+ * this per-request seam to execute against the host's real tool surface,
+ * keeping permission gating and tool hooks on the host side.
+ */
+export type HostToolExecutor = (
+  name: string,
+  args: Record<string, unknown>,
+) => Promise<HostToolResult>;
+
 export interface GenerateOptions {
   /**
    * An {@link AbortSignal} that, when aborted, requests cancellation of the
@@ -144,6 +164,12 @@ export interface GenerateOptions {
    * each request/retry so providers never retain mutable credential state.
    */
   auth?: ProviderRequestAuth;
+  /**
+   * Per-request host tool executor override (see {@link HostToolExecutor}).
+   * Providers bridging an in-process tool loop forward this to the wire;
+   * absent, they fall back to whatever constructor-level executor they hold.
+   */
+  toolExecutor?: HostToolExecutor;
   /**
    * Optional model-output format constraint. Providers map this to their native
    * structured-output field when supported.

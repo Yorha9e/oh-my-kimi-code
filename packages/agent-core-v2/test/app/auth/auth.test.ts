@@ -1,9 +1,6 @@
-/**
- * `auth` domain tests — covers the `OAuthService` device-code orchestration,
- * its dependency on the `provider` domain, and the managed OAuth provider
- * model refresh, using a fake `IOAuthToolkit` so no real network or token
- * storage is exercised.
- */
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
@@ -30,19 +27,20 @@ import { IAuthLegacyService } from '#/app/authLegacy/authLegacy';
 import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
 import { IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
-import { type DomainEvent, IEventService } from '#/app/event/event';
+import { IEventService } from '#/app/event/event';
+import type { Event2 } from '#/app/event/event2';
 import { ILogService } from '#/_base/log/log';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IModelService, type ModelRecord } from '#/kosong/model/model';
 import { MODELS_SECTION } from '#/app/kosongConfig/configSection';
 import { IProviderService, type ProviderConfig, type ProvidersChangedEvent } from '#/kosong/provider/provider';
 
-// Side-effect registration: the OAuth-catalog verdict
-// (`isOAuthCatalogProvider`) answers through the provider-definition registry.
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
 import { registerBootstrapServices } from '../bootstrap/stubs';
 import { registerTelemetryServices } from '../telemetry/stubs';
+import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
 
 const OAUTH_PROVIDER = 'managed:kimi-code';
 const NON_OAUTH_PROVIDER = 'openai-main';
@@ -73,6 +71,15 @@ const ENV_SCOPED_REF = {
   oauthHost: 'https://env-auth.example.com',
 } as const;
 
+const OVERSEAS_SCOPED_REF = {
+  storage: 'file',
+  key: resolveKimiCodeOAuthKey({
+    oauthHost: 'https://auth.kimi.ai',
+    baseUrl: 'https://api.kimi.ai/coding/v1',
+  }),
+  oauthHost: 'https://auth.kimi.ai',
+} as const;
+
 interface FakeToolkit {
   readonly login: Mock<(...args: any[]) => any>;
   readonly logout: ReturnType<typeof vi.fn>;
@@ -94,7 +101,7 @@ describe('OAuthService', () => {
   let providerSet: ReturnType<typeof vi.fn>;
   let configSet: ReturnType<typeof vi.fn>;
   let configReplace: ReturnType<typeof vi.fn>;
-  let events: DomainEvent[];
+  let events: Event2[];
   let providerChangedEmitter: Emitter<ProvidersChangedEvent>;
 
   beforeEach(() => {
@@ -188,7 +195,7 @@ describe('OAuthService', () => {
           error: vi.fn(),
         });
         reg.definePartialInstance(IEventService, {
-          publish: (event: DomainEvent) => events.push(event),
+          publish: (event: Event2) => events.push(event),
           subscribe: () => ({ dispose: () => {} }),
         });
         reg.defineInstance(IOAuthToolkit, toolkit as unknown as IOAuthToolkit);
@@ -357,6 +364,113 @@ describe('OAuthService', () => {
         oauth: ENV_SCOPED_REF,
       }),
     );
+  });
+
+  it('startLogin with region global resolves the global login environment', async () => {
+    stubManagedModelsFetch();
+    toolkit.login.mockImplementation((_provider, options) => {
+      options.onDeviceCode(deviceAuth);
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
+    });
+    const svc = createService();
+    await svc.startLogin(OAUTH_PROVIDER, { region: 'global' });
+
+    expect(toolkit.login).toHaveBeenCalledWith(
+      OAUTH_PROVIDER,
+      expect.objectContaining({
+        oauthRef: OVERSEAS_SCOPED_REF,
+        baseUrl: 'https://api.kimi.ai/coding/v1',
+        oauthHost: 'https://auth.kimi.ai',
+      }),
+    );
+    await flush();
+    expect(providerSet).toHaveBeenCalledWith(
+      OAUTH_PROVIDER,
+      expect.objectContaining({
+        type: 'kimi',
+        baseUrl: 'https://api.kimi.ai/coding/v1',
+        oauth: OVERSEAS_SCOPED_REF,
+      }),
+    );
+  });
+
+  it('startLogin with a region still honors env endpoint overrides', async () => {
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
+    stubManagedModelsFetch();
+    toolkit.login.mockImplementation((_provider, options) => {
+      options.onDeviceCode(deviceAuth);
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
+    });
+    const svc = createService();
+    await svc.startLogin(OAUTH_PROVIDER, { region: 'global' });
+
+    expect(toolkit.login).toHaveBeenCalledWith(
+      OAUTH_PROVIDER,
+      expect.objectContaining({
+        oauthHost: 'https://env-auth.example.com',
+        baseUrl: 'https://api.example.com',
+      }),
+    );
+  });
+
+  it('getRegion resolves cn by default and global from the persisted login host', () => {
+    vi.stubEnv('KIMI_CODE_REGION_MARKER', 'off');
+    const svc = createService();
+    expect(svc.getRegion()).toBe('mainland-cn');
+
+    providers[OAUTH_PROVIDER] = {
+      type: 'kimi',
+      oauth: { storage: 'file', key: OVERSEAS_SCOPED_REF.key, oauthHost: 'https://auth.kimi.ai' },
+    };
+    expect(svc.getRegion()).toBe('global');
+  });
+
+  it('getRegion reads the install marker from the bootstrapped home unless KIMI_CODE_REGION_MARKER=off', async () => {
+    const home = ix.get(IBootstrapService).homeDir;
+    try {
+      await mkdir(home, { recursive: true });
+      await writeFile(join(home, 'region'), 'global\n', 'utf-8');
+      vi.stubEnv('KIMI_CODE_OAUTH_HOST', '');
+      providers[OAUTH_PROVIDER] = { type: 'kimi' };
+      expect(createService().getRegion()).toBe('global');
+
+      vi.stubEnv('KIMI_CODE_REGION_MARKER', 'off');
+      expect(createService().getRegion()).toBe('mainland-cn');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('getRegion reads the marker from the bootstrapped home, not KIMI_CODE_HOME', async () => {
+    const bootstrapHome = ix.get(IBootstrapService).homeDir;
+    const envHome = await mkdtemp(join(tmpdir(), 'kimi-v2-auth-envhome-'));
+    try {
+      await mkdir(bootstrapHome, { recursive: true });
+      await writeFile(join(bootstrapHome, 'region'), 'global\n', 'utf-8');
+      vi.stubEnv('KIMI_CODE_HOME', envHome);
+      vi.stubEnv('KIMI_CODE_OAUTH_HOST', '');
+      providers[OAUTH_PROVIDER] = { type: 'kimi' };
+      expect(createService().getRegion()).toBe('global');
+    } finally {
+      await rm(bootstrapHome, { recursive: true, force: true });
+      await rm(envHome, { recursive: true, force: true });
+    }
+  });
+
+  it('getRegion resolves cn from the default-slot oauth ref despite an global marker', async () => {
+    const home = ix.get(IBootstrapService).homeDir;
+    try {
+      await mkdir(home, { recursive: true });
+      await writeFile(join(home, 'region'), 'global\n', 'utf-8');
+      vi.stubEnv('KIMI_CODE_OAUTH_HOST', '');
+      providers[OAUTH_PROVIDER] = {
+        type: 'kimi',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      };
+      expect(createService().getRegion()).toBe('mainland-cn');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it('resolves the runtime credential slot to the env environment after an env-scoped login', async () => {
@@ -773,10 +887,10 @@ describe('OAuthService', () => {
     expect(configReplace).toHaveBeenCalledWith('defaultModel', 'kimi-code/kimi-k2');
     expect(configReplace).toHaveBeenCalledWith('thinking', { enabled: true });
     expect(events).toEqual([
-      {
+      expect.objectContaining({
         type: 'event.model_catalog.changed',
         payload: result,
-      },
+      }),
     ]);
   });
 
@@ -835,13 +949,16 @@ describe('WebSearchProviderService', () => {
           resolveTokenProvider:
             resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
         });
+        const hostHeaders = {
+          'User-Agent': 'kimi-code-cli/test',
+          'X-Msh-Device-Id': 'device-test',
+        };
+        reg.defineInstance(
+          IAgentIdentity,
+          stubAgentIdentity({ hostRequestHeaders: hostHeaders }),
+        );
         reg.definePartialInstance(IBootstrapService, {
-          args: {
-            requestHeaders: {
-              'User-Agent': 'kimi-code-cli/test',
-              'X-Msh-Device-Id': 'device-test',
-            },
-          },
+          args: { requestHeaders: hostHeaders },
         });
         reg.definePartialInstance(IConfigService, {
           get: ((domain: string) =>
@@ -1025,6 +1142,151 @@ describe('WebSearchProviderService', () => {
     expect(createService().getWebSearchProvider()).toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
+
+  it('answers presence without touching a not-yet-frozen identity', () => {
+    const notFrozen: IAgentIdentity = {
+      _serviceBrand: undefined,
+      resolved: () => new Promise(() => undefined),
+      current: () => {
+        throw new Error('identity read before freeze');
+      },
+    };
+    servicesConfig = {
+      moonshotSearch: { baseUrl: 'https://search.example.com/search', apiKey: 'k' },
+    };
+    const svc = new WebSearchProviderService(
+      { get: ((name: string) => providers[name]) as IProviderService['get'] } as IProviderService,
+      {
+        resolveTokenProvider:
+          resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
+      } as IOAuthService,
+      { args: { requestHeaders: {} } } as unknown as IBootstrapService,
+      {
+        get: ((domain: string) =>
+          domain === SERVICES_SECTION ? servicesConfig : undefined) as IConfigService['get'],
+      } as IConfigService,
+      notFrozen,
+    );
+
+    expect(svc.hasWebSearchProvider()).toBe(true);
+    expect(() => svc.getWebSearchProvider()).toThrow(/before freeze/);
+
+    servicesConfig = undefined;
+    providers = {};
+    expect(svc.hasWebSearchProvider()).toBe(false);
+
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'kimi',
+        baseUrl: 'https://api.example.com/v1',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+    };
+    expect(svc.hasWebSearchProvider()).toBe(true);
+  });
+
+  it('prefers services.web_search over moonshot_search and managed oauth', async () => {
+    servicesConfig = {
+      webSearch: { type: 'tavily', apiKey: 'tvly-test' },
+      moonshotSearch: { baseUrl: 'https://config.example.com/search', apiKey: 'config-key' },
+    };
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'kimi',
+        baseUrl: 'https://managed.example.com/v1',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        results: [{ title: 'Tavily', url: 'https://example.com', content: 'Hit' }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    const results = await provider!.search('hello');
+    expect(results).toEqual([{ title: 'Tavily', url: 'https://example.com', snippet: 'Hit' }]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.tavily.com/search');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer tvly-test');
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'hello', include_answer: false });
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('searches StepFun with query, n, and category', async () => {
+    servicesConfig = {
+      webSearch: {
+        type: 'stepfun',
+        apiKey: 'step-key',
+        n: 5,
+        category: 'programming',
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        results: [
+          {
+            title: 'Step',
+            url: 'https://example.com',
+            snippet: 'Short',
+            content: 'Long',
+            time: '2026-01-02',
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    const results = await provider!.search('hello');
+    expect(results).toEqual([
+      { title: 'Step', url: 'https://example.com', snippet: 'Short', date: '2026-01-02' },
+    ]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.stepfun.com/v1/search');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer step-key');
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: 'hello',
+      n: 5,
+      category: 'programming',
+    });
+  });
+
+  it('hides the tool when web_search type needs a key that is missing', () => {
+    servicesConfig = { webSearch: { type: 'tavily' } };
+    expect(createService().hasWebSearchProvider()).toBe(false);
+    expect(createService().getWebSearchProvider()).toBeUndefined();
+  });
+
+  it('builds moonshot from web_search type without requiring moonshot_search', async () => {
+    servicesConfig = {
+      webSearch: {
+        type: 'moonshot',
+        baseUrl: 'https://search.example.com/search',
+        apiKey: 'search-key',
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    await provider!.search('hello');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://search.example.com/search');
+    expect(JSON.parse(init.body as string)).toEqual({ text_query: 'hello' });
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer search-key');
+  });
 });
 
 describe('services config section', () => {
@@ -1058,6 +1320,12 @@ describe('services config section', () => {
           oauth: { storage: 'file', key: 'oauth/kimi-code', oauth_host: 'https://auth.example.com' },
         },
         moonshot_fetch: { base_url: 'https://api.example.com/fetch', api_key: 'fetch-key' },
+        web_search: {
+          type: 'stepfun',
+          api_key: 'step-key',
+          n: 8,
+          category: 'programming',
+        },
       }),
     ).toEqual({
       moonshotSearch: {
@@ -1067,6 +1335,7 @@ describe('services config section', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code', oauthHost: 'https://auth.example.com' },
       },
       moonshotFetch: { baseUrl: 'https://api.example.com/fetch', apiKey: 'fetch-key' },
+      webSearch: { type: 'stepfun', apiKey: 'step-key', n: 8, category: 'programming' },
     });
   });
 
@@ -1084,6 +1353,7 @@ describe('services config section', () => {
               oauthHost: 'https://auth.example.com',
             },
           },
+          webSearch: { type: 'tavily', apiKey: 'tvly-test', n: 3 },
         },
         { custom_service: { base_url: 'https://service.example.com' } },
       ),
@@ -1094,6 +1364,7 @@ describe('services config section', () => {
         custom_headers: { 'X-Search': '1' },
         oauth: { storage: 'file', key: 'oauth/kimi-code', oauth_host: 'https://auth.example.com' },
       },
+      web_search: { type: 'tavily', api_key: 'tvly-test', n: 3 },
       custom_service: { base_url: 'https://service.example.com' },
     });
   });

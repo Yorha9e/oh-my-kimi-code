@@ -1,18 +1,3 @@
-/**
- * `subagent` domain — named slot binding access (`[subagent-slot.<slot>]`).
- *
- * A profile's frontmatter may declare a `slot`; the spawn chain resolves it
- * against `[subagent-slot.<slot>]` in `.kimi-code/local.toml` (workspace
- * layer: the nearest `.git` ancestor of the work dir, or the work dir itself)
- * and, falling back, `<home>/local.toml` (global layer; home via
- * `resolveKimiHome`: `OMKC_HOME` > `KIMI_CODE_HOME` > `~/.omkc`). Field
- * names, file layout, and malformed-input behavior mirror the v1
- * `workspace-local` reader: a missing file/section/entry is `undefined` and
- * an empty file is an empty config, while malformed TOML or a schema-
- * violating entry raises `CONFIG_INVALID`. The read layer is deliberately
- * dumb — `inherit: true` and alias validity are consumed by the spawn-side
- * caller, never here.
- */
 
 import { lstat, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
@@ -35,8 +20,6 @@ const SubagentSlotBindingSchema = z.object({
   inherit: z.boolean().optional(),
 });
 
-// Whole-file schema matching the v1 `WorkspaceLocalTomlSchema`, so a
-// schema-violating entry anywhere in local.toml fails the same way v1 does.
 const LocalTomlSchema = z.object({
   workspace: z
     .object({
@@ -49,20 +32,50 @@ const LocalTomlSchema = z.object({
 
 type LocalToml = z.infer<typeof LocalTomlSchema>;
 
+type BindingSection = 'subagent' | 'subagent-slot';
+
+/** The per-type binding shape is identical to the slot one; the alias documents the call site. */
+export type SubagentTypeBinding = SubagentSlotBinding;
+
+/** Read the workspace-layer binding for one subagent type; `undefined` means never configured. */
+export async function readWorkspaceTypeBinding(
+  workDir: string,
+  type: string,
+): Promise<SubagentTypeBinding | undefined> {
+  const projectRoot = await findProjectRoot(workDir);
+  return readBindingAtPath(join(projectRoot, '.kimi-code', 'local.toml'), 'subagent', type);
+}
+
+/** Read the global-layer binding for one subagent type; `undefined` means never configured. */
+export async function readGlobalTypeBinding(
+  type: string,
+): Promise<SubagentTypeBinding | undefined> {
+  return readBindingAtPath(join(resolveKimiHome(), 'local.toml'), 'subagent', type);
+}
+
+/** Workspace layer first, then the global layer; `undefined` when neither is configured. */
+export async function readWorkspaceThenGlobalTypeBinding(
+  workDir: string,
+  type: string,
+): Promise<SubagentTypeBinding | undefined> {
+  const workspace = await readWorkspaceTypeBinding(workDir, type);
+  return workspace ?? (await readGlobalTypeBinding(type));
+}
+
 /** Read the workspace-layer binding for one named slot; `undefined` means never configured. */
 export async function readWorkspaceSlotBinding(
   workDir: string,
   slot: string,
 ): Promise<SubagentSlotBinding | undefined> {
   const projectRoot = await findProjectRoot(workDir);
-  return readSlotBindingAtPath(join(projectRoot, '.kimi-code', 'local.toml'), slot);
+  return readBindingAtPath(join(projectRoot, '.kimi-code', 'local.toml'), 'subagent-slot', slot);
 }
 
 /** Read the global-layer binding for one named slot; `undefined` means never configured. */
 export async function readGlobalSlotBinding(
   slot: string,
 ): Promise<SubagentSlotBinding | undefined> {
-  return readSlotBindingAtPath(join(resolveKimiHome(), 'local.toml'), slot);
+  return readBindingAtPath(join(resolveKimiHome(), 'local.toml'), 'subagent-slot', slot);
 }
 
 /** Workspace layer first, then the global layer; `undefined` when neither is configured. */
@@ -74,12 +87,43 @@ export async function readWorkspaceThenGlobalSlotBinding(
   return workspace ?? (await readGlobalSlotBinding(slot));
 }
 
-async function readSlotBindingAtPath(
+/** A configured slot name and the layer(s) it comes from. */
+export interface SlotNameEntry {
+  readonly name: string;
+  /** `workspace` = local to the project, `global` = user/omkc home layer, `both` = in both. */
+  readonly source: 'workspace' | 'global' | 'both';
+}
+
+/** All configured slot names across the workspace + global local.toml layers (union, sorted), annotated with their source layer. */
+export async function listSlotNames(workDir: string): Promise<SlotNameEntry[]> {
+  const projectRoot = await findProjectRoot(workDir);
+  const [workspace, global] = await Promise.all([
+    readLocalToml(join(projectRoot, '.kimi-code', 'local.toml')),
+    readLocalToml(join(resolveKimiHome(), 'local.toml')),
+  ]);
+  const workspaceNames = new Set(Object.keys(workspace?.['subagent-slot'] ?? {}));
+  const globalNames = new Set(Object.keys(global?.['subagent-slot'] ?? {}));
+  const entries: SlotNameEntry[] = [...new Set([...workspaceNames, ...globalNames])].map(
+    (name) => ({
+      name,
+      source: workspaceNames.has(name)
+        ? globalNames.has(name)
+          ? 'both'
+          : 'workspace'
+        : 'global',
+    }),
+  );
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  return entries;
+}
+
+async function readBindingAtPath(
   configPath: string,
-  slot: string,
+  section: BindingSection,
+  name: string,
 ): Promise<SubagentSlotBinding | undefined> {
   const file = await readLocalToml(configPath);
-  const entry = file?.['subagent-slot']?.[slot];
+  const entry = file?.[section]?.[name];
   if (entry === undefined) return undefined;
   return {
     model: entry.model,

@@ -47,6 +47,9 @@ function makeHost() {
     showNotice: vi.fn(),
     updateActivityPane: vi.fn(),
     track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    noteStepUsage: vi.fn(),
+    noteCompactionFinished: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -182,5 +185,24 @@ describe('SessionEventHandler plugin update notices', () => {
     handler.handleEvent(pluginCommandTurnStarted(), sendQueued);
     handler.handleEvent(turnEnded('cancelled', 2), sendQueued);
     expect(notifier.handlePluginCommandCompleted).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionEventHandler malformed assistant.delta', () => {
+  it('coerces a missing delta payload to an empty delta instead of throwing', () => {
+    const { host, streamingUI } = makeHost();
+    const ui = streamingUI as unknown as Record<string, unknown>;
+    ui['hasThinkingDraft'] = vi.fn(() => false);
+    ui['appendAssistantDelta'] = vi.fn();
+    ui['scheduleFlush'] = vi.fn();
+    const handler = new SessionEventHandler(host, makeNotifier() as unknown as PluginUpdateNotifier);
+
+    expect(() =>
+      handler.handleEvent(
+        { type: 'assistant.delta', sessionId: 's1', agentId: 'main', turnId: 1 } as never,
+        sendQueued,
+      ),
+    ).not.toThrow();
+    expect(ui['appendAssistantDelta']).toHaveBeenCalledWith('');
   });
 });

@@ -1,3 +1,6 @@
+import type * as ChildProcess from 'node:child_process';
+import { EventEmitter } from 'node:events';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { readUpdateCache } from '#/cli/update/cache';
@@ -10,6 +13,7 @@ import { installNativeUpdate } from '#/cli/update/native-install';
 import {
   canAutoInstall,
   decideUpdateAction,
+  installCommandFor,
   runUpdatePreflight,
 } from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
@@ -24,6 +28,7 @@ import {
   type UpdateInstallState,
 } from '#/cli/update/types';
 import type { TuiConfig } from '#/tui/config';
+import { refreshKimiRegion } from '#/utils/region';
 
 const mocks = vi.hoisted(() => ({
   readUpdateCache: vi.fn(),
@@ -35,6 +40,16 @@ const mocks = vi.hoisted(() => ({
   promptForInstallChoice: vi.fn(),
   refreshUpdateCache: vi.fn(),
   installNativeUpdate: vi.fn(),
+  resolveUpdateDeviceId: vi.fn(),
+  appendRolloutDecisionLog: vi.fn(),
+  spawn: vi.fn(),
+  // Identity by default: resolution is covered by resolve-command.test.ts;
+  // here we only care which command string reaches spawn().
+  resolveCommandPath: vi.fn((cmd: string) => cmd as string | undefined),
+}));
+
+vi.mock('#/utils/process/resolve-command', () => ({
+  resolveCommandPath: mocks.resolveCommandPath,
 }));
 
 vi.mock('../../../src/cli/update/cache', () => ({
@@ -189,6 +204,14 @@ describe('canAutoInstall / decideUpdateAction', () => {
 
 describe('runUpdatePreflight', () => {
   beforeEach(() => {
+    // Pin the experimental flag off so rollout gating is deterministic
+    // regardless of the host environment (the flag bypasses batch holds).
+    // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+    // Pin the region to cn so address assertions don't follow the dev
+    // machine's own login/marker state; global tests override below.
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    refreshKimiRegion();
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -197,9 +220,10 @@ describe('runUpdatePreflight', () => {
       release: vi.fn().mockResolvedValue(undefined),
     });
     mocks.installNativeUpdate.mockResolvedValue(undefined);
+    mocks.resolveCommandPath.mockImplementation((cmd: string) => cmd);
   });
 
-  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
+  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); refreshKimiRegion(); });
 
   it('skips all update work when KIMI_CODE_NO_AUTO_UPDATE is set', async () => {
     vi.stubEnv('KIMI_CODE_NO_AUTO_UPDATE', '1');

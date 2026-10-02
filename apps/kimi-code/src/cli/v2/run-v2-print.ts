@@ -1,19 +1,16 @@
 /**
  * Native v2 `kimi -p` (print mode) runner.
  *
- * Unlike the v1 path (and the former `V2PromptHarness` / `V2Session` shim), this
- * runner talks to agent-core-v2's native DI services directly — no
+ * This runner talks to agent-core-v2's native DI services directly — no
  * `PromptHarness`, no SDK-shaped session, no v2→v1 event translation. It:
  *   - `bootstrap()`s the app scope,
  *   - creates / resumes a session and its main agent via native services,
  *   - subscribes to the main agent's per-agent `IEventBus` and renders the
- *     native `DomainEvent` stream (payloads are already v1-protocol-shaped),
+ *     native `Event2` stream (payloads are already v1-protocol-shaped),
  *   - drives a turn through `IAgentPromptService.enqueue()` and awaits
  *     `Turn.result` for authoritative completion,
  *   - applies the print-mode background policy (config-driven, v1-aligned:
  *     `exit` / `drain` / `steer`) before exiting.
- *
- * Selected by `runPrompt` when `KIMI_CODE_EXPERIMENTAL_FLAG` is set.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -32,8 +29,7 @@ import {
   IOAuthToolkit,
   ISessionCronService,
   ISessionIndex,
-  ISessionLifecycleService,
-  IWorkspaceLifecycleService,
+  ISessionManager,
   ITelemetryService,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
@@ -49,7 +45,8 @@ import {
   resolveKimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
-  type DomainEvent,
+  setClampedTimeout,
+  type Event2,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type LoopRunResult,
@@ -57,9 +54,24 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type {
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+import type {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import { resolve } from 'pathe';
 
 import {
+  CLI_COMMAND_NAME,
   CLI_SHUTDOWN_TIMEOUT_MS,
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
@@ -154,11 +166,11 @@ export async function runV2Print(
   // user left unset are filled, in the memory layer.
   await applyPrintModeConfigDefaults(configService);
   const defaultModel = configService.get<string>('defaultModel') ?? undefined;
-  let telemetryEnabled = true;
+  let telemetryEnabled = false;
   try {
-    telemetryEnabled = configService.get('telemetry') !== false;
+    telemetryEnabled = configService.get('telemetry') === true;
   } catch {
-    telemetryEnabled = true;
+    telemetryEnabled = false;
   }
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
@@ -261,7 +273,7 @@ async function resolveNativeSession(
   defaultModel: string | undefined,
   stderr: PromptOutput,
 ): Promise<ResolvedNativeSession> {
-  const workspaceLifecycle = app.accessor.get(IWorkspaceLifecycleService);
+  const sessions = app.accessor.get(ISessionManager);
   const index = app.accessor.get(ISessionIndex);
 
   // `--agent` selects a catalog profile by name; otherwise `--agent-file`
@@ -330,15 +342,14 @@ async function resolveNativeSession(
   };
 
   if (opts.session !== undefined) {
-    const page = await index.list({});
-    const target = page.items.find((summary) => summary.id === opts.session);
+    const target = await index.get(opts.session);
     if (target === undefined) {
       throw new Error(`Session "${opts.session}" not found.`);
     }
     if (target.cwd !== undefined && resolve(target.cwd) !== resolve(workDir)) {
       stderr.write(
         `Session "${opts.session}" was created under a different directory.\n` +
-          `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
+          `  cd "${target.cwd}" && ${CLI_COMMAND_NAME} -r ${opts.session}\n\n`,
       );
       throw new Error(`Session "${opts.session}" was created under a different directory.`);
     }
@@ -358,7 +369,7 @@ async function resolveNativeSession(
   }
 
   if (opts.continue) {
-    const page = await index.list({});
+    const page = await index.listRecent({});
     const previous = page.items.find((summary) => summary.cwd === workDir);
     if (previous !== undefined) {
       const session = await resumeById(previous.id);
@@ -379,8 +390,7 @@ async function resolveNativeSession(
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
-  const handler = await workspaceLifecycle.handlerFor({ root: workDir });
-  const session = await handler.accessor.get(ISessionLifecycleService).create({
+  const session = await sessions.create({
     workDir,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     mainAgentBinding: {
@@ -416,12 +426,12 @@ async function runNativeTurn(
   await agent.accessor.get(IAuthSummaryService).ensureReady();
 
   const turnEndings = createPrintTurnEndings();
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
     dispatchNativeEvent(writer, event, stderr);
     // Arm the turn-endings collector before `turn.result` settles so a
     // background-task completion that steers a new turn right after the main
     // turn ends cannot have its `turn.ended` slip past the policy loop.
-    if (event.type === 'turn.ended') turnEndings.push(event);
+    if (event.type === 'turn.ended') turnEndings.push(event as TurnEnded);
   });
   try {
     const handle = await agent.accessor.get(IAgentPromptService).enqueue({
@@ -513,13 +523,12 @@ async function runNativeGoal(
     replace: goal.replace,
   });
   let completedSnapshot: { readonly status: string } | null = null;
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
-    if (
-      event.type === 'goal.updated' &&
-      event.change?.kind === 'completion' &&
-      event.snapshot !== null
-    ) {
-      completedSnapshot = event.snapshot;
+  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
+    if (event.type === 'goal.updated') {
+      const updated = event as unknown as GoalUpdated;
+      if (updated.change?.kind === 'completion' && updated.snapshot !== null) {
+        completedSnapshot = updated.snapshot;
+      }
     }
   });
   try {
@@ -540,7 +549,7 @@ async function runNativeGoal(
 
 function dispatchNativeEvent(
   writer: PromptTurnWriter,
-  event: DomainEvent,
+  event: Event2<any>,
   stderr: PromptOutput,
 ): void {
   switch (event.type) {
@@ -550,35 +559,43 @@ function dispatchNativeEvent(
       return;
     case 'turn.step.retrying':
       writer.discardAssistant();
-      writer.writeRetrying(event);
+      writer.writeRetrying(event as unknown as TurnStepRetrying);
       return;
     case 'assistant.delta':
-      writer.writeAssistantDelta(event.delta);
+      writer.writeAssistantDelta((event as unknown as AssistantDelta).delta);
       return;
     case 'hook.result':
-      writer.writeHookResult(event);
+      writer.writeHookResult(event as unknown as HookResult);
       return;
     case 'thinking.delta':
-      writer.writeThinkingDelta(event.delta);
+      writer.writeThinkingDelta((event as unknown as ThinkingDelta).delta);
       return;
-    case 'tool.call.started':
-      writer.writeToolCall(event.toolCallId, event.name, event.args);
+    case 'tool.call.started': {
+      const started = event as unknown as ToolCallStarted;
+      writer.writeToolCall(started.toolCallId, started.name, started.args);
       return;
-    case 'tool.call.delta':
-      writer.writeToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
+    }
+    case 'tool.call.delta': {
+      const delta = event as unknown as ToolCallDelta;
+      writer.writeToolCallDelta(delta.toolCallId, delta.name, delta.argumentsPart);
       return;
-    case 'tool.result':
-      writer.writeToolResult(event.toolCallId, event.output);
+    }
+    case 'tool.result': {
+      const result = event as unknown as ToolResultEvent;
+      writer.writeToolResult(result.toolCallId, result.output);
       return;
-    case 'tool.progress':
-      if (event.update.text !== undefined && event.update.text.length > 0) {
-        stderr.write(event.update.text.endsWith('\n') ? event.update.text : `${event.update.text}\n`);
+    }
+    case 'tool.progress': {
+      const progress = (event as unknown as ToolProgress).update;
+      if (progress.text !== undefined && progress.text.length > 0) {
+        stderr.write(progress.text.endsWith('\n') ? progress.text : `${progress.text}\n`);
       }
       return;
+    }
   }
 }
 
-export type PrintTurnEnding = Extract<DomainEvent, { type: 'turn.ended' }>;
+export type PrintTurnEnding = TurnEnded;
 
 /**
  * Source of `turn.ended` events for the print steer loop. `next` resolves with
@@ -622,8 +639,13 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
             // oxlint-disable-next-line promise/no-multiple-resolved -- `settled` guards the single resolve; the rule cannot see it
             resolve(value);
           };
+          // A delay beyond the host timer ceiling (an explicit
+          // `print_wait_ceiling_s` or a far-future cron fire can still reach
+          // it) is clamped by `setClampedTimeout`, so the timer can expire
+          // early: the loop below treats that as a chunk boundary and
+          // re-arms against the real deadline.
           const timer = Number.isFinite(ms)
-            ? setTimeout(() => {
+            ? setClampedTimeout(() => {
                 settle(null);
               }, ms)
             : undefined;
@@ -637,7 +659,8 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
         const ms = deadlineAt - Date.now();
         if (ms <= 0) return null;
         const ending = await waitOnce(ms);
-        if (ending === null) return null;
+        // Timer-chunk boundary, not the real deadline: keep waiting.
+        if (ending === null) continue;
         if (ending.turnId !== skipTurnId) return ending;
         // The skipped turn's own ending: keep waiting within the same budget.
       }

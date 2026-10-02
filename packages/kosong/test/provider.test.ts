@@ -1,6 +1,6 @@
 import type { StreamedMessagePart, TextPart } from '#/message';
 import { MockChatProvider } from './fixtures/mock-provider';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 describe('MockChatProvider', () => {
   it('streams predefined parts', async () => {

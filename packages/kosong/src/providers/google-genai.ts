@@ -258,9 +258,17 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
   // Handle content parts
   for (const part of message.content) {
     switch (part.type) {
-      case 'text':
-        parts.push({ text: part.text });
+      case 'text': {
+        const textPart: GooglePart = { text: part.text };
+        // Replay the signature on the SAME text part it was extracted from —
+        // Google GenAI validates signatures positionally (js-genai #1116), so
+        // attaching it to a different part is as bad as dropping it.
+        if (part.signature !== undefined && part.signature.length > 0) {
+          textPart.thoughtSignature = part.signature;
+        }
+        parts.push(textPart);
         break;
+      }
       case 'think': {
         const thoughtPart: GooglePart = { text: part.think, thought: true };
         if (part.encrypted !== undefined && part.encrypted.length > 0) {
@@ -498,7 +506,17 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
     isToolResultOnly: (content) =>
       content.parts.length > 0 &&
       content.parts.every((part) => part.functionResponse !== undefined),
-    merge: (last, next) => ({ ...last, parts: [...last.parts, ...next.parts] }),
+    merge: (last, next) => {
+      const lastStartsWithFunctionResponse =
+        last.parts[0]?.functionResponse !== undefined;
+      const nextHasFunctionResponse = next.parts.some(
+        (part) => part.functionResponse !== undefined,
+      );
+      if (lastStartsWithFunctionResponse && !nextHasFunctionResponse) {
+        return { ...next, parts: [...next.parts, ...last.parts] };
+      }
+      return { ...last, parts: [...last.parts, ...next.parts] };
+    },
   });
 }
 export class GoogleGenAIStreamedMessage implements StreamedMessage {
@@ -587,7 +605,19 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
           }
           parts.push(thinkPart);
         } else if (p['text']) {
-          parts.push({ type: 'text', text: p['text'] as string });
+          // A plain text part can carry a thoughtSignature too (e.g. image
+          // generation models return a signed text part — js-genai #1116).
+          // It must survive the round trip, otherwise replaying the history
+          // 400s with "Text part is missing a thought_signature".
+          const textSignature = p['thoughtSignature'] ?? p['thought_signature'];
+          const textPart: { type: 'text'; text: string; signature?: string } = {
+            type: 'text',
+            text: p['text'] as string,
+          };
+          if (typeof textSignature === 'string' && textSignature.length > 0) {
+            textPart.signature = textSignature;
+          }
+          parts.push(textPart);
         } else if (p['functionCall'] || p['function_call']) {
           const fc = (p['functionCall'] ?? p['function_call']) as Record<string, unknown>;
           const name = fc['name'] as string;
@@ -706,7 +736,12 @@ const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
 export function convertGoogleGenAIError(error: unknown): ChatProviderError {
   // Google SDK's exported ApiError carries an HTTP status code
   if (error instanceof GoogleApiError) {
-    return normalizeAPIStatusError(error.status, error.message);
+    return normalizeAPIStatusError(
+      error.status,
+      error.message,
+      undefined,
+      parseRetryInfoDelayMs(error.message),
+    );
   }
   if (error instanceof Error) {
     const msg = error.message;
@@ -984,5 +1019,45 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     );
     clone._generationKwargs = { ...this._generationKwargs };
     return clone;
+  }
+}
+
+/**
+ * Extract `google.rpc.RetryInfo.retryDelay` from a Google API error message
+ * body. Returns milliseconds on a valid Duration (`"5s"` → `5000`), or
+ * `null` when the message has no JSON body / no RetryInfo / an invalid delay,
+ * or a delay that cannot be used safely as a timer (non-finite after the
+ * seconds→ms conversion, or beyond the 32-bit `setTimeout` ceiling — both
+ * would collapse to a ~1ms timeout and destroy backoff).
+ */
+function parseRetryInfoDelayMs(message: string): number | null {
+  const jsonStart = message.indexOf('{');
+  if (jsonStart < 0) return null;
+  try {
+    const body: unknown = JSON.parse(message.slice(jsonStart));
+    if (typeof body !== 'object' || body === null) return null;
+    const details = (body as { error?: { details?: unknown } }).error?.details;
+    if (!Array.isArray(details)) return null;
+    for (const detail of details) {
+      if (typeof detail !== 'object' || detail === null) continue;
+      const type = (detail as { '@type'?: unknown })['@type'];
+      if (typeof type !== 'string' || !type.endsWith('google.rpc.RetryInfo')) continue;
+      const retryDelay = (detail as { retryDelay?: unknown }).retryDelay;
+      if (typeof retryDelay !== 'string') continue;
+      const match = /^(\d+(?:\.\d+)?)s$/.exec(retryDelay.trim());
+      if (match?.[1] === undefined) continue;
+      const seconds = Number.parseFloat(match[1]);
+      if (!Number.isFinite(seconds) || seconds < 0) continue;
+      // `seconds` can be finite while `seconds * 1000` overflows to Infinity
+      // (e.g. ~1e308 seconds). Node also clamps any delay above 2^31-1 to
+      // 1ms, so treat both as "no usable server delay" instead of returning
+      // a value that would fire the retry immediately.
+      const ms = Math.round(seconds * 1000);
+      if (!Number.isFinite(ms) || ms > 0x7fffffff) continue;
+      return ms;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }

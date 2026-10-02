@@ -1,19 +1,7 @@
-/**
- * `kosong/model` domain — the `ModelRequester` contract: per-turn input,
- * streamed events, and the per-turn intent carrier `ModelRequestParams`.
- *
- * `ModelRequestParams` is how every per-turn intent reaches the wire: prompt-cache
- * key, sampling overrides, thinking effort/keep, and the completion-token
- * budget (with its window-clamp companions). It is deliberately dialect-free —
- * each wire dialect encodes (or silently drops) an intent in its own hooks.
- * The requester maps the params onto `GenerateOptions` 1:1; the fixed overlay
- * order inside the bases is `cacheKey → sampling → thinking →
- * maxCompletionTokens`.
- */
-
 import type { Message, StreamedMessagePart, VideoURLPart } from '#/kosong/contract/message';
 import type {
   FinishReason,
+  HostToolExecutor,
   ResponseFormat,
   SamplingOptions,
   ThinkingEffort,
@@ -62,6 +50,12 @@ export interface ModelRequestParams {
   readonly usedContextTokens?: number;
   readonly maxContextTokens?: number;
   readonly onTraceId?: (traceId: string | null) => void;
+  /**
+   * Host tool invoker for protocols that execute tool calls in-process.
+   * Built per request by the agent loop from the agent-scope tool
+   * executor so permission gating stays on the host side.
+   */
+  readonly toolInvoker?: HostToolExecutor;
 }
 
 export interface ModelRequester {

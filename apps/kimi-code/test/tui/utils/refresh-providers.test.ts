@@ -212,6 +212,52 @@ describe('refreshAllProviderModels', () => {
     expect(host.current().models?.['custom/m1']?.displayName).toBe('Custom M1');
   });
 
+  it('skips managed OAuth catalog when scope is non-oauth', async () => {
+    const baseUrl = 'https://api.example.test/coding/v1';
+    const config: KimiConfig = {
+      providers: {
+        [KIMI_CODE_PROVIDER_NAME]: {
+          type: 'kimi',
+          baseUrl,
+          apiKey: '',
+          oauth: {
+            storage: 'file',
+            key: resolveKimiCodeOAuthKey({ baseUrl }),
+          },
+        },
+      },
+      models: {
+        'kimi-code/kimi-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
+          model: 'kimi-for-coding',
+          maxContextSize: 262144,
+          capabilities: ['thinking', 'tool_use'],
+        },
+      },
+      defaultModel: 'kimi-code/kimi-for-coding',
+      telemetry: true,
+    };
+    const resolveOAuthToken = vi.fn(async () => 'oauth-access-token');
+    const fetchMock = vi.fn<FetchMock>(async () => {
+      throw new Error('non-oauth refresh must not hit the managed catalog');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await refreshAllProviderModels(
+      {
+        getConfig: async () => config,
+        removeProvider: vi.fn(),
+        setConfig: vi.fn(),
+        resolveOAuthToken,
+      },
+      { scope: 'non-oauth' },
+    );
+
+    expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
+    expect(resolveOAuthToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('refreshes custom-registry model capabilities even when model ids are unchanged', async () => {
     const registryUrl = 'https://registry.example.test/v1/models/api.json';
     const providerId = 'example_chat-completions';

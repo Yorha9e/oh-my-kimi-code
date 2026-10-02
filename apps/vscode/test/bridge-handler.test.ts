@@ -55,6 +55,7 @@ const host = vi.hoisted(() => {
     Uri,
     watcher,
     harness,
+    createKimiHarness: vi.fn(() => harness),
     showWarningMessage,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
@@ -75,7 +76,10 @@ vi.mock("vscode", () => ({
 
 vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
   const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
-  return { ...original, createKimiHarness: () => host.harness };
+  return {
+    ...original,
+    createKimiHarness: () => host.createKimiHarness(),
+  };
 });
 
 let bridge: BridgeHandler;
@@ -92,6 +96,7 @@ beforeEach(async () => {
   host.harness.resumeSession.mockReset();
   host.harness.getConfig.mockReset();
   host.harness.getConfig.mockResolvedValue({ models: {} });
+  host.createKimiHarness.mockImplementation(() => host.harness);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
@@ -108,6 +113,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await bridge.dispose();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 

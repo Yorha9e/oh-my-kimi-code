@@ -1,20 +1,6 @@
-/**
- * `kosong/provider` domain — Google GenAI (Gemini) wire base.
- *
- * Speaks the Gemini generateContent wire format (and Vertex AI through the
- * same SDK options). This base carries no hook surface today — per-turn
- * intents are encoded inline; a cache key has no native field here and is
- * silently dropped, which is the intended "dialect decides whether to encode
- * an intent" behavior.
- *
- * The local `createAbortError` copy is DELIBERATELY not deduplicated: this
- * module's abort plumbing (abortPromise racing,
- * per-chunk checks, the catch guard that rethrows DOMException aborts before
- * error conversion) is self-contained by design.
- */
-
 import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
 
+import { MAX_TIMER_DELAY_MS } from '#/_base/utils/timer';
 import {
   APIConnectionError,
   APITimeoutError,
@@ -133,9 +119,7 @@ function applyResponseFormat(
 ): void {
   if (format === undefined) return;
   config['responseMimeType'] = 'application/json';
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
   delete config['responseSchema'];
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
   delete config['responseJsonSchema'];
   if (format.type === 'json_schema') {
     config['responseJsonSchema'] = format.jsonSchema.schema;
@@ -237,9 +221,14 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
 
   for (const part of message.content) {
     switch (part.type) {
-      case 'text':
-        parts.push({ text: part.text });
+      case 'text': {
+        const textPart: GooglePart = { text: part.text };
+        if (part.signature !== undefined && part.signature.length > 0) {
+          textPart.thoughtSignature = part.signature;
+        }
+        parts.push(textPart);
         break;
+      }
       case 'think': {
         const thoughtPart: GooglePart = { text: part.think, thought: true };
         if (part.encrypted !== undefined && part.encrypted.length > 0) {
@@ -440,7 +429,17 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
     isToolResultOnly: (content) =>
       content.parts.length > 0 &&
       content.parts.every((part) => part.functionResponse !== undefined),
-    merge: (last, next) => ({ ...last, parts: [...last.parts, ...next.parts] }),
+    merge: (last, next) => {
+      const lastStartsWithFunctionResponse =
+        last.parts[0]?.functionResponse !== undefined;
+      const nextHasFunctionResponse = next.parts.some(
+        (part) => part.functionResponse !== undefined,
+      );
+      if (lastStartsWithFunctionResponse && !nextHasFunctionResponse) {
+        return { ...next, parts: [...next.parts, ...last.parts] };
+      }
+      return { ...last, parts: [...last.parts, ...next.parts] };
+    },
   });
 }
 
@@ -526,7 +525,15 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
           }
           parts.push(thinkPart);
         } else if (p['text']) {
-          parts.push({ type: 'text', text: p['text'] as string });
+          const textSignature = p['thoughtSignature'] ?? p['thought_signature'];
+          const textPart: { type: 'text'; text: string; signature?: string } = {
+            type: 'text',
+            text: p['text'] as string,
+          };
+          if (typeof textSignature === 'string' && textSignature.length > 0) {
+            textPart.signature = textSignature;
+          }
+          parts.push(textPart);
         } else if (p['functionCall'] || p['function_call']) {
           const fc = (p['functionCall'] ?? p['function_call']) as Record<string, unknown>;
           const name = fc['name'] as string;
@@ -626,7 +633,12 @@ const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
 
 export function convertGoogleGenAIError(error: unknown): ChatProviderError {
   if (error instanceof GoogleApiError) {
-    return normalizeAPIStatusError(error.status, error.message);
+    return normalizeAPIStatusError(
+      error.status,
+      error.message,
+      undefined,
+      parseRetryInfoDelayMs(error.message),
+    );
   }
   if (error instanceof Error) {
     const msg = error.message;
@@ -643,6 +655,34 @@ export function convertGoogleGenAIError(error: unknown): ChatProviderError {
     return new ChatProviderError(`GoogleGenAI error: ${msg}`);
   }
   return new ChatProviderError(`GoogleGenAI error: ${String(error)}`);
+}
+
+function parseRetryInfoDelayMs(message: string): number | null {
+  const jsonStart = message.indexOf('{');
+  if (jsonStart < 0) return null;
+  try {
+    const body: unknown = JSON.parse(message.slice(jsonStart));
+    if (typeof body !== 'object' || body === null) return null;
+    const details = (body as { error?: { details?: unknown } }).error?.details;
+    if (!Array.isArray(details)) return null;
+    for (const detail of details) {
+      if (typeof detail !== 'object' || detail === null) continue;
+      const type = (detail as { '@type'?: unknown })['@type'];
+      if (typeof type !== 'string' || !type.endsWith('google.rpc.RetryInfo')) continue;
+      const retryDelay = (detail as { retryDelay?: unknown }).retryDelay;
+      if (typeof retryDelay !== 'string') continue;
+      const match = /^(\d+(?:\.\d+)?)s$/.exec(retryDelay.trim());
+      if (match?.[1] === undefined) continue;
+      const seconds = Number.parseFloat(match[1]);
+      if (!Number.isFinite(seconds) || seconds < 0) continue;
+      const ms = Math.round(seconds * 1000);
+      if (!Number.isFinite(ms) || ms > MAX_TIMER_DELAY_MS) continue;
+      return ms;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export class GoogleGenAIChatProvider implements ChatProvider {
@@ -857,7 +897,6 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     );
   }
 }
-
 
 const GEMINI_CATALOGUED_PREFIXES = [
   'gemini-1.5-pro',

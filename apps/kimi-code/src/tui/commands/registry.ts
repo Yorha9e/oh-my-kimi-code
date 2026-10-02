@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import type { AutocompleteItem } from '@moonshot-ai/pi-tui';
 
+import { PRODUCT_NAME } from '#/constant/app';
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { KimiSlashCommand, SlashCommandAvailability } from './types';
 
@@ -216,8 +217,8 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'secondary_model',
-    aliases: [],
+    name: 'secondary-model',
+    aliases: ['subagent-model'],
     description: 'Configure the secondary model for subagents',
     priority: 90,
     availability: 'always',
@@ -370,7 +371,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'fork',
     aliases: [],
-    description: 'Fork the current session',
+    description: 'Fork the current session into a copy without switching to it',
     priority: 80,
   },
   {
@@ -397,8 +398,8 @@ export const BUILTIN_SLASH_COMMANDS = [
   },
   {
     name: 'feedback',
-    aliases: [],
-    description: 'Send feedback to make Kimi Code better',
+    aliases: ['bug'],
+    description: `Send feedback to make ${PRODUCT_NAME} better`,
     priority: 60,
     availability: 'always',
   },

@@ -12,6 +12,7 @@
 import chalk from 'chalk';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 
+import { PRODUCT_NAME } from '#/constant/app';
 import type { SlashCommandHost } from '../commands/dispatch';
 import type { ParsedSlashInput } from '../commands/types';
 import { currentTheme } from '../theme';
@@ -119,7 +120,7 @@ export function renderDanceWelcomeHeader(
   const logoWidth = Math.max(...logo.map((row) => visibleWidth(row)));
   const gap = '  ';
   const rightRow0 = truncateToWidth(
-    rainbowText('Welcome to Kimi Code!', palette, phase + 2, true),
+    rainbowText(`Welcome to ${PRODUCT_NAME}!`, palette, phase + 2, true),
     textWidth,
     '…',
   );

@@ -139,6 +139,18 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
   });
 
+  it('does not retry empty responses blocked by the provider content filter', () => {
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('filtered', { finishReason: 'filtered' })),
+    ).toBe(false);
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: 'completed' })),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: null })),
+    ).toBe(true);
+  });
+
   it.each([408, 409, 429, 500, 502, 503, 504, 529])('treats HTTP %i as retryable', (statusCode) => {
     expect(isRetryableGenerateError(new APIStatusError(statusCode, 'retryable'))).toBe(true);
   });
@@ -514,6 +526,28 @@ describe('isRecoverableRequestStructureError', () => {
           400,
           "400 the message at position 105 with role 'assistant' must not be empty",
         ),
+      ),
+    ).toBe(true);
+  });
+
+  it('matches the Google GenAI thought_signature rejections', () => {
+    // js-genai #1116 verbatim wording: a replayed text part that lost its
+    // signature is rejected as missing it.
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(400, 'Please ensure that the number of thought parts... Text part is missing a thought_signature'),
+      ),
+    ).toBe(true);
+    // snake_case variants naming an invalid signature.
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(400, '400 Invalid value at ... thought_signature: INVALID_ARGUMENT'),
+      ),
+    ).toBe(true);
+    // The space-separated phrasing used by some backends.
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(400, 'invalid thought signature on function call part'),
       ),
     ).toBe(true);
   });

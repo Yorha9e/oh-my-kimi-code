@@ -10,6 +10,7 @@ import {
 import type { Command } from 'commander';
 import { z } from 'zod';
 
+import { PRODUCT_NAME } from '#/constant/app';
 import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
 
 interface WritableLike {
@@ -28,7 +29,7 @@ export interface DoctorDeps {
   readonly configRpc?: KimiConfigRpc;
   readonly fileExists?: (path: string) => boolean;
   readonly readTextFile?: (path: string) => Promise<string>;
-  readonly validateConfigToml?: (text: string, path: string) => MaybePromise<void>;
+  readonly validateConfigToml?: (text: string, path: string) => MaybePromise<string | void>;
 }
 
 export interface DoctorOptions {
@@ -40,7 +41,8 @@ interface CheckSpec {
   readonly label: 'config.toml' | 'tui.toml';
   readonly path: string;
   readonly explicit: boolean;
-  readonly parse: (text: string, path: string) => MaybePromise<void>;
+  /** Throws on invalid content; may return a non-fatal warning message. */
+  readonly parse: (text: string, path: string) => MaybePromise<string | void>;
 }
 
 interface CheckResult {
@@ -59,7 +61,7 @@ interface ResolvedDoctorDeps {
   readonly exit: (code: number) => never;
   readonly fileExists: (path: string) => boolean;
   readonly readTextFile: (path: string) => Promise<string>;
-  readonly validateConfigToml: (text: string, path: string) => MaybePromise<void>;
+  readonly validateConfigToml: (text: string, path: string) => MaybePromise<string | void>;
 }
 
 export async function handleDoctor(deps: DoctorDeps, options: DoctorOptions): Promise<number> {
@@ -81,7 +83,7 @@ export async function handleDoctor(deps: DoctorDeps, options: DoctorOptions): Pr
 export function registerDoctorCommand(parent: Command, deps?: Partial<DoctorDeps>): void {
   const doctor = parent
     .command('doctor')
-    .description('Validate Kimi Code configuration files.')
+    .description(`Validate ${PRODUCT_NAME} configuration files.`)
     .action(async () => {
       await runDoctorCommand(deps, {});
     });
@@ -130,7 +132,10 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
     readTextFile: deps?.readTextFile ?? ((path) => readFile(path, 'utf-8')),
     validateConfigToml:
       deps?.validateConfigToml ??
-      ((text, filePath) => getConfigRpc().validateConfigToml({ text, filePath })),
+      (async (text, filePath) => {
+        const { validateConfigTomlV2 } = await import('../v2/validate-config');
+        return validateConfigTomlV2(text, filePath);
+      }),
   };
 }
 
@@ -204,8 +209,8 @@ async function checkTomlFile(deps: ResolvedDoctorDeps, spec: CheckSpec): Promise
 
   try {
     const text = await deps.readTextFile(spec.path);
-    await spec.parse(text, spec.path);
-    return { label: spec.label, path: spec.path, status: 'OK' };
+    const warning = await spec.parse(text, spec.path);
+    return { label: spec.label, path: spec.path, status: 'OK', message: warning ?? undefined };
   } catch (error) {
     return {
       label: spec.label,

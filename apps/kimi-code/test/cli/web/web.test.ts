@@ -15,6 +15,7 @@ import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CLI_COMMAND_NAME } from '#/constant/app';
 import { registerWebCommand } from '#/cli/sub/web';
 import type { LegacyKillDeps } from '#/cli/sub/web/legacy-kill';
 import type { WebCommandDeps } from '#/cli/sub/web/run';
@@ -103,6 +104,7 @@ describe('kimi web', () => {
     expect(longs).toContain('--dangerous-bypass-auth');
     expect(longs).toContain('--log-level');
     expect(longs).toContain('--debug-endpoints');
+    expect(longs).toContain('--web-title');
     // web opens the browser by default → the option is the negative --no-open.
     expect(longs).toContain('--no-open');
     // The background/daemon era flags are gone: the server always runs in the
@@ -137,9 +139,9 @@ describe('kimi web', () => {
       exitSpy.mockRestore();
 
       expect(exitCalls).toEqual([1]);
-      expect(stderr).toContain('`kimi server` has been deprecated and no longer works.');
-      expect(stderr).toContain('kimi web');
-      expect(stderr).toContain('kimi server kill');
+      expect(stderr).toContain(`\`${CLI_COMMAND_NAME} server\` has been deprecated and no longer works.`);
+      expect(stderr).toContain(`${CLI_COMMAND_NAME} web`);
+      expect(stderr).toContain(`${CLI_COMMAND_NAME} server kill`);
       expect(stderr).toContain('0.28.0');
       expect(stderr).toContain('next major version');
     }
@@ -166,7 +168,7 @@ describe('`kimi web` ready banner', () => {
     );
 
     const plain = stripAnsi(readStdout());
-    expect(plain).toContain('Kimi server ready');
+    expect(plain).toContain('omkc server ready');
     expect(plain).toContain('Local:');
     expect(plain).toContain('http://127.0.0.1:58628/#token=tok');
     expect(plain).toContain('Token:');
@@ -183,10 +185,10 @@ describe('`kimi web` ready banner', () => {
     expect(plain).not.toContain('╰');
     expect(plain).toContain('▐█▛█▛█▌');
     expect(plain).toContain('▐█████▌');
-    expect(plain).not.toContain('Kimi server:');
+    expect(plain).not.toContain(`${CLI_COMMAND_NAME} server:`);
 
     // Title is above the URLs; Logs/Stop are at the bottom.
-    expect(plain.indexOf('Kimi server ready')).toBeLessThan(plain.indexOf('Local:'));
+    expect(plain.indexOf('omkc server ready')).toBeLessThan(plain.indexOf('Local:'));
     expect(plain.indexOf('Logs:')).toBeLessThan(plain.indexOf('Stop:'));
   });
 
@@ -209,7 +211,7 @@ describe('`kimi web` ready banner', () => {
     const out = readStdout();
     const color = new Chalk({ level: 3 });
     expect(out).toContain(color.hex(darkColors.primary)('▐█▛█▛█▌'));
-    expect(out).toContain(color.bold.hex(darkColors.primary)('Kimi server ready'));
+    expect(out).toContain(color.bold.hex(darkColors.primary)('omkc server ready'));
     expect(out).toContain(color.hex(darkColors.accent)('http://127.0.0.1:58627/'));
     expect(out).toContain(color.bold.hex(darkColors.textDim)('Local:    '));
     expect(out).toContain(color.hex(darkColors.textMuted)('off'));
@@ -282,8 +284,8 @@ describe('ready banner reflects the bind class', () => {
         startServerForeground: runner,
         resolveToken: () => 'tok-xyz',
         networkAddresses: [
-          { address: '192.168.98.66', family: 'IPv4' },
-          { address: '10.8.12.216', family: 'IPv4' },
+          { address: '192.0.2.66', family: 'IPv4' },
+          { address: '198.51.100.216', family: 'IPv4' },
         ],
         openUrl: vi.fn(),
         stdout,
@@ -292,14 +294,14 @@ describe('ready banner reflects the bind class', () => {
     );
 
     const raw = stripAnsi(readStdout());
-    expect(raw).toContain('Kimi server ready');
+    expect(raw).toContain('omkc server ready');
     expect(raw).toContain('Local:');
     expect(raw).toContain('Network:');
     // Full token-bearing URLs are printed plainly (no box, no truncation) so
     // they are easy to copy.
     expect(raw).toContain('http://localhost:58627/#token=tok-xyz');
-    expect(raw).toContain('http://192.168.98.66:58627/#token=tok-xyz');
-    expect(raw).toContain('http://10.8.12.216:58627/#token=tok-xyz');
+    expect(raw).toContain('http://192.0.2.66:58627/#token=tok-xyz');
+    expect(raw).toContain('http://198.51.100.216:58627/#token=tok-xyz');
     expect(raw).toContain('Token:');
     expect(raw).toContain('tok-xyz');
     expect(raw).not.toContain('╭');
@@ -316,7 +318,7 @@ describe('ready banner reflects the bind class', () => {
         startServerForeground: runner,
         resolveToken: () => 'tok-loop',
         // Injected interface addresses must NOT leak into a loopback banner.
-        networkAddresses: [{ address: '192.168.98.66', family: 'IPv4' }],
+        networkAddresses: [{ address: '192.0.2.66', family: 'IPv4' }],
         openUrl: vi.fn(),
         stdout,
         stderr,
@@ -324,7 +326,7 @@ describe('ready banner reflects the bind class', () => {
     );
 
     const raw = stripAnsi(readStdout());
-    expect(raw).toContain('Kimi server ready');
+    expect(raw).toContain('omkc server ready');
     expect(raw).toContain('Local:');
     expect(raw).toContain('http://127.0.0.1:58627/#token=tok-loop');
     expect(raw).toContain('Token:');
@@ -332,7 +334,7 @@ describe('ready banner reflects the bind class', () => {
     // No network URLs on a loopback bind — just the "off" hint.
     expect(raw).toContain('use --host to enable');
     expect(raw).not.toContain('Network:  http');
-    expect(raw).not.toContain('192.168.98.66');
+    expect(raw).not.toContain('192.0.2.66');
     expect(raw).not.toContain('╭');
   });
 });
@@ -470,6 +472,32 @@ describe('`kimi web` option threading', () => {
     expect(calls.options).toMatchObject({ logLevel: 'debug' });
   });
 
+  it('passes --web-title through to the runner', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner, calls } = makeRunner();
+    const { stdout, stderr } = makeIo();
+
+    await handleWebCommand(
+      { port: '58627', webTitle: 'My Dev Box', open: false },
+      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+    );
+
+    expect(calls.options).toMatchObject({ webTitle: 'My Dev Box' });
+  });
+
+  it('leaves webTitle undefined when --web-title is not passed', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner, calls } = makeRunner();
+    const { stdout, stderr } = makeIo();
+
+    await handleWebCommand(
+      { port: '58627', open: false },
+      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+    );
+
+    expect(calls.options?.webTitle).toBeUndefined();
+  });
+
   it('rejects an invalid --log-level before calling the runner', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const startServerForeground = vi.fn(async () => undefined as never);
@@ -501,8 +529,8 @@ describe('`kimi web` option threading', () => {
     );
 
     const plain = stripAnsi(readStdout());
-    expect(plain).toContain('Kimi server: http://127.0.0.1:58627/#token=tok');
-    expect(plain).not.toContain('Kimi server ready');
+    expect(plain).toContain(`${CLI_COMMAND_NAME} server: http://127.0.0.1:58627/#token=tok`);
+    expect(plain).not.toContain('omkc server ready');
     expect(plain).not.toContain('Local:');
   });
 
@@ -646,13 +674,13 @@ describe('`kimi server kill` (deprecated, legacy servers only)', () => {
     expect(notice).toContain('Ctrl+C');
   });
 
-  it('prints "No running legacy Kimi server." and sends no signal when no lock exists', async () => {
+  it('prints "No running legacy server." and sends no signal when no lock exists', async () => {
     const { handleLegacyKillCommand } = await import('#/cli/sub/web/legacy-kill');
     const { deps, writes, signals } = makeLegacyKillDeps({ readLock: async () => undefined });
 
     await handleLegacyKillCommand(deps);
 
-    expect(writes.join('')).toContain('No running legacy Kimi server.');
+    expect(writes.join('')).toContain('No running legacy server.');
     expect(signals).toEqual([]);
   });
 
@@ -665,7 +693,7 @@ describe('`kimi server kill` (deprecated, legacy servers only)', () => {
 
     await handleLegacyKillCommand(deps);
 
-    expect(writes.join('')).toContain('No running legacy Kimi server.');
+    expect(writes.join('')).toContain('No running legacy server.');
     expect(signals).toEqual([]);
     expect(state.shutdownCalls).toBe(0);
     expect(state.removeCalls).toBe(1);

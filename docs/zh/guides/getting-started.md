@@ -10,47 +10,44 @@ Kimi Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软件开
 - **理解项目**：探索陌生的代码库，解答架构和实现层面的问题
 - **自动化任务**：批量处理文件、运行构建与测试、串联多个脚本
 
-整套 CLI 以 TypeScript 编写，通过 npm 分发，运行在 Node.js 之上。
+本社区版（`oh-my-kimi-code`）的呼出命令是 `omkc`。它使用独立数据目录（`~/.omkc`），可以和官方 `kimi` 同机并存。
 
 ## 安装
 
-提供两种安装方式：官方安装脚本（推荐，无需预装 Node.js）和 npm 全局安装。
+从 GitHub Releases 下载原生可执行文件（推荐，无需 Node.js），或从源码构建。
 
 ::: tip 安装之前
-Kimi Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
+Oh My Kimi Code 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
 :::
 
-### 脚本安装（推荐）
+### 原生可执行文件（推荐）
 
-- **macOS / Linux**：
+从 [GitHub Releases](https://github.com/Yorha9e/oh-my-kimi-code/releases) 下载对应平台的压缩包并解压：
 
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
+- Windows：`omkc-win32-x64.zip` / `omkc-win32-arm64.zip`
+- macOS：`omkc-darwin-x64.zip` / `omkc-darwin-arm64.zip`
+- Linux：`omkc-linux-x64.zip` / `omkc-linux-arm64.zip`
 
-- **Windows（PowerShell）**：
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Kimi Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `KIMI_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
-
-脚本会自动下载最新版本、校验 checksum，并把 `kimi` 可执行文件放到你的 `PATH` 中。
-
-### npm 安装
-
-需要 Node.js 22.19.0 或更高版本：
+把解压目录加入 `PATH`，然后在新终端中运行：
 
 ```sh
-node --version
-npm install -g @moonshot-ai/kimi-code
+omkc --version
 ```
 
-或用 pnpm：
+> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `KIMI_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
+
+社区版**不会发布到 npm**。`npm install -g @moonshot-ai/kimi-code` 装的是官方 `kimi` CLI，不是本 fork。
+
+### 从源码构建
+
+需要 Node.js `>=24.15.0` 和 pnpm：
 
 ```sh
-pnpm add -g @moonshot-ai/kimi-code
+git clone https://github.com/Yorha9e/oh-my-kimi-code.git
+cd oh-my-kimi-code
+pnpm install
+pnpm -C apps/kimi-code run build
+node apps/kimi-code/dist/main.mjs
 ```
 
 ## 升级与卸载
@@ -58,46 +55,39 @@ pnpm add -g @moonshot-ai/kimi-code
 安装完成后，验证可执行文件是否就绪：
 
 ```sh
-kimi --version
+omkc --version
 ```
 
-**升级**：运行 `kimi upgrade`，CLI 会检查最新版本并展示更新选项。选择 `Install update now` 后根据当前安装来源执行升级；也可以直接用包管理器：
+**升级**：运行 `omkc upgrade`，CLI 会检查 GitHub Releases 并展示更新选项。原生安装可在下次启动时换上新二进制。
 
-```sh
-npm install -g @moonshot-ai/kimi-code@latest
-```
-
-**卸载**：脚本安装的用户删除 `kimi` 可执行文件即可；npm 安装的用户：
-
-```sh
-npm uninstall -g @moonshot-ai/kimi-code
-```
+**卸载**：删除 `omkc` 可执行文件（若保留了解压目录，一并删除即可）。
 
 ## 第一次启动
 
-进入项目目录后直接运行 `kimi` 启动交互界面：
+进入项目目录后直接运行 `omkc` 启动交互界面：
 
 ```sh
 cd your-project
-kimi
+omkc
 ```
 
 只想执行一条指令而不进入交互界面时，使用 `-p`：
 
 ```sh
-kimi -p "帮我看一下这个项目的目录结构"
+omkc -p "帮我看一下这个项目的目录结构"
 ```
 
 继续上一次会话加 `-c`：
 
 ```sh
-kimi -c
+omkc -c
 ```
 
-首次启动时需要配置 API 来源。在交互界面中输入 `/login` 进入登录流程：
+首次启动时需要配置模型。在交互界面中输入 `/login` 走 Kimi Code OAuth，或用 `/provider` 从目录添加其他供应商：
 
 ```
 /login
+/provider
 ```
 
 `/login` 会弹出平台选择器，支持两种方式：
@@ -108,12 +98,12 @@ kimi -c
 需要退出登录时，输入 `/logout` 清除当前凭证。
 
 ::: tip 使用其他 AI 供应商
-如果你想接入 Anthropic、OpenAI、Google 等其他供应商，需要直接编辑 `~/.kimi-code/config.toml` 配置 API 密钥，详见[平台与模型](../configuration/providers.md)。配置项完整说明见[配置文件](../configuration/config-files.md)、[环境变量](../configuration/env-vars.md)和[配置覆盖](../configuration/overrides.md)。
+如果你想接入 Anthropic、OpenAI、Google 等其他供应商，使用 `/provider` 或编辑 `~/.omkc/config.toml` 配置 API 密钥，详见[平台与模型](../configuration/providers.md)。配置项完整说明见[配置文件](../configuration/config-files.md)、[环境变量](../configuration/env-vars.md)和[配置覆盖](../configuration/overrides.md)。
 :::
 
 ## 第一个对话
 
-登录完成后，用自然语言描述任务即可。先让它熟悉当前项目：
+配置好模型后，用自然语言描述任务即可。先让它熟悉当前项目：
 
 ```
 帮我看一下这个项目的目录结构，简单介绍一下每个目录是做什么的
@@ -145,7 +135,7 @@ Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告
 | `/sessions` | 浏览历史会话，选择恢复 |
 | `/model` | 切换当前使用的模型 |
 | `/compact` | 手动压缩上下文，释放 token |
-| `/fork` | 派生当前会话，保留历史独立继续 |
+| `/fork` | 派生当前会话为保留完整历史的独立副本（仍停留在当前会话） |
 
 **最常用快捷键**
 
@@ -161,7 +151,7 @@ Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告
 
 ## 数据存放在哪里
 
-Kimi Code CLI 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录、日志和更新缓存。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
+Oh My Kimi Code 的本地数据默认保存在 `~/.omkc/` 下，包含配置文件、会话记录、日志和更新缓存。如需迁移到别处，设置 `OMKC_HOME`（兼容 `KIMI_CODE_HOME`）。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
 
 ## 下一步
 

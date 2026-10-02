@@ -1,15 +1,6 @@
-/**
- * `kosong/contract` generate() — the stream-merging generation driver.
- *
- * Covers event normalization (text/think deltas merged, tool-call argument
- * deltas routed by stream index), the empty/thinking-only response
- * rejections, the abort contract (standard DOMException, stream cancelled),
- * callback plumbing, and per-turn intent passthrough via GenerateOptions.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
-import { APIEmptyResponseError } from '#/kosong/contract/errors';
+import { APIEmptyResponseError, isRetryableGenerateError } from '#/kosong/contract/errors';
 import { generate, type GenerateResult } from '#/kosong/contract/generate';
 import type { Message, StreamedMessagePart, ToolCall } from '#/kosong/contract/message';
 import type {
@@ -106,6 +97,20 @@ describe('generate() stream normalization', () => {
     expect(result.id).toBe('gen-1');
   });
 
+  it('keeps the first signature when merging signed text deltas', async () => {
+    const stream = new FakeStreamedMessage([
+      { type: 'text', text: 'Hello, ', signature: 'sig-first' },
+      { type: 'text', text: 'world', signature: 'sig-second' },
+    ]);
+    const { provider } = createFakeProvider(stream);
+
+    const result = await generate(provider, SYSTEM_PROMPT, NO_TOOLS, HISTORY);
+
+    expect(result.message.content).toEqual([
+      { type: 'text', text: 'Hello, world', signature: 'sig-first' },
+    ]);
+  });
+
   it('assembles tool calls from streamed argument deltas by stream index', async () => {
     const callA: ToolCall = {
       type: 'function',
@@ -159,7 +164,6 @@ describe('generate() stream normalization', () => {
       {
         onMessagePart: (part) => {
           seenParts.push(structuredClone(part));
-          // Mutating the callback's copy must not corrupt the driver's merge.
           if (part.type === 'text') part.text = 'MUTATED';
         },
         onToolCall: (call) => {
@@ -206,6 +210,22 @@ describe('generate() stream normalization', () => {
     await expect(generate(provider, SYSTEM_PROMPT, NO_TOOLS, HISTORY)).rejects.toBeInstanceOf(
       APIEmptyResponseError,
     );
+  });
+
+  it('marks a provider-filtered thinking-only response as non-retryable', async () => {
+    class FilteredStream extends FakeStreamedMessage {
+      override readonly finishReason: FinishReason | null = 'filtered';
+      override readonly rawFinishReason: string | null = 'content_filter';
+    }
+    const stream = new FilteredStream([{ type: 'think', think: 'filtered mid-thought' }]);
+    const { provider } = createFakeProvider(stream);
+
+    const caught = await generate(provider, SYSTEM_PROMPT, NO_TOOLS, HISTORY).catch(
+      (error: unknown) => error,
+    );
+
+    expect(caught).toBeInstanceOf(APIEmptyResponseError);
+    expect(isRetryableGenerateError(caught)).toBe(false);
   });
 
   it('forwards the trace id to onTraceId and the result', async () => {

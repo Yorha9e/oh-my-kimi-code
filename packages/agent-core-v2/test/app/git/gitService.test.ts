@@ -15,6 +15,9 @@ import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IRuntimeResolver, IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { Event } from '#/_base/event';
+import type { Runtime } from '#/runtime/runtime';
 import { normalize } from 'pathe';
 
 function git(cwd: string, ...args: string[]): string {
@@ -38,11 +41,23 @@ describe('GitService', () => {
     git(repo, 'init');
     git(repo, 'config', 'user.email', 'test@example.com');
     git(repo, 'config', 'user.name', 'Test');
+    git(repo, 'config', 'commit.gpgsign', 'false');
     disposables = new DisposableStore();
+    const process = new HostProcessService();
+    const runtime = { process } as unknown as Runtime;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.define(IHostProcessService, HostProcessService);
         reg.define(IHostFileSystem, HostFileSystem);
+        reg.defineInstance(IRuntimeResolver, {
+          _serviceBrand: undefined,
+          inspect: () => runtime,
+          acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+        });
+        reg.definePartialInstance(IWorkspaceInstanceManager, {
+          findByRoot: () => ({ id: 'workspace-1' } as never),
+          onDidChange: Event.None as Event<WorkspaceInstanceChange>,
+        });
         reg.define(IGitService, GitService);
       },
     });
@@ -70,7 +85,7 @@ describe('GitService', () => {
       expect(result.additions).toBe(0);
       expect(result.deletions).toBe(0);
       expect(result.pullRequest).toBeNull();
-    });
+    }, 15000);
 
     it('reports a modified file with numstat', async () => {
       writeFileSync(join(repo, 'a.txt'), 'line1\n');

@@ -18,6 +18,25 @@ import {
   type ProviderDeps,
 } from '#/cli/sub/provider';
 
+// Spy on the SDK harness factory so the default-deps harness construction can
+// be asserted without booting a real engine. The real implementation stays in
+// place for everything else the handlers use.
+const harnessRouting = vi.hoisted(() => ({
+  kimiHarnessConstructor: vi.fn(),
+  harness: undefined as unknown,
+}));
+
+vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
+  return {
+    ...actual,
+    createKimiHarness: (...args: unknown[]) => {
+      harnessRouting.kimiHarnessConstructor(...args);
+      return harnessRouting.harness;
+    },
+  };
+});
+
 class ExitCalled extends Error {
   constructor(public readonly code: number) {
     super(`exit(${code})`);
@@ -29,6 +48,7 @@ interface FakeHarness {
   getConfig: () => Promise<KimiConfig>;
   setConfig: (patch: Partial<KimiConfig>) => Promise<KimiConfig>;
   removeProvider: (providerId: string) => Promise<KimiConfig>;
+  close: () => Promise<void>;
 }
 
 function makeHarness(initial: KimiConfig): {
@@ -80,6 +100,7 @@ function makeHarness(initial: KimiConfig): {
       if (removedDefault) persisted = { ...persisted, defaultModel: undefined };
       return structuredClone(persisted);
     },
+    close: async () => {},
   };
   return {
     harness,
@@ -733,7 +754,7 @@ describe('kimi provider catalog add', () => {
     expect(exitCodes).toEqual([1]);
     const err = stderr.join('');
     expect(err).toContain('"does-not-exist" is not in provider "anthropic"');
-    expect(err).toContain('kimi provider catalog list anthropic');
+    expect(err).toContain('omkc provider catalog list anthropic');
   });
 
   it('preserves an existing default_model when re-importing the same provider without --default-model', async () => {

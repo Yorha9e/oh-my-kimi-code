@@ -20,6 +20,13 @@ export interface TelemetryBootstrapOptions {
   readonly terminal?: string;
   readonly locale?: string;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
+  /**
+   * Region-aware endpoint derived by the composition root (this package stays
+   * dependency-free and keeps the cn default in `TELEMETRY_ENDPOINT`). A
+   * resolver is invoked per flush so an in-process region switch takes effect
+   * without re-initialization.
+   */
+  readonly endpoint?: string | (() => string);
 }
 
 export function isTelemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -27,10 +34,11 @@ export function isTelemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): 
   return value !== undefined && TRUE_ENV_VALUES.has(value.trim().toLowerCase());
 }
 
+/** Opt-in: telemetry stays off unless `enabled` is explicitly true. */
 export function shouldEnableTelemetry(
   input: { readonly enabled?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
 ): boolean {
-  return input.enabled !== false && !isTelemetryDisabledByEnv(input.env ?? process.env);
+  return input.enabled === true && !isTelemetryDisabledByEnv(input.env ?? process.env);
 }
 
 export function initializeTelemetry(options: TelemetryBootstrapOptions): void {
@@ -49,6 +57,7 @@ export function initializeTelemetry(options: TelemetryBootstrapOptions): void {
   const transport = new AsyncTransport({
     homeDir: options.homeDir,
     deviceId: options.deviceId,
+    endpoint: options.endpoint,
     getAccessToken: options.getAccessToken,
   });
   const sink = new EventSink({

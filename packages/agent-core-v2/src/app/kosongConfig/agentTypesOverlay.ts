@@ -1,32 +1,3 @@
-/**
- * `kosongConfig` domain (L3) - `[agent_types.<type>]` derived-entry overlay.
- *
- * For each `[agent_types.<type>]` entry that carries patch fields (any
- * `ModelOverride` field besides `model`/`thinking`, extracted by
- * `agentTypePatch`), synthesizes a derived registry entry
- * (`__agent_type_<type>__`) into the effective `models` view: a copy of the
- * pointed entry with the patch merged into its `overrides` block (patch wins
- * conflicts) and `aliases` dropped, so the derived entry never competes in
- * name/alias routing. Subagent binding then resolves it by name through the
- * standard catalog path, and the patch rides the same `effectiveModelConfig`
- * merge as any `models.*.overrides` (including its supportEfforts/defaultEffort
- * pruning and input clamping).
- *
- * Mirrors `secondaryModelOverlay` (the `[secondary_model]` single-recipe
- * overlay): the synthesized entries live ONLY in the in-memory effective view.
- * `strip` removes every `__agent_type_*__` key from `models` writes so they
- * never reach `config.toml`, and rolls back a `defaultModel` pointer set to a
- * derived id (restoring the raw value). Nothing is synthesized for entries
- * without patch fields (subagents bind the pointed entry directly), when
- * `model` is unset, or when the pointed entry does not exist. The ids are
- * reserved: a user-configured entry under one is stripped on write all the
- * same.
- *
- * Self-registered at module load via `registerConfigOverlay`; `src/index.ts`
- * imports it for side effects AFTER `secondaryModelOverlay`, so a per-type
- * `model` pointing at the secondary-synthesized `__secondary__` entry sees the
- * already-applied secondary view.
- */
 
 import type { ConfigEffectiveOverlay } from '#/app/config/config';
 import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
@@ -71,7 +42,6 @@ export const agentTypesOverlay: ConfigEffectiveOverlay = {
     for (const [type, binding] of Object.entries(agentTypes)) {
       const patch = agentTypePatch(binding);
       const baseId = binding?.model;
-      // No patch, no model, or a reserved id as the base: skip (no derivation).
       if (patch === undefined || baseId === undefined || isAgentTypeDerivedModelId(baseId)) {
         continue;
       }

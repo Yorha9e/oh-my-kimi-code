@@ -34,7 +34,9 @@ import {
 import type { Command } from 'commander';
 
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
+import { CLI_COMMAND_NAME } from '#/constant/app';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -356,7 +358,7 @@ export async function handleCatalogAdd(
 
   if (opts.defaultModel !== undefined && !models.some((m) => m.id === opts.defaultModel)) {
     deps.stderr.write(
-      `Model "${opts.defaultModel}" is not in provider "${providerId}". Run "kimi provider catalog list ${providerId}" to see available ids.\n`,
+      `Model "${opts.defaultModel}" is not in provider "${providerId}". Run "${CLI_COMMAND_NAME} provider catalog list ${providerId}" to see available ids.\n`,
     );
     deps.exit(1);
   }
@@ -457,12 +459,17 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   // anything that escapes (e.g. a config write rejected because config.toml
   // is invalid) must end as a one-line error + exit 1, not an unhandled
   // rejection dumping a stack trace.
-  const runAction = async (resolved: ProviderDeps, run: () => Promise<void>): Promise<void> => {
+  const runAction = async (
+    resolved: ResolvedProviderDeps,
+    run: () => Promise<void>,
+  ): Promise<void> => {
     try {
       await run();
     } catch (error) {
       resolved.stderr.write(`${errorMessage(error)}\n`);
       resolved.exit(1);
+    } finally {
+      await resolved.close();
     }
   };
 
@@ -546,7 +553,9 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     );
 }
 
-function resolveDeps(overrides: Partial<ProviderDeps> = {}): ProviderDeps {
+type ResolvedProviderDeps = ProviderDeps & { readonly close: () => Promise<void> };
+
+function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDeps {
   let harness: KimiHarness | undefined;
   const identity = createKimiCodeHostIdentity();
   return {
@@ -560,6 +569,11 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ProviderDeps {
     stderr: overrides.stderr ?? process.stderr,
     env: overrides.env ?? process.env,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
+    // The v2 harness boots an engine whose watchers hold the event loop open;
+    // close it so a one-shot command can exit. No-op for injected harnesses.
+    close: async () => {
+      await harness?.close();
+    },
   };
 }
 

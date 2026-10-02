@@ -6,7 +6,8 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
-import { SECONDARY_MODEL_SECTION, MODELS_SECTION } from '#/app/kosongConfig/configSection';
+import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
+import { MODELS_SECTION } from '#/app/kosongConfig/configSection';
 import '#/app/kosongConfig/agentTypesOverlay';
 import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
@@ -53,7 +54,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
   it('falls back to the caller model when no config is set', () => {
     const { config, flags } = setup({});
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('uses the per-type binding when the type has a model', () => {
@@ -65,6 +66,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: 'medium',
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -74,7 +76,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       secondary: { model: 'provider/secondary' },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('skips per-type and returns the secondary model for an explicit secondary request', () => {
@@ -87,6 +89,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -100,6 +103,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: 'medium',
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -113,6 +117,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -121,7 +126,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       agentTypes: { reviewer: { model: 'provider/reviewer' } },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('falls back to secondary when per-type has only thinking but no model', () => {
@@ -134,6 +139,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -142,7 +148,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       agentTypes: { coder: { thinking: 'medium' } },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('uses per-type model with undefined thinking when only model is set', () => {
@@ -154,6 +160,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -167,6 +174,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/secondary',
       thinking: undefined,
       source: 'secondary',
+      displayModel: 'provider/secondary',
     });
   });
 
@@ -181,6 +189,7 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       model: 'provider/coder',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
@@ -190,13 +199,11 @@ describe('resolveSubagentBinding (per-type model binding)', () => {
       flagEnabled: false,
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 });
 
 describe('agentTypes TOML key preservation (real ConfigService pipeline)', () => {
-  // Creates a ConfigService backed by in-memory TOML storage so we exercise
-  // the real fromToml/toToml transforms (StubConfigService bypasses TOML entirely).
   async function createTomlConfig(tomlContent: string): Promise<{
     config: IConfigService;
     disposables: DisposableStore;
@@ -228,7 +235,6 @@ describe('agentTypes TOML key preservation (real ConfigService pipeline)', () =>
       AGENT_TYPES_SECTION,
     );
 
-    // The key must remain `code_reviewer`, NOT be transformed to `codeReviewer`.
     expect(agentTypes).toHaveProperty('code_reviewer');
     expect(agentTypes).not.toHaveProperty('codeReviewer');
     expect(agentTypes!['code_reviewer']).toEqual({
@@ -259,7 +265,6 @@ describe('agentTypes TOML key preservation (real ConfigService pipeline)', () =>
       coder: { model: 'provider/coder' },
     });
 
-    // In-memory key must be preserved.
     const afterSet = config.get<Record<string, { model?: string; thinking?: string }>>(
       AGENT_TYPES_SECTION,
     );
@@ -270,7 +275,6 @@ describe('agentTypes TOML key preservation (real ConfigService pipeline)', () =>
       thinking: 'medium',
     });
 
-    // On-disk TOML must also use the original key (agent_types.code_reviewer).
     const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
     expect(onDisk).toContain('[agent_types.code_reviewer]');
     expect(onDisk).toContain('model = "provider/reviewer"');
@@ -299,6 +303,7 @@ describe('agentTypes TOML key preservation (real ConfigService pipeline)', () =>
       model: 'provider/reviewer',
       thinking: undefined,
       source: 'agent_types',
+      displayModel: 'provider/reviewer',
     });
 
     disposables.dispose();
@@ -325,7 +330,6 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
     return { config, flags };
   }
 
-  // Checklist 1: no-patch entries behave byte-identically (regression).
   it('returns the original model for a pointer-only entry (no patch)', () => {
     const { config, flags } = setup({
       agentTypes: { coder: { model: 'provider/coder', thinking: 'medium' } },
@@ -335,10 +339,10 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
       model: 'provider/coder',
       thinking: 'medium',
       source: 'agent_types',
+      displayModel: 'provider/coder',
     });
   });
 
-  // Checklist 2: patch entries return the derived id.
   it('returns the derived id when the entry has patch fields', () => {
     const { config, flags } = setup({
       agentTypes: { coder: { model: 'provider/coder', maxOutputSize: 8192 } },
@@ -356,13 +360,11 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
     expect(binding.model).toBe(agentTypeDerivedModelId('coder'));
   });
 
-  // thinking (binding layer) takes priority over patch default_effort.
   it('passes binding-layer thinking even when patch has default_effort', () => {
     const { config, flags } = setup({
       agentTypes: { coder: { model: 'provider/coder', thinking: 'high', defaultEffort: 'low' } },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
-    // thinking='high' wins; the derived id is still returned (patch is present).
     expect(binding.model).toBe(agentTypeDerivedModelId('coder'));
     expect(binding.thinking).toBe('high');
   });
@@ -373,14 +375,9 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
     });
     const binding = resolveSubagentBinding(config, flags, OWN, undefined, 'coder');
     expect(binding.model).toBe(agentTypeDerivedModelId('coder'));
-    // thinking is undefined - the derived entry's default_effort is the fallback.
     expect(binding.thinking).toBeUndefined();
   });
 
-  // Chain guard: the overlay refuses to synthesize a derived entry whose base
-  // is itself a derived id, so a patch-bearing entry pointing at
-  // `__agent_type_*__` binds the pointed (already-derived) entry directly
-  // instead of producing a dangling id.
   it('binds the base directly when a patch entry points at a derived id', () => {
     const { config, flags } = setup({
       agentTypes: {
@@ -399,7 +396,7 @@ describe('resolveSubagentBinding (per-type patch entries)', () => {
       secondary: { model: 'provider/secondary' },
     });
     const binding = resolveSubagentBinding(config, flags, OWN, 'primary', 'coder');
-    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own' });
+    expect(binding).toEqual({ model: 'caller-model', thinking: 'high', source: 'own', displayModel: 'caller-model' });
   });
 
   it('skips per-type patch for an explicit secondary request', () => {
@@ -457,8 +454,6 @@ describe('per-type patch TOML round-trip (real ConfigService pipeline)', () => {
     return { config, disposables, storage };
   }
 
-  // Checklist 3: config.toml round-trip leaves no derived id on disk, but
-  // preserves the patch fields under [agent_types.<type>].
   it('preserves patch fields on disk without writing derived ids to [models]', async () => {
     const { config, disposables, storage } = await createTomlConfig(
       '[models.k2]\nprovider = "kimi"\nmodel = "kimi-k2"\nmax_context_size = 262144\n',
@@ -469,12 +464,10 @@ describe('per-type patch TOML round-trip (real ConfigService pipeline)', () => {
     });
 
     const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    // Patch fields are on disk under [agent_types.coder].
     expect(onDisk).toContain('[agent_types.coder]');
     expect(onDisk).toContain('model = "k2"');
     expect(onDisk).toContain('max_output_size = 8192');
     expect(onDisk).toContain('default_effort = "low"');
-    // No derived id in [models].
     expect(onDisk).not.toContain('__agent_type_');
 
     disposables.dispose();
@@ -496,8 +489,6 @@ describe('per-type patch TOML round-trip (real ConfigService pipeline)', () => {
     disposables.dispose();
   });
 
-  // Checklist 4: resume - the overlay reconstructs the derived entry at
-  // startup so a derived id recorded in the wire journal re-resolves.
   it('synthesizes the derived entry into the effective models view on load', async () => {
     const { config, disposables } = await createTomlConfig(
       [
@@ -514,9 +505,6 @@ describe('per-type patch TOML round-trip (real ConfigService pipeline)', () => {
       ].join('\n'),
     );
 
-    // The effective models view must contain the derived entry with the
-    // patched overrides - this is what the catalog resolves by id during
-    // both spawn and resume.
     const models = config.get<Record<string, unknown>>(MODELS_SECTION);
     const derivedId = agentTypeDerivedModelId('coder');
     expect(models[derivedId]).toBeDefined();
@@ -525,7 +513,6 @@ describe('per-type patch TOML round-trip (real ConfigService pipeline)', () => {
     expect(overrides['maxOutputSize']).toBe(8192);
     expect(overrides['defaultEffort']).toBe('low');
 
-    // The base entry stays untouched.
     const k2 = models['k2'] as Record<string, unknown>;
     expect(k2['maxOutputSize']).toBeUndefined();
 

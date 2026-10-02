@@ -58,7 +58,7 @@ export class KimiRuntime {
     this.harness =
       options.harness ??
       createKimiHarness({
-        ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+        homeDir: options.homeDir,
         identity: {
           productName: "kimi-code-vscode",
           version: options.version,

@@ -1,4 +1,4 @@
-import { CLI_COMMAND_NAME } from '#/constant/app';
+import { CLI_COMMAND_NAME, DOCS_URL } from '#/constant/app';
 import { registerMigrateCommand } from '#/migration/index';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
@@ -15,6 +15,7 @@ export type MainCommandHandler = (opts: CLIOptions) => void;
 export type MigrateCommandHandler = () => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = () => void | Promise<void>;
+export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
 
 export function createProgram(
   version: string,
@@ -22,6 +23,7 @@ export function createProgram(
   onMigrate: MigrateCommandHandler,
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
+  onUpdateDownload: UpdateDownloadHandler = () => {},
 ): Command {
   const program = new Command(CLI_COMMAND_NAME)
     .description('The Starting Point for Next-Gen Agents')
@@ -30,7 +32,7 @@ export function createProgram(
     .configureHelp({ helpWidth: 100 })
     .helpOption('-h, --help', 'Show help.')
     .usage('[options] [command]')
-    .addHelpText('after', '\nDocumentation:        https://moonshotai.github.io/kimi-code/\n');
+    .addHelpText('after', `\nDocumentation:        ${DOCS_URL}\n`);
 
   program
     .addOption(
@@ -136,6 +138,17 @@ export function createProgram(
     .allowUnknownOption(true)
     .action((entry: string, args: string[]) => {
       onPluginNodeRunner(entry, args);
+    });
+
+  // Self-spawned worker for native staged updates (detached background
+  // download, or foreground from `kimi upgrade` — `--manual` marks the
+  // latter's stage as user-requested). Hidden: not user-facing.
+  program
+    .command('__update_download', { hidden: true })
+    .argument('<version>')
+    .option('--manual', 'the stage answers an explicit user-initiated upgrade')
+    .action((targetVersion: string, options: { manual?: boolean }) => {
+      onUpdateDownload(targetVersion, options.manual === true);
     });
 
   program.argument('[args...]').action((args: string[]) => {

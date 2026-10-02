@@ -257,6 +257,7 @@ describe('provisionManagedKimiCodeConfig', () => {
       baseUrl: 'https://api.kimi.com/coding/v1',
       apiKey: '',
       oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      modelSource: 'oauth-catalog',
     });
     expect(config.models?.['kimi-code/kimi-for-coding']).toMatchObject({
       provider: KIMI_CODE_PROVIDER_NAME,

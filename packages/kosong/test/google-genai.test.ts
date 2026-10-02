@@ -1,3 +1,5 @@
+import { ApiError as GoogleApiError } from '@google/genai';
+
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -337,6 +339,40 @@ describe('GoogleGenAIChatProvider', () => {
       const last = contents.at(-1)!;
       expect(last.parts.some((p) => p.functionResponse !== undefined)).toBe(true);
       expect(last.parts.some((p) => p.text === 'Now multiply')).toBe(true);
+      // Gemini rejects a trailing Content whose parts start with
+      // functionResponse followed by text ("Requests ending with a model turn
+      // are not supported"); the merged Content must keep the user text first.
+      expect(last.parts[0]).toEqual({ text: 'Now multiply' });
+    });
+
+    it('keeps trailing user text before a multimodal tool-result Content when merging', () => {
+      // A tool result carrying media yields [functionResponse, inlineData];
+      // the reorder must still put a following user text part first.
+      const toolCall: ToolCall = {
+        type: 'function',
+        id: 'call_img',
+        name: 'inspect',
+        arguments: '{}',
+      };
+      const contents = messagesToGoogleGenAIContents([
+        { role: 'user', content: [{ type: 'text', text: 'Inspect it' }], toolCalls: [] },
+        { role: 'assistant', content: [], toolCalls: [toolCall] },
+        {
+          role: 'tool',
+          content: [
+            { type: 'text', text: 'here is the image' },
+            { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+          ],
+          toolCallId: 'call_img',
+          toolCalls: [],
+        },
+        { role: 'user', content: [{ type: 'text', text: 'Now explain it' }], toolCalls: [] },
+      ]);
+
+      expect(contents.map((c) => c.role)).toEqual(['user', 'model', 'user']);
+      const last = contents.at(-1)!;
+      expect(last.parts[0]).toEqual({ text: 'Now explain it' });
+      expect(last.parts.some((p) => p.functionResponse !== undefined)).toBe(true);
     });
 
     it('multi-turn conversation with system prompt sets systemInstruction', async () => {
@@ -482,6 +518,43 @@ describe('GoogleGenAIChatProvider', () => {
         functionCall: { name: 'add', args: { a: 2, b: 3 } },
         thoughtSignature: 'dGhvdWdodF9zaWduYXR1cmVfZGF0YQ==',
       });
+    });
+
+    it('assistant text part with a signature replays the signature on the same text part', async () => {
+      // js-genai #1116: image-generation models return a SIGNED plain text
+      // part. Dropping the signature used to 400 the next request with
+      // "Text part is missing a thought_signature" — the signature must be
+      // stored on the TextPart and replayed onto the same text part.
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Draw a cat' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Here is your cat.', signature: 'sig-text-1' }],
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['contents']).toEqual([
+        { parts: [{ text: 'Draw a cat' }], role: 'user' },
+        {
+          parts: [{ text: 'Here is your cat.', thoughtSignature: 'sig-text-1' }],
+          role: 'model',
+        },
+      ]);
+    });
+
+    it('assistant text part without a signature replays unchanged (regression)', () => {
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Hello back' }], toolCalls: [] },
+      ];
+
+      expect(messagesToGoogleGenAIContents(messages)).toEqual([
+        { parts: [{ text: 'Hi' }], role: 'user' },
+        { parts: [{ text: 'Hello back' }], role: 'model' },
+      ]);
     });
 
     it('tool message with image_url result yields functionResponse + inline data part', () => {
@@ -1014,9 +1087,9 @@ describe('GoogleGenAIChatProvider', () => {
       const provider = new GoogleGenAIChatProvider({
         model: 'gemini-2.5-flash',
         apiKey: 'test-key',
-        baseUrl: 'https://qianxun.example/v1beta',
+        baseUrl: 'https://genai-gateway.example/v1beta',
       });
-      expect(customBaseUrl(provider)).toBe('https://qianxun.example/v1beta');
+      expect(customBaseUrl(provider)).toBe('https://genai-gateway.example/v1beta');
     });
 
     it('leaves the SDK default endpoint in place when no baseUrl is set', () => {
@@ -1031,7 +1104,7 @@ describe('GoogleGenAIChatProvider', () => {
       const provider = new GoogleGenAIChatProvider({
         model: 'gemini-2.5-flash',
         apiKey: 'test-key',
-        baseUrl: 'https://qianxun.example/v1beta',
+        baseUrl: 'https://genai-gateway.example/v1beta',
         defaultHeaders: { 'User-Agent': 'kimi-code-cli/test' },
       });
       const client = (
@@ -1044,7 +1117,7 @@ describe('GoogleGenAIChatProvider', () => {
           };
         }
       )._client;
-      expect(client.apiClient.getCustomBaseUrl()).toBe('https://qianxun.example/v1beta');
+      expect(client.apiClient.getCustomBaseUrl()).toBe('https://genai-gateway.example/v1beta');
       expect(client.apiClient.getHeaders()).toMatchObject({
         'User-Agent': 'kimi-code-cli/test',
       });
@@ -1055,9 +1128,9 @@ describe('GoogleGenAIChatProvider', () => {
         model: 'gemini-1.5-pro',
         apiKey: 'test-key',
         vertexai: true,
-        baseUrl: 'https://qianxun.example/vertex',
+        baseUrl: 'https://genai-gateway.example/vertex',
       });
-      expect(customBaseUrl(provider)).toBe('https://qianxun.example/vertex');
+      expect(customBaseUrl(provider)).toBe('https://genai-gateway.example/vertex');
     });
   });
 
@@ -1283,6 +1356,95 @@ describe('GoogleGenAIChatProvider', () => {
           extras: { thought_signature_b64: 'sig_abc123' },
         },
       ]);
+    });
+
+    it('yields a signed TextPart from a signed plain text part in the response', async () => {
+      // js-genai #1116: image-generation models emit thoughtSignature on a
+      // plain (non-thought) text part. The signature must surface on the
+      // TextPart instead of being silently dropped.
+      async function* mockStream() {
+        yield {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { text: 'Here is your cat.', thoughtSignature: 'sig-1' },
+                ],
+              },
+            },
+          ],
+        };
+      }
+
+      const msg = new GoogleGenAIStreamedMessage(mockStream(), true);
+      expect(await collectParts(msg)).toEqual([
+        { type: 'text', text: 'Here is your cat.', signature: 'sig-1' },
+      ]);
+    });
+
+    it('yields an unsigned TextPart from a plain text part without a signature (regression)', async () => {
+      async function* mockStream() {
+        yield { candidates: [{ content: { parts: [{ text: 'plain answer' }] } }] };
+      }
+
+      const msg = new GoogleGenAIStreamedMessage(mockStream(), true);
+      expect(await collectParts(msg)).toEqual([{ type: 'text', text: 'plain answer' }]);
+    });
+
+    it('round-trips a signed text part through the assembled assistant message', async () => {
+      // Parse the signed text part, replay the assembled history, and assert
+      // the signature lands back on the same text part.
+      const provider = createProvider();
+      const mockModels = (provider as any)._client.models as Record<string, unknown>;
+
+      async function* mockStream() {
+        yield {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { text: 'Answer part one.', thoughtSignature: 'sig-first' },
+                  { text: ' Part two.', thoughtSignature: 'sig-second' },
+                ],
+              },
+            },
+          ],
+        };
+      }
+
+      mockModels['generateContentStream'] = vi.fn().mockImplementation(() =>
+        Promise.resolve(mockStream()),
+      );
+
+      const stream = await provider.generate(
+        '',
+        [],
+        [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
+      );
+      const parts = await collectParts(stream);
+      expect(parts).toEqual([
+        { type: 'text', text: 'Answer part one.', signature: 'sig-first' },
+        { type: 'text', text: ' Part two.', signature: 'sig-second' },
+      ]);
+
+      const replay = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: parts as Message['content'],
+          toolCalls: [],
+        },
+      ]);
+
+      const contents = replay['contents'] as Array<{ parts: Array<Record<string, unknown>> }>;
+      expect(contents[1]!.parts[0]).toEqual({
+        text: 'Answer part one.',
+        thoughtSignature: 'sig-first',
+      });
+      expect(contents[1]!.parts[1]).toEqual({
+        text: ' Part two.',
+        thoughtSignature: 'sig-second',
+      });
     });
 
     it('accumulates usage from last chunk', async () => {
@@ -1732,6 +1894,48 @@ describe('convertGoogleGenAIError (unit)', () => {
     const result = convertGoogleGenAIError(error);
     expect(result).toBeInstanceOf(APIProviderRateLimitError);
     expect((result as APIProviderRateLimitError).statusCode).toBe(429);
+  });
+
+  it('reads the server-requested retry delay out of a 429 ApiError body', () => {
+    const error = new GoogleApiError({
+      status: 429,
+      message: `quota exceeded ${JSON.stringify({
+        error: {
+          details: [
+            { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '7.5s' },
+          ],
+        },
+      })}`,
+    });
+    const result = convertGoogleGenAIError(error);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBe(7_500);
+  });
+
+  it('leaves retryAfterMs null when the error body has no usable RetryInfo', () => {
+    const error = new GoogleApiError({ status: 429, message: 'quota exceeded' });
+    const result = convertGoogleGenAIError(error);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBeNull();
+  });
+
+  it('ignores a RetryInfo delay that cannot be used as a timer', () => {
+    const error = new GoogleApiError({
+      status: 429,
+      message: `quota exceeded ${JSON.stringify({
+        error: {
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+              retryDelay: `${'9'.repeat(310)}s`,
+            },
+          ],
+        },
+      })}`,
+    });
+    const result = convertGoogleGenAIError(error);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBeNull();
   });
 
   it('normalizes numeric context overflow errors', () => {

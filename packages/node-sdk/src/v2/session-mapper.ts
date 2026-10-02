@@ -9,7 +9,7 @@
  *   where the v1 `SessionMeta` keeps ISO strings and `workDir`.
  * Everything else is a field rename (`custom` ↔ `metadata`).
  */
-import type { AgentMeta, SessionMeta } from '@moonshot-ai/agent-core';
+import type { AgentMeta, SessionMeta } from '#/replay';
 import type {
   AgentMeta as V2AgentMeta,
   SessionMeta as V2SessionMeta,
@@ -56,6 +56,7 @@ export function v2SummaryToSessionSummary(
     archived: summary.archived,
     metadata: summary.custom as JsonObject | undefined,
     additionalDirs: facts.additionalDirs,
+    lastTurnReason: summary.lastTurnReason,
   };
 }
 
@@ -69,7 +70,7 @@ export function v2MetaToSessionMeta(meta: V2SessionMeta): SessionMeta {
     createdAt: new Date(meta.createdAt).toISOString(),
     updatedAt: new Date(meta.updatedAt).toISOString(),
     title: meta.title ?? '',
-    isCustomTitle: meta.isCustomTitle ?? false,
+    isCustomTitle: meta.titleKind === 'custom',
     lastPrompt: meta.lastPrompt,
     forkedFrom: meta.forkedFrom,
     workDir: meta.cwd,

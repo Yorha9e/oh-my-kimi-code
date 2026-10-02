@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '#/constant/app';
 import {
   StartPermissionPromptComponent,
   type StartPermissionOption,
@@ -21,18 +22,18 @@ const OPTIONS: readonly StartPermissionOption<SwarmStartPermissionChoice>[] = [
     value: 'yolo',
     label: 'Switch to YOLO and start',
     description:
-      'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
+      `Tools and plan changes are approved automatically. ${PRODUCT_NAME} may still ask you questions.`,
   },
   {
     value: 'manual',
     label: 'Start in Manual',
     description:
-      'Keep approvals on. Kimi Code may stop and wait for you during the swarm task.',
+      `Keep approvals on. ${PRODUCT_NAME} may stop and wait for you during the swarm task.`,
   },
 ];
 
 const NOTICE_LINES = [
-  'Manual mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
+  `Manual mode asks you before ${PRODUCT_NAME} runs commands, edits files, or takes other risky actions.`,
   'Manual mode can block swarm work while agents are running.',
   'You can go back without losing your command.',
 ] as const;

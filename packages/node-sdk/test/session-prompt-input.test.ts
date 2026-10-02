@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CoreAPI, RPCMethods } from '@moonshot-ai/agent-core';
 
 import { SDKRpcClientBase } from '../src/rpc';
 import { Session } from '../src/session';
@@ -31,7 +30,7 @@ class CapturingRpc extends SDKRpcClientBase {
     });
   }
 
-  protected async getRpc(): Promise<RPCMethods<CoreAPI>> {
+  protected async getRpc(): Promise<any> {
     this.getRpcCallCount += 1;
     for (const waiter of this.getRpcWaiters) waiter();
     if (this.getRpcDelay !== undefined) await this.getRpcDelay;
@@ -56,7 +55,7 @@ class CapturingRpc extends SDKRpcClientBase {
       clearPlan: async (input: unknown) => {
         this.clearPlanCalls.push(input);
       },
-    } as unknown as RPCMethods<CoreAPI>;
+    };
   }
 }
 
@@ -80,6 +79,37 @@ describe('Session.prompt input normalization', () => {
       sessionId: 'ses_multimodal_prompt',
       input,
     });
+  });
+
+  it('forwards a caller-chosen promptId to the core RPC client', async () => {
+    const prompt = vi.fn(async () => {});
+    const session = new Session({
+      id: 'ses_prompt_id',
+      workDir: '/tmp/work',
+      rpc: { prompt } as unknown as SDKRpcClientBase,
+    });
+
+    await session.prompt('hello', { promptId: 'sub-1' });
+
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'ses_prompt_id',
+      input: [{ type: 'text', text: 'hello' }],
+      promptId: 'sub-1',
+    });
+  });
+
+  it('rejects an empty caller-chosen promptId before calling RPC', async () => {
+    const prompt = vi.fn(async () => {});
+    const session = new Session({
+      id: 'ses_prompt_id',
+      workDir: '/tmp/work',
+      rpc: { prompt } as unknown as SDKRpcClientBase,
+    });
+
+    await expect(session.prompt('hello', { promptId: '' })).rejects.toThrow(
+      'promptId must not be empty',
+    );
+    expect(prompt).not.toHaveBeenCalled();
   });
 
   it('starts btw and returns the forked agent id', async () => {

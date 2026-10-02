@@ -592,6 +592,7 @@ export function applyManagedKimiCodeConfig(
     baseUrl,
     apiKey: '',
     oauth,
+    modelSource: 'oauth-catalog',
   };
 
   // Selectively merge upstream models into the existing config so any fields

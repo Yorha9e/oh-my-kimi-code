@@ -20,13 +20,14 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
+import { PRODUCT_NAME } from '#/constant/app';
 import { currentTheme } from '#/tui/theme';
 
 export type FeedbackInputDialogResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
 
-const TITLE = 'Send feedback to Kimi Code';
+const TITLE = `Send feedback to ${PRODUCT_NAME}`;
 const SUBTITLE_DEFAULT = "Tell us what's working or what's not.";
 const SUBTITLE_EMPTY = 'Feedback cannot be empty.';
 const FOOTER = 'Enter to submit  ·  Esc to cancel';

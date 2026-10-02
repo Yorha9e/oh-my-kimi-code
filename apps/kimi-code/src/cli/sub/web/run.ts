@@ -16,7 +16,7 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command } from 'commander';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
+import { CLI_COMMAND_NAME, CLI_SHUTDOWN_TIMEOUT_MS, PRODUCT_NAME, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
@@ -149,6 +149,10 @@ export function buildWebCommand(cmd: Command): Command {
       'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
       false,
     )
+    .option(
+      '--web-title <title>',
+      `Set a custom browser tab title for this web UI instance (default: "<workspace dir> | ${PRODUCT_NAME}").`,
+    )
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
       try {
@@ -200,7 +204,7 @@ function formatReadyLine(
   const notice = dangerousBypassAuth
     ? `${formatDangerNoticeLines().join('\n')}\n`
     : '';
-  return `${notice}Kimi server: ${buildOpenableUrl(origin, token)}\n`;
+  return `${notice}${CLI_COMMAND_NAME} server: ${buildOpenableUrl(origin, token)}\n`;
 }
 
 /**
@@ -295,6 +299,7 @@ async function runServerInProcess(
     allowRemoteTerminals: options.allowRemoteTerminals,
     allowedHosts: options.allowedHosts,
     disableAuth: options.dangerousBypassAuth,
+    webTitle: options.webTitle,
     // Attach the engine's cloud telemetry appender (still gated by the config
     // `telemetry` toggle). Complements the v1 client registered above, which
     // only covers host-level events.
@@ -330,7 +335,7 @@ async function runServerInProcess(
  * Resolve the web assets directory passed to kap-server. In dev mode
  * (`KIMI_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
  * scripts) a missing `dist-web` build is tolerated: the server starts API-only
- * and the web UI is expected to come from the kimi-web Vite dev server.
+ * and the web UI is expected to come from a Vite dev server (the web UI source lives in the code-app repo).
  * Outside dev mode the directory is always returned and kap-server keeps
  * failing fast when the assets are missing.
  */
@@ -384,7 +389,7 @@ export function formatReadyBanner(
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
   const lines: string[] = [
     '',
-    `  ${primary(logo[0])}  ${title('Kimi server ready')}  ${dim(getVersion())}`,
+    `  ${primary(logo[0])}  ${title(`${CLI_COMMAND_NAME} server ready`)}  ${dim(getVersion())}`,
     `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
     '',
   ];

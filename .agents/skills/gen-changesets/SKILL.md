@@ -13,6 +13,8 @@ All other `@moonshot-ai/*` packages are treated as internal packages, including 
 
 `@moonshot-ai/pi-tui` is a special internal package: it is a private fork (`private: true`) that is never published, but it keeps its own changelog through changesets. It is an exception to Core Rule 4 — see the dedicated section below.
 
+Only the CLI changelog gets a curated, user-facing presentation (the docs-site changelog sync). The SDK and other internal package changelogs are raw changesets output kept for version history — nobody curates them, so write those entries honestly and technically; their wording does not need to suit end users.
+
 ## Core Rules
 
 1. **Inspect the actual changes first.** Use `git status` / `git diff --name-only` to identify which packages were actually changed.
@@ -23,7 +25,7 @@ All other `@moonshot-ai/*` packages are treated as internal packages, including 
 5. **Docs-only and tests-only changes usually do not need a changeset.** README, internal docs, and `test/` changes that do not enter package output do not trigger a CLI bump.
 6. **Skip changes users cannot perceive — write no changeset at all.** The CLI changelog is user-facing; a changeset is a changelog entry, not a shipping gate. Internal changes merged to `main` still ship in the next release triggered by any user-facing changeset, so skipping the changeset loses nothing. Do not write changesets for:
    - `agent-core-v2` internal architecture: new services, refactors, config-persistence or journal/wire mechanisms.
-   - `kap-server` WebSocket / REST protocol changes consumed only by the bundled web UI, kimi-inspect, or other dev tooling (new endpoints, subscribe protocols, stream baselines). A web-facing feature they back gets its own `web:` entry instead.
+   - `kap-server` WebSocket / REST protocol changes consumed only by the bundled web UI, kimi-inspect, or other dev tooling (new endpoints, subscribe protocols, stream baselines).
    - Behavior that only takes effect on the experimental engine (e.g. experimental `kimi -p`), unless it exposes documented user configuration such as a `config.toml` section or env vars that also work on a shipped surface (TUI or `kimi web`).
    - When unsure whether users can perceive a change, ask before writing.
 7. `@moonshot-ai/vis` / `vis-server` / `vis-web` are ignored by changesets and should not be handled. `@moonshot-ai/kimi-inspect` (a private dev app that never ships) is likewise ignored and must never appear in a changeset frontmatter.

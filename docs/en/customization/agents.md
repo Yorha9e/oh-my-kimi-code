@@ -12,7 +12,7 @@ Kimi Code CLI includes three built-in sub-agents, ready to use out of the box, e
 - **`explore`**: Dedicated to codebase exploration; performs read-only operations only and does not modify any files. Ideal for quickly searching, reading, and summarizing a repository without touching files.
 - **`plan`**: Dedicated to implementation planning and architecture design; even shell commands are not available, keeping the focus on "figuring out how to do something" rather than "actually doing it."
 
-A `coder` sub-agent shares most of the main Agent's tool set: it can run shell commands in the background, maintain todo lists, enter Plan mode, invoke Agent Skills, and dispatch its own nested sub-agents when a task decomposes naturally. If it finishes its turn while background tasks are still running, its run only reports completion after those tasks settle, so the parent receives the result after the underlying work has actually finished.
+A `coder` sub-agent shares most of the main Agent's tool set: it can run shell commands in the background, maintain todo lists, enter Plan mode, and invoke Agent Skills. Built-in sub-agents cannot dispatch further sub-agents. By default a custom agent inherits the built-in delegation allowlist (`coder`, `explore`, `plan`), whose members cannot dispatch further either, so delegation chains always terminate — unbounded recursive spawning is impossible without an explicit opt-in. A custom agent can opt into deeper chains by declaring an explicit [`subagents`](#agent-file-format) allowlist. If a sub-agent finishes its turn while background tasks are still running, its run only reports completion after those tasks settle, so the parent receives the result after the underlying work has actually finished.
 
 ## Custom Sub-Agents
 
@@ -78,7 +78,7 @@ thinking_effort = "high"
 
 The first time an unbound sub-agent type is spawned in a workspace, you are asked once whether to bind a model (answering "keep inheriting" is remembered too). Afterwards the binding is applied mechanically to every new sub-agent of that type spawned through the `Agent` tool — the calling Agent cannot see or override it. (`AgentSwarm` batches do not read bindings yet; swarm-wide model routing is future work.) Manage bindings anytime with the `/subagent-model` command (`list` / `set <type>` / `clear <type>`). Precedence: workspace binding > profile binding (for profiles shipped with the app) > inherit the calling Agent's current model and effort.
 
-Bound values are fixed at spawn: resuming a sub-agent always keeps the model and effort it was configured with, mid-conversation switches are not possible, and both are restored after a session restart. Resume validates the sub-agent's frozen alias strictly and fails with a configuration error when it no longer resolves. The workspace binding's alias is likewise validated against your models configuration before each spawn — if it no longer resolves (for example after being removed from `config.toml`), interactive environments re-ask the binding question with the reason stated and persist your new choice as the repair; non-interactive environments (such as `kimi -p`) inherit the main agent's model with an explicit warning in the tool result, until you update or clear the binding.
+Bound values are fixed at spawn: resuming a sub-agent always keeps the model and effort it was configured with, mid-conversation switches are not possible, and both are restored after a session restart. Resume validates the sub-agent's frozen alias strictly and fails with a configuration error when it no longer resolves. The workspace binding's alias is likewise validated against your models configuration before each spawn — if it no longer resolves (for example after being removed from `config.toml`), interactive environments re-ask the binding question with the reason stated and persist your new choice as the repair; non-interactive environments (such as `omkc -p`) inherit the main agent's model with an explicit warning in the tool result, until you update or clear the binding.
 
 ## Context Isolation and Resource Cost
 
@@ -139,7 +139,6 @@ name: reviewer
 description: Strict code reviewer that reports severity-ranked findings
 whenToUse: Code reviews and PR checks
 override: false
-model_preference: primary
 tools:
   - Read
   - Grep
@@ -158,18 +157,15 @@ You are a strict code reviewer. Read the diff, then report findings grouped by s
 | `description` | no | What the agent does. Shown to the main Agent when it picks a sub-agent, so write it to guide delegation decisions; defaults to the first non-empty body line (up to 240 characters) |
 | `whenToUse` | no | Extra hint describing when the agent should be used |
 | `override` | no | Whether this file may replace a same-name built-in Agent. Defaults to `false`; `--agent-file` is already explicit and does not require this field |
-| `model_preference` | no | Symbolic default used when `Agent` or `AgentSwarm` spawns this profile: `primary` selects the caller's main model, while `secondary` selects `[secondary_model] model`. An explicit tool-call `model` wins; without either setting, the configured secondary model remains the default. If no secondary model is configured, the subagent inherits the caller's model |
 | `tools` | no | Allowlist of tool names such as `Read` or `Bash`; MCP tools are matched with globs such as `mcp__github__*`. Accepts a YAML list or a comma-separated string (`tools: Read, Grep`). Omit to allow all tools; a lone `*` also allows all tools; an empty list (`tools: []`) disables all tools |
 | `disallowedTools` | no | Denylist with the same syntax and matching rules, applied after `tools` |
-| `subagents` | no | Allowlist of sub-agent names this agent may delegate to, with the same syntax as `tools` (YAML list or comma-separated string). Omit to allow every type; a lone `*` also allows all types |
+| `subagents` | no | Allowlist of sub-agent names this agent may delegate to, with the same syntax as `tools` (YAML list or comma-separated string). Omit to inherit the default agent's allowlist (built-in default: `coder`, `explore`, `plan`, whose members cannot delegate further, so inherited chains always terminate); a lone `*` allows every type. The main agent's effective allowlist additionally includes every discovered custom agent, so custom agents stay delegatable by default |
 
 Built-in and user tools match by exact, case-sensitive name; entries starting with `mcp__` match MCP tools as globs. Three entry shapes never match anything and are reported with a warning when the profile takes effect: a wildcard outside an `mcp__` pattern (a bare `*` in `disallowedTools` disables nothing), an `mcp__` literal that is not a full `mcp__<server>__<tool>` name (`mcp__github` matches nothing — use `mcp__github__*` for the whole server), and a name no registered or built-in tool has (usually a typo, such as `read` instead of `Read`).
 
 The body is the agent's system prompt, and it is rendered as a template each time the prompt is built: `${var}` placeholders substitute live context values — unknown variables stay verbatim, a bare `$` is never special, and a variable with no context value renders as an empty string. `${base_prompt}` embeds the effective default system prompt (the built-in default, or your `SYSTEM.md` override when present), so a file can wrap the default behavior instead of replacing it. If the file replaces the default prompt but should still honor instructions contributed by enabled plugins, place `${plugin_sections}` where those instructions should appear. The available variables are listed in the SYSTEM.md section below.
 
 Unknown fields are ignored, so newer files stay readable by older versions. Fields from other agent tools (such as Claude Code's `model` or OpenCode's `mode`) are ignored the same way, the comma-separated `tools` form keeps Claude Code-style agent files loadable, and a missing `name` falls back to the file name so OpenCode-style files load too — a minimal file with `description` and a body works across tools.
-
-`model_preference` applies only to newly spawned subagents when the secondary-model experiment is enabled — set `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`, or the master `KIMI_CODE_EXPERIMENTAL_FLAG=1`. It takes effect in every launch mode, including the interactive TUI. The field never names a concrete model alias, and resumed subagents keep their existing model. The selected preference is shown to the main agent alongside the profile description so it can still pass an explicit `model` when a task needs a different choice.
 
 A file with invalid content discovered in a directory is skipped with a warning and does not affect other files. A file passed explicitly via `--agent-file` must be valid — otherwise the CLI reports the error and exits.
 
@@ -181,7 +177,7 @@ Custom agents delegated as sub-agents run without the built-in sub-agent framing
 
 ### Selecting the Main Agent
 
-Two CLI flags select which agent drives a new session, in both print mode (`kimi -p`) and the interactive TUI:
+Two CLI flags select which agent drives a new session, in both print mode (`omkc -p`) and the interactive TUI:
 
 - **`--agent <name>`**: Start the session with the named agent as the main Agent. The name can refer to a built-in agent or to any discovered file; an unknown name fails with an error listing the available agents.
 - **`--agent-file <path>`**: Load one agent file at the highest priority for this launch and start with it. The flag accepts exactly one file: it cannot be repeated, and it cannot be combined with `--agent`.

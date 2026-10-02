@@ -2,6 +2,41 @@
 
 本文件记录 [oh-my-kimi-code](https://github.com/Yorha9e/oh-my-kimi-code) 社区版（呼出命令 `omkc`）相对上游 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 新增的变更。按版本倒序排列。
 
+## 2.0.0
+
+_2026-10-01 · 第三方 harness：默认不再绑官方遥测 / 强刷 catalog；WebSearch 可插拔。未打 git tag（避免触发 Release Native）。_
+
+呼出命令仍是 `omkc`，数据目录 `~/.omkc`。引擎只剩 v2。官方 OAuth **当模型渠道留下**（`/login` 仍可用），不再当作运行时硬依赖。
+
+### 官方耦合（默认行为）
+
+- **遥测 opt-in**：只有 `telemetry = true` 才上报官方日志。缺省关闭。
+- **不再强刷 OAuth catalog**：启动和 `/model` 在没有缓存官方 token 时不刷新官方模型目录；第三方 API key 渠道不再弹出 refresh-key / login-required。
+- **`type = "kimi"` 不再写死 `oauth-catalog`**：有 `api_key` 当普通渠道；只有 `/login` 写入的 provider 才带 `modelSource: "oauth-catalog"`。
+
+### WebSearch
+
+- 新节 `[services.web_search]`，`type = moonshot | stepfun | tavily`。没配任何 provider 则工具不出现。
+- 解析顺序：`web_search` → 旧 `moonshot_search` → 官方 OAuth。同一时刻只用一家。
+- StepFun / Tavily 用各自 API key，不需要 Kimi `/login`。环境变量：`KIMI_WEB_SEARCH_TYPE`、`STEPFUN_API_KEY`、`TAVILY_API_KEY`。`KIMI_WEB_SEARCH_BASE_URL` 仍只改 Moonshot 端点。
+- `n`（1–20）是结果条数；StepFun 的 `category` 可选（`programming` / `research` / `gov` / `business`）。
+
+### 官方插件
+
+- **Kimi Datasource** 从默认 marketplace 隐藏。仓库里 MCP 接口未改，仍要官方 `/login`；已安装的还能用。
+- **WebBridge / Computer Use** 仍可选。运行时不吃 Kimi OAuth；安装和更新走官方 CDN。本机已有 WebBridge daemon（`127.0.0.1:10086`）时 skill 能用。社区不重新实现「真浏览器登录态」。
+
+### 配置示例
+
+```toml
+telemetry = false
+
+[services.web_search]
+type = "stepfun"
+api_key = "YOUR_API_KEY"
+n = 10
+```
+
 ## 0.31.1-omkc.3
 
 _2026-08-02 · 修正全局子代理 Profile 的绑定作用域。_

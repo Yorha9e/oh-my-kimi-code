@@ -215,7 +215,10 @@ export function isRetryableGenerateError(error: unknown): boolean {
     return true;
   }
   if (error instanceof APIEmptyResponseError) {
-    return true;
+    // A filtered response is deterministic: replaying the same request just
+    // re-triggers the provider's safety filter, so fail fast and surface the
+    // filter notice instead of burning the whole step-retry budget.
+    return error.finishReason !== 'filtered';
   }
   if (error instanceof APIStatusError) {
     // Quota/balance exhaustion is a 429 but deterministic until the account
@@ -572,6 +575,15 @@ const STRUCTURAL_REQUEST_MESSAGE_PATTERNS = [
   // response left an assistant message holding only an empty thinking part in
   // the history; the strict resend's projection drops such vacuous messages.
   /message at position \d+ with role ['"`]?[a-z]+['"`]? must not be empty/,
+  // Google GenAI (js-genai #1116): a replayed history text part that lost its
+  // `thoughtSignature` is rejected with "Text part is missing a
+  // thought_signature" (variants name an "invalid" signature likewise). The
+  // strict resend's projection does not strip signatures, so this only
+  // recovers when the model itself returned the signature and the adapter
+  // mislaid it — a model that never issued a signature cannot be saved here.
+  /thought_signature/,
+  // Same family in the space-separated phrasing some backends use.
+  /thought signature/,
 ] as const;
 
 export function isRecoverableRequestStructureError(error: unknown): boolean {

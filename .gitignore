@@ -1,8 +1,9 @@
 node_modules/
 dist/
-dist-web/
 dist-single/
 dist-native/
+dist-web/
+*.tgz
 .tmp-api-extractor/
 .contract-types-tmp/
 .local/
@@ -35,6 +36,8 @@ reports/
 
 # Agent scratch / throwaway files - do not commit
 .tmp/
+graphify-blocks/
+graphify-out/
 HANDOVER*.md
 HANDOFF*.md
 handoff.md

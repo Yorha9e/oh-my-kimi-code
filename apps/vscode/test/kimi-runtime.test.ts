@@ -20,10 +20,26 @@ import type {
   SessionSummary,
   ThinkingEffort,
 } from "@moonshot-ai/kimi-code-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { Events } from "../shared/bridge";
 import { KimiRuntime, type OpenSessionOptions } from "../src/runtime/kimi-runtime";
+
+const sdkFactories = vi.hoisted(() => {
+  const harness = { homeDir: "/tmp/kimi-runtime-home", close: vi.fn(async () => undefined) };
+  return {
+    harness,
+    createKimiHarness: vi.fn(() => harness),
+  };
+});
+
+vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
+  return {
+    ...original,
+    createKimiHarness: sdkFactories.createKimiHarness,
+  };
+});
 
 interface FakeSessionBoundary {
   readonly session: Session;
@@ -246,6 +262,28 @@ function createRuntime(
 }
 
 describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
+  it("creates the harness when none is injected", async () => {
+    const defaults = new KimiRuntime({
+      version: "0.6.0",
+      broadcast: () => undefined,
+      captureBaseline: () => undefined,
+      log: () => undefined,
+    });
+    expect(sdkFactories.createKimiHarness).toHaveBeenCalledOnce();
+    expect(sdkFactories.createKimiHarness).toHaveBeenCalledWith({
+      homeDir: undefined,
+      identity: {
+        productName: "kimi-code-vscode",
+        version: "0.6.0",
+        platform: "kimi_code_vscode",
+      },
+      uiMode: "vscode",
+    });
+    expect(defaults.harness).toBe(sdkFactories.harness as unknown as KimiHarness);
+    await defaults.dispose();
+
+  });
+
   it("forwards the requested settings when creating an SDK session", async () => {
     const { runtime, sdk } = createRuntime();
 

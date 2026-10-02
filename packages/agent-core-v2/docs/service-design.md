@@ -37,14 +37,14 @@ Every principle below derives from two root questions:
 
 **First principle: Scope = the identity + lifetime of the owned state.**
 
-`App` / `Workspace` / `Session` / `Agent` are four tiers of identity + lifetime:
+`App` / `Session` / `Agent` are the three DI tiers of identity + lifetime. Workspace-shared state is a `Program` generation (not a `LifecycleScope`):
 
 | Scope | State identity (keyed by) | Lifetime |
 |---|---|---|
 | `App` | none (single global instance) | the process |
-| `Workspace` | `workspaceId` | one workspace handler (materialized once per workspace, never closed — dies with the process) |
 | `Session` | `sessionId` | one session |
 | `Agent` | `agentId` | one agent |
+| Program generation (not a DI scope) | `workspaceId` | one workspace instance's current runtime generation |
 
 ### Decision tree
 
@@ -56,7 +56,7 @@ Every principle below derives from two root questions:
 **Q2. What is the identity of that state?**
 
 - one global instance → **`App`**
-- one per workspace (shared by every session of that workspace) → **`Workspace`**
+- one per workspace (shared by every session of that workspace) → **Program generation** via `registerProgramGenerationModule` (not `LifecycleScope`)
 - one per session → **`Session`**
 - one per agent → **`Agent`**
 - a mix (a global registry *and* per-instance state) → **do not put it in one Service;

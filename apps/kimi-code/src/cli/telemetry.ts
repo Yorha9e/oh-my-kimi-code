@@ -17,6 +17,7 @@ import {
 } from '@moonshot-ai/kimi-telemetry';
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
+import { currentKimiProfile } from '#/utils/region';
 
 import { createKimiCodeHostIdentity } from './version';
 
@@ -51,12 +52,13 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
   initializeTelemetry({
     homeDir: options.harness.homeDir,
     deviceId: options.bootstrap.deviceId,
-    enabled: options.config.telemetry !== false,
+    enabled: options.config.telemetry === true,
     appName: CLI_USER_AGENT_PRODUCT,
     version: options.version,
     uiMode: options.uiMode,
     model: options.model ?? options.config.defaultModel,
     sessionId: options.sessionId,
+    endpoint: () => currentKimiProfile().telemetryEndpoint,
     getAccessToken: async () =>
       (await options.harness.auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
@@ -100,11 +102,12 @@ export function initializeServerTelemetry(
   initializeTelemetry({
     homeDir: bootstrap.homeDir,
     deviceId: bootstrap.deviceId,
-    enabled: config.telemetry !== false,
+    enabled: config.telemetry === true,
     appName: CLI_USER_AGENT_PRODUCT,
     version: options.version,
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
+    endpoint: () => currentKimiProfile().telemetryEndpoint,
     getAccessToken: async () => (await auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
 
